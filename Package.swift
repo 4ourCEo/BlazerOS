@@ -1,0 +1,50 @@
+// swift-tools-version: 6.0
+import PackageDescription
+
+let package = Package(
+    name: "BlazerCore",
+    platforms: [
+        .macOS(.v14),
+        .iOS(.v17),
+    ],
+    products: [
+        .library(name: "BlazerCore", targets: ["BlazerCore"]),
+        .library(name: "LightningDesk", targets: ["LightningDesk"]),
+        .executable(name: "BlazerOS", targets: ["BlazerOS"]),
+    ],
+    targets: [
+        .target(
+            name: "BlazerCore",
+            resources: [
+                .copy("scan-engine.js"),
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+            ]
+        ),
+        .executableTarget(
+            name: "Parity",
+            dependencies: ["BlazerCore"],
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+            ]
+        ),
+        .target(
+            name: "LightningDesk",
+            dependencies: ["BlazerCore"],
+            resources: [
+                .copy("BlazerMark.png"),
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+            ]
+        ),
+        .executableTarget(
+            name: "BlazerOS",
+            dependencies: ["LightningDesk"],
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+            ]
+        ),
+    ]
+)
