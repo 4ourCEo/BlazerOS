@@ -18,6 +18,8 @@ public enum ScanError: LocalizedError {
 public enum StrategyEngine {
     private static let lock = NSLock()
     private static let jsQueue = DispatchQueue(label: "com.blazer.core.scan-bridge", qos: .userInitiated)
+    private static let encoder = JSONEncoder()
+    private static let decoder = JSONDecoder()
     nonisolated(unsafe) private static var context: JSContext?
     nonisolated(unsafe) private static var loadError: String?
     /// Exact JS exception for diagnostics only — desk why stays "SCAN ENGINE OFFLINE".
@@ -230,19 +232,7 @@ public enum StrategyEngine {
         bid: Double,
         ask: Double
     ) -> SlippageGateResult? {
-        struct Body: Encodable {
-            var asset: String
-            var side: String
-            var strike: Double
-            var bid: Double
-            var ask: Double
-        }
-        let raw: String
-        do {
-            raw = try encode(Body(asset: asset, side: side, strike: strike, bid: bid, ask: ask))
-        } catch {
-            return nil
-        }
+        let raw = "{\"asset\":\"\(asset)\",\"side\":\"\(side)\",\"strike\":\(strike),\"bid\":\(bid),\"ask\":\(ask)}"
         lock.lock()
         defer { lock.unlock() }
         ensureLoadedLocked()
@@ -260,7 +250,7 @@ public enum StrategyEngine {
             !value.isNull,
             context.exception == nil,
             let data = json.data(using: .utf8),
-            let parsed = try? JSONDecoder().decode(SlippageGateResult.self, from: data)
+            let parsed = try? decoder.decode(SlippageGateResult.self, from: data)
         else {
             context.exception = nil
             return nil
@@ -436,7 +426,7 @@ public enum StrategyEngine {
     }
 
     private static func encode<T: Encodable>(_ value: T) throws -> String {
-        let data = try JSONEncoder().encode(value)
+        let data = try encoder.encode(value)
         guard let raw = String(data: data, encoding: .utf8) else {
             throw ScanError.failed("Could not encode scan payload")
         }
@@ -452,7 +442,7 @@ public enum StrategyEngine {
             throw ScanError.failed("SCAN ENGINE OFFLINE")
         }
         do {
-            return try JSONDecoder().decode(type, from: data)
+            return try decoder.decode(type, from: data)
         } catch {
             lock.lock()
             lastJsException = error.localizedDescription

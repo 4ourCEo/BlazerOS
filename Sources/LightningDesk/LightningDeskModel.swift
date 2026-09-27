@@ -56,6 +56,10 @@ public final class LightningDeskModel: ObservableObject {
 
     /// Per-asset cache of completed candles so switching pairs never shows a blank chart.
     private var candlesByAsset: [String: [Candle]] = [:]
+    /// Timestamp when candles were last fetched per asset.
+    private var candlesFetchedAt: [String: Date] = [:]
+    /// In-flight candle fetch tasks per asset to deduplicate concurrent requests.
+    private var inFlightCandleTasks: [String: Task<[Candle], Never>] = [:]
     /// Per-asset cache of the last committed scan for that pair.
     private var commitsByAsset: [String: ScanCommit] = [:]
     /// Per-asset cache of the cabinet side for that pair.
@@ -70,6 +74,9 @@ public final class LightningDeskModel: ObservableObject {
         // Restore cached bars immediately so chart is never blank
         if let cached = candlesByAsset[next], !cached.isEmpty {
             candles = cached
+            if let fetchedAt = candlesFetchedAt[next], Date().timeIntervalSince(fetchedAt) >= 45 {
+                Task { await loadCandles(for: next, force: true) }
+            }
         } else {
             candles = []
             Task { await loadCandles(for: next) }
@@ -99,12 +106,36 @@ public final class LightningDeskModel: ObservableObject {
         book.first(where: { $0.asset == asset })?.side ?? cabinetSideByAsset[asset]
     }
 
-    /// Fetches recent completed M1 candles from OANDA so switching to an un-scanned pair is never blank.
-    public func loadCandles(for asset: String) async {
-        guard let session = await loadSession(allowPrompt: false) else { return }
-        let bars = await OandaClient.fetchCandles(asset: asset, session: session, granularity: "M1", count: 80)
+    /// Fetches recent completed M1 candles from OANDA with in-flight deduplication and TTL caching.
+    public func loadCandles(for asset: String, force: Bool = false) async {
+        if !force, let cached = candlesByAsset[asset], !cached.isEmpty,
+           let fetchedAt = candlesFetchedAt[asset], Date().timeIntervalSince(fetchedAt) < 45 {
+            if pair == asset {
+                candles = cached
+            }
+            return
+        }
+
+        if let existing = inFlightCandleTasks[asset] {
+            let bars = await existing.value
+            if !bars.isEmpty && pair == asset {
+                candles = bars
+            }
+            return
+        }
+
+        let task = Task<[Candle], Never> { @MainActor [weak self] in
+            guard let self, let session = await self.loadSession(allowPrompt: false) else { return [] }
+            return await OandaClient.fetchCandles(asset: asset, session: session, granularity: "M1", count: 80)
+        }
+        inFlightCandleTasks[asset] = task
+
+        let bars = await task.value
+        inFlightCandleTasks.removeValue(forKey: asset)
+
         guard !bars.isEmpty else { return }
         candlesByAsset[asset] = bars
+        candlesFetchedAt[asset] = Date()
         if pair == asset {
             candles = bars
         }
@@ -184,6 +215,7 @@ public final class LightningDeskModel: ObservableObject {
                     let bars = envelope.snapshotBars ?? envelope.candles ?? []
                     barsByAsset[asset] = bars
                     candlesByAsset[asset] = bars
+                    candlesFetchedAt[asset] = Date()
                     cabinetSideByAsset[asset] = signal.cabinetSide
                     let assetCommit = ScanKernel.commit(from: signal, bars: bars, scannedAt: started)
                     commitsByAsset[asset] = assetCommit
@@ -221,6 +253,7 @@ public final class LightningDeskModel: ObservableObject {
         cabinetSide = side
         candles = bars
         candlesByAsset[picked.asset] = bars
+        candlesFetchedAt[picked.asset] = Date()
         commitsByAsset[picked.asset] = next
         cabinetSideByAsset[picked.asset] = side
         expired = false

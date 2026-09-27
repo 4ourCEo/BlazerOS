@@ -89,6 +89,7 @@ public actor OandaRateLimit {
 /// Native OANDA REST v20 pricing. Token + account come from the caller. Never print the token.
 public enum OandaClient {
     nonisolated(unsafe) private static var loggedProof = false
+    private static let decoder = JSONDecoder()
     private static let instrumentMap: [String: String] = [
         "EUR/USD": "EUR_USD",
         "GBP/USD": "GBP_USD",
@@ -198,7 +199,7 @@ public enum OandaClient {
             guard http.statusCode < 400 else {
                 return OandaQuoteBatch(quotes: [], transport: .network)
             }
-            let decoded = try JSONDecoder().decode(PricingResponse.self, from: data)
+            let decoded = try decoder.decode(PricingResponse.self, from: data)
             var out: [LiveQuote] = []
             for asset in assets {
                 guard let instrument = instrument(for: asset) else { continue }
@@ -337,7 +338,7 @@ public enum OandaClient {
                 NSLog("BlazerCore fetchCandles HTTP %d for %@: %@", http.statusCode, asset, String(data: data, encoding: .utf8) ?? "")
                 return CandleFetch(candles: [], transport: .network)
             }
-            let decoded = try JSONDecoder().decode(CandlesResponse.self, from: data)
+            let decoded = try decoder.decode(CandlesResponse.self, from: data)
             var out: [Candle] = []
             var seenTimes = Set<Double>()
             for row in decoded.candles ?? [] {
@@ -438,22 +439,33 @@ public enum OandaClient {
     }
 }
 
+private let oandaFormatLock = NSLock()
+nonisolated(unsafe) private let oandaFractionalFormatter: ISO8601DateFormatter = {
+    let f = ISO8601DateFormatter()
+    f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return f
+}()
+nonisolated(unsafe) private let oandaPlainFormatter: ISO8601DateFormatter = {
+    let f = ISO8601DateFormatter()
+    f.formatOptions = [.withInternetDateTime]
+    return f
+}()
+
 func parseOandaTimeMs(_ raw: String) -> Double? {
-    let fractional = ISO8601DateFormatter()
-    fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    let plain = ISO8601DateFormatter()
-    plain.formatOptions = [.withInternetDateTime]
-    for formatter in [fractional, plain] {
-        if let date = formatter.date(from: raw) {
-            return date.timeIntervalSince1970 * 1000
-        }
+    oandaFormatLock.lock()
+    defer { oandaFormatLock.unlock() }
+    if let date = oandaFractionalFormatter.date(from: raw) {
+        return date.timeIntervalSince1970 * 1000
+    }
+    if let date = oandaPlainFormatter.date(from: raw) {
+        return date.timeIntervalSince1970 * 1000
     }
     if let dot = raw.firstIndex(of: "."), let z = raw.lastIndex(of: "Z") {
         let head = String(raw[..<dot])
         let frac = String(raw[raw.index(after: dot)..<z])
         let ms = String(frac.prefix(3)).padding(toLength: 3, withPad: "0", startingAt: 0)
         let trimmed = "\(head).\(ms)Z"
-        if let date = fractional.date(from: trimmed) {
+        if let date = oandaFractionalFormatter.date(from: trimmed) {
             return date.timeIntervalSince1970 * 1000
         }
     }

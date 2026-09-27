@@ -83,6 +83,7 @@ public struct LightningDeskView: View {
         VStack(alignment: .leading, spacing: 18) {
             pairRow
             MiniCandleChart(candles: model.candles)
+                .equatable()
                 .frame(height: 148)
                 .frame(maxWidth: .infinity)
             verdict
@@ -244,55 +245,14 @@ public struct LightningDeskView: View {
     }
 
     private var bookStrip: some View {
-        let columns = [
-            GridItem(.flexible(), alignment: .leading),
-            GridItem(.flexible(), alignment: .leading),
-            GridItem(.flexible(), alignment: .leading),
-        ]
-        return LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
-            ForEach(model.book) { row in
-                Button {
-                    model.select(pair: row.asset)
-                } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(row.asset)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(row.asset == model.pair ? DeskInk.ink : DeskInk.slate)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                        Text(row.side)
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(bookInk(row.side))
-                            .lineLimit(1)
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        row.asset == model.pair
-                            ? Color.white.opacity(0.08)
-                            : Color.clear,
-                        in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    )
-                }
-                .buttonStyle(.plain)
+        BookStripView(
+            book: model.book,
+            selectedPair: model.pair,
+            onSelect: { asset in
+                model.select(pair: asset)
             }
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(model.book.map { "\($0.asset) \($0.side)" }.joined(separator: ", "))
-    }
-
-    private func bookInk(_ side: String) -> Color {
-        switch side {
-        case "HIGH":
-            return DeskInk.emerald
-        case "LOW":
-            return DeskInk.coral
-        case "WAIT", "—":
-            return DeskInk.slate
-        default:
-            return DeskInk.slate
-        }
+        )
+        .equatable()
     }
 
     private var rail: some View {
@@ -629,6 +589,7 @@ private struct ReplayCover: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(DeskInk.slate)
                 MiniCandleChart(candles: entry.candles)
+                    .equatable()
                     .frame(height: 160)
                     .frame(maxWidth: .infinity)
                 Text("\(entry.score)")
@@ -683,6 +644,19 @@ private func verbInk(_ verb: String) -> Color {
     case "MISS":
         return DeskInk.coral
     case "EXPIRED", "WAIT", "SCAN":
+        return DeskInk.slate
+    default:
+        return DeskInk.slate
+    }
+}
+
+private func bookInk(_ side: String) -> Color {
+    switch side {
+    case "HIGH":
+        return DeskInk.emerald
+    case "LOW":
+        return DeskInk.coral
+    case "WAIT", "—":
         return DeskInk.slate
     default:
         return DeskInk.slate
@@ -756,8 +730,71 @@ private struct CandleCanvas: View {
     }
 }
 
-private struct MiniCandleChart: View {
+private struct BookStripView: View, Equatable {
+    let book: [BookRow]
+    let selectedPair: String
+    let onSelect: (String) -> Void
+
+    static nonisolated func == (lhs: BookStripView, rhs: BookStripView) -> Bool {
+        lhs.book == rhs.book && lhs.selectedPair == rhs.selectedPair
+    }
+
+    private let columns = [
+        GridItem(.flexible(), alignment: .leading),
+        GridItem(.flexible(), alignment: .leading),
+        GridItem(.flexible(), alignment: .leading),
+    ]
+
+    var body: some View {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
+            ForEach(book) { row in
+                Button {
+                    onSelect(row.asset)
+                } label: {
+                    BookCell(row: row, isSelected: row.asset == selectedPair)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(book.map { "\($0.asset) \($0.side)" }.joined(separator: ", "))
+    }
+}
+
+private struct BookCell: View {
+    let row: BookRow
+    let isSelected: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(row.asset)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(isSelected ? DeskInk.ink : DeskInk.slate)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Text(row.side)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(bookInk(row.side))
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            isSelected
+                ? Color.white.opacity(0.08)
+                : Color.clear,
+            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+        )
+    }
+}
+
+private struct MiniCandleChart: View, Equatable {
     var candles: [Candle]
+
+    static nonisolated func == (lhs: MiniCandleChart, rhs: MiniCandleChart) -> Bool {
+        lhs.candles == rhs.candles
+    }
 
     private var bars: [Candle] {
         Array(candles.suffix(32))
