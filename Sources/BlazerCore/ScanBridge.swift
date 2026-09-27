@@ -18,10 +18,10 @@ public enum ScanError: LocalizedError {
 public enum StrategyEngine {
     private static let lock = NSLock()
     private static let jsQueue = DispatchQueue(label: "com.blazer.core.scan-bridge", qos: .userInitiated)
-    private static var context: JSContext?
-    private static var loadError: String?
+    nonisolated(unsafe) private static var context: JSContext?
+    nonisolated(unsafe) private static var loadError: String?
     /// Exact JS exception for diagnostics only — desk why stays "SCAN ENGINE OFFLINE".
-    private static var lastJsException: String?
+    nonisolated(unsafe) private static var lastJsException: String?
 
     public static var isReady: Bool {
         lock.lock()

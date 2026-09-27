@@ -84,6 +84,9 @@ enum DeskCredentials {
         let context = LAContext()
         context.interactionNotAllowed = !allowPrompt
         query[kSecUseAuthenticationContext as String] = context
+        #if os(iOS)
+        query[kSecUseDataProtectionKeychain as String] = true
+        #endif
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         if status == errSecSuccess, let data = item as? Data, let text = String(data: data, encoding: .utf8) {
@@ -93,5 +96,32 @@ enum DeskCredentials {
             return .locked
         }
         return .missing
+    }
+
+    /// Writes the phone Keychain items. The token is not returned and not logged.
+    static func store(token: String, accountId: String, environment: OandaEnvironment) -> Bool {
+        let trimmedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedAccount = accountId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedToken.isEmpty, !trimmedAccount.isEmpty else { return false }
+        let tokenSaved = write(service: phoneService, account: "token", value: trimmedToken)
+        let accountSaved = write(service: phoneService, account: "accountId", value: trimmedAccount)
+        let envSaved = write(service: phoneService, account: "env", value: environment.rawValue)
+        return tokenSaved && accountSaved && envSaved
+    }
+
+    private static func write(service: String, account: String, value: String) -> Bool {
+        let delete: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        SecItemDelete(delete as CFDictionary)
+        var add = delete
+        add[kSecValueData as String] = Data(value.utf8)
+        #if os(iOS)
+        add[kSecUseDataProtectionKeychain as String] = true
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        #endif
+        return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
     }
 }

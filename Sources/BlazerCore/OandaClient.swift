@@ -88,7 +88,7 @@ public actor OandaRateLimit {
 
 /// Native OANDA REST v20 pricing. Token + account come from the caller. Never print the token.
 public enum OandaClient {
-    private static var loggedProof = false
+    nonisolated(unsafe) private static var loggedProof = false
     private static let instrumentMap: [String: String] = [
         "EUR/USD": "EUR_USD",
         "GBP/USD": "GBP_USD",
@@ -322,15 +322,19 @@ public enum OandaClient {
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse else {
+                NSLog("BlazerCore fetchCandles response not HTTP for %@", asset)
                 return CandleFetch(candles: [], transport: .network)
             }
             if http.statusCode == 429 {
+                NSLog("BlazerCore fetchCandles 429 rate limited for %@", asset)
                 return CandleFetch(candles: [], transport: .rateLimited)
             }
             if http.statusCode == 401 || http.statusCode == 403 {
+                NSLog("BlazerCore fetchCandles 401/403 unauthorized for %@", asset)
                 return CandleFetch(candles: [], transport: .unauthorized)
             }
             guard http.statusCode < 400 else {
+                NSLog("BlazerCore fetchCandles HTTP %d for %@: %@", http.statusCode, asset, String(data: data, encoding: .utf8) ?? "")
                 return CandleFetch(candles: [], transport: .network)
             }
             let decoded = try JSONDecoder().decode(CandlesResponse.self, from: data)
@@ -354,10 +358,13 @@ public enum OandaClient {
                 seenTimes.insert(timeMs)
                 out.append(Candle(time: timeMs, open: open, high: high, low: low, close: close))
             }
+            NSLog("BlazerCore fetchCandles parsed %d completed bars for %@", out.count, asset)
             return CandleFetch(candles: out, transport: .ok)
         } catch let error as URLError where error.code == .timedOut {
+            NSLog("BlazerCore fetchCandles timed out for %@", asset)
             return CandleFetch(candles: [], transport: .timeout)
         } catch {
+            NSLog("BlazerCore fetchCandles error for %@: %@", asset, error.localizedDescription)
             return CandleFetch(candles: [], transport: .network)
         }
     }

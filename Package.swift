@@ -19,14 +19,14 @@ let package = Package(
                 .copy("scan-engine.js"),
             ],
             swiftSettings: [
-                .swiftLanguageMode(.v5),
+                .swiftLanguageMode(.v6),
             ]
         ),
         .executableTarget(
             name: "Parity",
             dependencies: ["BlazerCore"],
             swiftSettings: [
-                .swiftLanguageMode(.v5),
+                .swiftLanguageMode(.v6),
             ]
         ),
         .target(
@@ -36,14 +36,21 @@ let package = Package(
                 .copy("BlazerMark.png"),
             ],
             swiftSettings: [
-                .swiftLanguageMode(.v5),
+                .swiftLanguageMode(.v6),
             ]
         ),
         .executableTarget(
             name: "BlazerOS",
             dependencies: ["LightningDesk"],
             swiftSettings: [
-                .swiftLanguageMode(.v5),
+                .swiftLanguageMode(.v6),
+            ]
+        ),
+        .executableTarget(
+            name: "Persist",
+            dependencies: ["BlazerCore"],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
             ]
         ),
     ]

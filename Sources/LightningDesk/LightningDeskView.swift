@@ -36,6 +36,7 @@ public struct LightningDeskView: View {
                 glassNav
                     .padding(.bottom, 22)
             }
+            .modifier(ReferencePhoneInset())
 
             if model.showingLaunch {
                 LaunchCover(
@@ -43,14 +44,23 @@ public struct LightningDeskView: View {
                     markLit: reduceMotion || model.launchMarkLit,
                     wordLit: reduceMotion || model.launchWordLit
                 )
+                .ignoresSafeArea()
                 .transition(.opacity)
             }
 
             if model.showingJournal {
                 JournalCover(model: model)
+                    .modifier(ReferencePhoneInset())
+                    .transition(.opacity)
+            }
+
+            if !model.showingLaunch && model.keychainState == .missing {
+                CredentialCover(model: model)
+                    .modifier(ReferencePhoneInset())
                     .transition(.opacity)
             }
         }
+        .preferredColorScheme(.dark)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.35), value: model.showingLaunch)
         .animation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.72), value: model.heroLift)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.55), value: verbText)
@@ -98,6 +108,16 @@ public struct LightningDeskView: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
         .accessibilityElement(children: .contain)
+        .gesture(
+            DragGesture(minimumDistance: 30, coordinateSpace: .local)
+                .onEnded { value in
+                    if value.translation.width < -40 {
+                        stepPair(1)
+                    } else if value.translation.width > 40 {
+                        stepPair(-1)
+                    }
+                }
+        )
     }
 
     private var heroSurface: some View {
@@ -196,7 +216,31 @@ public struct LightningDeskView: View {
                 .font(.system(size: 13, weight: .medium, design: .monospaced))
                 .foregroundStyle(DeskInk.slate.opacity(0.85))
                 .monospacedDigit()
+            if model.awaitingOutcome {
+                HStack(spacing: 10) {
+                    outcomeChoice("HIT", tint: DeskInk.emerald) {
+                        Task { await model.settle(.hit) }
+                    }
+                    outcomeChoice("MISS", tint: DeskInk.coral) {
+                        Task { await model.settle(.miss) }
+                    }
+                }
+                .padding(.top, 8)
+            }
         }
+    }
+
+    private func outcomeChoice(_ title: String, tint: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
+                .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
     }
 
     private var bookStrip: some View {
@@ -205,20 +249,33 @@ public struct LightningDeskView: View {
             GridItem(.flexible(), alignment: .leading),
             GridItem(.flexible(), alignment: .leading),
         ]
-        return LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
+        return LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
             ForEach(model.book) { row in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(row.asset)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(DeskInk.slate)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                    Text(row.side)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(bookInk(row.side))
-                        .lineLimit(1)
+                Button {
+                    model.select(pair: row.asset)
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(row.asset)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(row.asset == model.pair ? DeskInk.ink : DeskInk.slate)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                        Text(row.side)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(bookInk(row.side))
+                            .lineLimit(1)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        row.asset == model.pair
+                            ? Color.white.opacity(0.08)
+                            : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    )
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .buttonStyle(.plain)
             }
         }
         .accessibilityElement(children: .combine)
@@ -448,9 +505,17 @@ private struct JournalCover: View {
             DeskInk.background.ignoresSafeArea()
             VStack(alignment: .leading, spacing: 22) {
                 HStack {
-                    Text("Journal")
-                        .font(.system(size: 28, weight: .semibold))
-                        .foregroundStyle(DeskInk.ink)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Journal")
+                            .font(.system(size: 28, weight: .semibold))
+                            .foregroundStyle(DeskInk.ink)
+                        if model.outcomeStats.hits + model.outcomeStats.misses > 0 {
+                            Text("\(model.outcomeStats.hits) HIT · \(model.outcomeStats.misses) MISS")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(DeskInk.slate)
+                                .monospacedDigit()
+                        }
+                    }
                     Spacer()
                     Button("Close") { model.hideJournal() }
                         .font(.system(size: 16, weight: .medium))
@@ -471,41 +536,35 @@ private struct JournalCover: View {
                         .padding(.horizontal, 24)
                     Spacer()
                 } else {
-                    cardStack
+                    ScrollView {
+                        VStack(spacing: 12) {
+                            ForEach(model.journal) { entry in
+                                Button {
+                                    model.openReplay(entry.id)
+                                } label: {
+                                    journalFace(
+                                        pair: entry.pair,
+                                        score: "\(entry.score)",
+                                        verb: entry.outcome ?? entry.verb,
+                                        why: entry.veto ?? entry.why,
+                                        when: entry.scannedAt.formatted(date: .omitted, time: .shortened)
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("\(entry.pair) \(entry.outcome ?? entry.verb) \(entry.score)")
+                            }
+                        }
                         .padding(.horizontal, 24)
-                    Spacer()
+                        .padding(.bottom, 28)
+                    }
                 }
             }
 
             if let entry = model.journal.first(where: { $0.id == model.openReplayID }) {
-                ReplayCover(entry: entry) { model.closeReplay() }
+                ReplayCover(entry: entry, coach: model.coachExplanation) { model.closeReplay() }
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-    }
-
-    private var cardStack: some View {
-        let cards = Array(model.journal.prefix(4))
-        return ZStack(alignment: .top) {
-            ForEach(Array(cards.enumerated().reversed()), id: \.element.id) { index, entry in
-                Button {
-                    model.openReplay(entry.id)
-                } label: {
-                    journalFace(
-                        pair: entry.pair,
-                        score: "\(entry.score)",
-                        verb: entry.verb,
-                        why: entry.veto ?? entry.why,
-                        when: entry.scannedAt.formatted(date: .omitted, time: .shortened)
-                    )
-                }
-                .buttonStyle(.plain)
-                .offset(y: CGFloat(index) * 22)
-                .scaleEffect(1 - CGFloat(index) * 0.035, anchor: .top)
-                .accessibilityLabel("\(entry.pair) \(entry.verb) \(entry.score)")
-            }
-        }
-        .padding(.bottom, CGFloat(max(0, cards.count - 1)) * 22)
     }
 
     private func journalFace(pair: String, score: String, verb: String, why: String, when: String) -> some View {
@@ -547,11 +606,13 @@ private struct JournalCover: View {
 
 private struct ReplayCover: View {
     var entry: ReplayEntry
+    var coach: CoachExplanation?
     var close: () -> Void
 
     var body: some View {
         ZStack {
             DeskInk.background.ignoresSafeArea()
+            ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 HStack {
                     Text(entry.pair)
@@ -574,14 +635,17 @@ private struct ReplayCover: View {
                     .font(.system(size: 64, weight: .semibold))
                     .foregroundStyle(DeskInk.ink)
                     .monospacedDigit()
-                Text(entry.verb)
+                Text(entry.outcome ?? entry.verb)
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(verbInk(entry.verb))
-                    .opacity(entry.verb == "WAIT" ? 0.62 : 1)
+                    .opacity((entry.outcome ?? entry.verb) == "WAIT" ? 0.62 : 1)
                 Text(entry.why.isEmpty ? " " : entry.why)
                     .font(.system(size: 16, weight: .regular))
                     .foregroundStyle(DeskInk.slate)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                if let coach {
+                    CoachCard(explanation: coach)
+                }
                 Text("Strike \(PriceFormat.px(entry.strike))")
                     .font(.system(size: 13, weight: .medium, design: .monospaced))
                     .foregroundStyle(DeskInk.slate)
@@ -601,6 +665,7 @@ private struct ReplayCover: View {
             }
             .padding(24)
             .padding(.top, 12)
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(entry.pair) \(entry.verb) \(entry.score)")
@@ -613,6 +678,10 @@ private func verbInk(_ verb: String) -> Color {
         return DeskInk.emerald
     case "TAP LOW":
         return DeskInk.coral
+    case "HIT":
+        return DeskInk.emerald
+    case "MISS":
+        return DeskInk.coral
     case "EXPIRED", "WAIT", "SCAN":
         return DeskInk.slate
     default:
@@ -620,36 +689,142 @@ private func verbInk(_ verb: String) -> Color {
     }
 }
 
+private struct CandleCanvas: View {
+    let bars: [Candle]
+    let minP: Double
+    let span: Double
+
+    var body: some View {
+        Canvas { context, size in
+            let count = bars.count
+            guard count > 0, span > 0 else { return }
+            let spacing: CGFloat = 3.5
+            let totalSpacing = spacing * CGFloat(count - 1)
+            let candleWidth = max(2.5, min(8.0, (size.width - totalSpacing) / CGFloat(count)))
+            let effectiveWidth = (candleWidth + spacing) * CGFloat(count) - spacing
+            let xOffset = max(0, size.width - effectiveWidth)
+            let height = size.height
+
+            for (i, bar) in bars.enumerated() {
+                let cx = xOffset + CGFloat(i) * (candleWidth + spacing) + candleWidth / 2
+                let highFrac = CGFloat((bar.bodyHigh - minP) / span)
+                let lowFrac = CGFloat((bar.bodyLow - minP) / span)
+                let openFrac = CGFloat((bar.bodyOpen - minP) / span)
+                let closeFrac = CGFloat((bar.close - minP) / span)
+
+                let highY = height - (highFrac * height)
+                let lowY = height - (lowFrac * height)
+                let openY = height - (openFrac * height)
+                let closeY = height - (closeFrac * height)
+
+                let topBody = min(openY, closeY)
+                let bottomBody = max(openY, closeY)
+                let bodyHeight = max(2.5, bottomBody - topBody)
+                let tint = bar.isUp ? DeskInk.emerald : DeskInk.coral
+
+                // Wick: 1pt line from high to low
+                var wickPath = Path()
+                wickPath.move(to: CGPoint(x: cx, y: highY))
+                wickPath.addLine(to: CGPoint(x: cx, y: lowY))
+                context.stroke(wickPath, with: .color(tint.opacity(0.85)), lineWidth: 1.0)
+
+                // Body: rounded rect
+                let bodyRect = CGRect(
+                    x: cx - candleWidth / 2,
+                    y: topBody,
+                    width: candleWidth,
+                    height: bodyHeight
+                )
+                let roundedBody = Path(roundedRect: bodyRect, cornerRadius: 1.0)
+                context.fill(roundedBody, with: .color(tint))
+            }
+
+            // Reference line on last close
+            if let lastBar = bars.last {
+                let closeFrac = CGFloat((lastBar.close - minP) / span)
+                let lastY = height - (closeFrac * height)
+                var refLine = Path()
+                refLine.move(to: CGPoint(x: 0, y: lastY))
+                refLine.addLine(to: CGPoint(x: size.width, y: lastY))
+                context.stroke(
+                    refLine,
+                    with: .color(Color.white.opacity(0.12)),
+                    style: StrokeStyle(lineWidth: 0.5, dash: [4, 4])
+                )
+            }
+        }
+    }
+}
+
 private struct MiniCandleChart: View {
     var candles: [Candle]
 
+    private var bars: [Candle] {
+        Array(candles.suffix(32))
+    }
+
     var body: some View {
-        GeometryReader { geo in
-            let bars = Array(candles.suffix(32))
-            if bars.isEmpty {
-                Text("Waiting for candles")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(DeskInk.slate.opacity(0.7))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                let maxP = bars.map(\.bodyHigh).max() ?? 1
-                let minP = bars.map(\.bodyLow).min() ?? 0
-                let span = max(maxP - minP, 0.00001)
-                VStack(spacing: 0) {
-                    Spacer(minLength: 0)
-                    HStack(alignment: .bottom, spacing: 3) {
-                        ForEach(Array(bars.enumerated()), id: \.offset) { _, bar in
-                            let height = max(4, (bar.bodyHigh - bar.bodyLow) / span * (geo.size.height - 4))
-                            RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                                .fill(bar.isUp ? DeskInk.emerald : DeskInk.coral)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: height)
-                        }
-                    }
-                }
-            }
+        if bars.isEmpty {
+            loadingState
+        } else {
+            chartPlot(bars: bars)
         }
+    }
+
+    private var loadingState: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .scaleEffect(0.7)
+                .tint(DeskInk.slate)
+            Text("Loading candles…")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(DeskInk.slate.opacity(0.7))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityLabel("Loading candles")
+    }
+
+    private func chartPlot(bars: [Candle]) -> some View {
+        let rawMax = bars.map(\.bodyHigh).max() ?? 1.0
+        let rawMin = bars.map(\.bodyLow).min() ?? 0.0
+        let rawSpan = max(rawMax - rawMin, 0.00002)
+        let pad = rawSpan * 0.08
+        let maxP = rawMax + pad
+        let minP = rawMin - pad
+        let span = maxP - minP
+
+        return ZStack(alignment: .topTrailing) {
+            gridLines
+            CandleCanvas(bars: bars, minP: minP, span: span)
+            priceLabels(high: rawMax, low: rawMin)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .accessibilityLabel("Completed candles")
+    }
+
+    private var gridLines: some View {
+        VStack(spacing: 0) {
+            Divider().background(Color.white.opacity(0.04))
+            Spacer()
+            Divider().background(Color.white.opacity(0.03))
+            Spacer()
+            Divider().background(Color.white.opacity(0.04))
+        }
+    }
+
+    private func priceLabels(high: Double, low: Double) -> some View {
+        VStack {
+            Text(PriceFormat.px(high))
+                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .foregroundStyle(DeskInk.slate.opacity(0.55))
+                .padding(.trailing, 4)
+            Spacer()
+            Text(PriceFormat.px(low))
+                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .foregroundStyle(DeskInk.slate.opacity(0.55))
+                .padding(.trailing, 4)
+        }
+        .padding(.vertical, 4)
     }
 }
 
@@ -704,6 +879,99 @@ private struct LaunchCover: View {
             }
             #endif
         }
+    }
+}
+
+/// Mac reference window uses the iPhone 16 safe areas. iOS applies the real insets.
+private struct ReferencePhoneInset: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(macOS)
+        content
+            .padding(.top, PhoneTarget.topInset)
+            .padding(.bottom, PhoneTarget.bottomInset)
+        #else
+        content
+        #endif
+    }
+}
+
+/// Shown only when the phone Keychain has no OANDA session. Not a second desk.
+private struct CredentialCover: View {
+    @ObservedObject var model: LightningDeskModel
+
+    var body: some View {
+        ZStack {
+            DeskInk.background.ignoresSafeArea()
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Quote source")
+                    .font(.system(size: 28, weight: .semibold))
+                    .foregroundStyle(DeskInk.ink)
+                Text("Saved in the Keychain on this device only.")
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundStyle(DeskInk.slate)
+                SecureField("Token", text: $model.draftToken)
+                    .textContentType(.password)
+                    .textFieldStyle(.plain)
+                    .padding(14)
+                    .background(DeskInk.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .foregroundStyle(DeskInk.ink)
+                TextField("Account", text: $model.draftAccount)
+                    .textFieldStyle(.plain)
+                    .padding(14)
+                    .background(DeskInk.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .foregroundStyle(DeskInk.ink)
+                HStack(spacing: 10) {
+                    environmentChoice(.practice, title: "Practice")
+                    environmentChoice(.live, title: "Live")
+                }
+                if model.credentialSaveFailed {
+                    Text("Could not save to the Keychain.")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(DeskInk.coral)
+                }
+                Button {
+                    model.credentialSaveFailed = !model.storeCredentials(
+                        token: model.draftToken,
+                        accountId: model.draftAccount,
+                        environment: model.draftEnvironment
+                    )
+                } label: {
+                    Text("Continue")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(DeskInk.ink)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 52)
+                        .background(
+                            LinearGradient(colors: [DeskInk.indigo, DeskInk.electric], startPoint: .leading, endPoint: .trailing),
+                            in: Capsule()
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled(model.draftToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || model.draftAccount.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .padding(.top, 8)
+            }
+            .padding(24)
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private func environmentChoice(_ choice: OandaEnvironment, title: String) -> some View {
+        Button {
+            model.draftEnvironment = choice
+        } label: {
+            Text(title)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(model.draftEnvironment == choice ? DeskInk.ink : DeskInk.slate)
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
+                .background(
+                    (model.draftEnvironment == choice ? DeskInk.indigo.opacity(0.45) : DeskInk.surface),
+                    in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
     }
 }
 

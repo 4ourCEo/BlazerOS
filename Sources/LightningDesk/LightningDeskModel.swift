@@ -5,7 +5,9 @@ import BlazerCore
 /// One-screen desk state. The frame is derived from the frozen commit. Quotes never rescore it.
 @MainActor
 public final class LightningDeskModel: ObservableObject {
-    public init() {}
+    public init(storageRoot: URL? = nil) {
+        persistence = PersistenceCoordinator(root: storageRoot ?? FileLocations.applicationSupport())
+    }
     @Published public var pair: String = "EUR/USD"
     @Published var feed: FeedStatus = .connecting
     @Published var candles: [Candle] = []
@@ -13,9 +15,9 @@ public final class LightningDeskModel: ObservableObject {
     /// Walk label, for example "GBP/USD 2/6". Nil when idle.
     @Published var scanStep: String?
     /// Last full-book read. Display only.
-    @Published var book: [BookRow] = []
+    @Published var book: [BookRow] = Assets.watchlist.map { BookRow(asset: $0, side: "—") }
     @Published var notice: String?
-    @Published private(set) var frame: DeskFrame?
+    @Published public private(set) var frame: DeskFrame?
     /// Brand cover. Dismisses on a real LIVE feed, otherwise after a short beat. Never invents LIVE.
     @Published var showingLaunch = true
     @Published var launchMarkLit = false
@@ -26,8 +28,22 @@ public final class LightningDeskModel: ObservableObject {
     @Published private(set) var journal: [ReplayEntry] = []
     @Published var showingJournal = false
     @Published var openReplayID: String?
+    /// Explanation of the open replay. Built from the seal, not from a live quote.
+    @Published private(set) var coachExplanation: CoachExplanation?
+    /// HIT and MISS are offered only after the beam expires.
+    @Published private(set) var awaitingOutcome = false
+    @Published private(set) var outcomeStats = OutcomeStats.empty
+    /// Keychain presence only. A saved token is not kept here.
+    @Published private(set) var keychainState: KeychainState = .unknown
+    /// Form drafts. Cleared when the Keychain write succeeds. Never synced.
+    @Published var draftToken = ""
+    @Published var draftAccount = ""
+    @Published var draftEnvironment = OandaEnvironment.practice
+    @Published var credentialSaveFailed = false
 
+    private let persistence: PersistenceCoordinator
     private var session: OandaSession?
+    private var armID: String?
     private var commit: ScanCommit?
     private var cabinetSide = "WAIT"
     private var armedAt: Date?
@@ -38,19 +54,60 @@ public final class LightningDeskModel: ObservableObject {
     /// Bumped on every press so a new walk replaces the one in flight.
     private var scanGeneration = 0
 
-    let pairs = Assets.watchlist
+    /// Per-asset cache of completed candles so switching pairs never shows a blank chart.
+    private var candlesByAsset: [String: [Candle]] = [:]
+    /// Per-asset cache of the last committed scan for that pair.
+    private var commitsByAsset: [String: ScanCommit] = [:]
+    /// Per-asset cache of the cabinet side for that pair.
+    private var cabinetSideByAsset: [String: String] = [:]
+
+    public let pairs = Assets.watchlist
 
     public func select(pair next: String) {
         guard next != pair else { return }
         pair = next
-        commit = nil
-        cabinetSide = "WAIT"
-        armedAt = nil
-        expired = false
-        candles = []
+
+        // Restore cached bars immediately so chart is never blank
+        if let cached = candlesByAsset[next], !cached.isEmpty {
+            candles = cached
+        } else {
+            candles = []
+            Task { await loadCandles(for: next) }
+        }
+
+        if let cachedCommit = commitsByAsset[next] {
+            commit = cachedCommit
+            cabinetSide = cabinetSideByAsset[next] ?? "WAIT"
+            expired = false
+            armedAt = nil
+            publishFrame()
+        } else {
+            commit = nil
+            cabinetSide = "WAIT"
+            armedAt = nil
+            expired = false
+            publishFrame()
+        }
+
         quote = nil
         notice = nil
-        publishFrame()
+        awaitingOutcome = false
+        armID = nil
+    }
+
+    public func side(for asset: String) -> String? {
+        book.first(where: { $0.asset == asset })?.side ?? cabinetSideByAsset[asset]
+    }
+
+    /// Fetches recent completed M1 candles from OANDA so switching to an un-scanned pair is never blank.
+    public func loadCandles(for asset: String) async {
+        guard let session = await loadSession(allowPrompt: false) else { return }
+        let bars = await OandaClient.fetchCandles(asset: asset, session: session, granularity: "M1", count: 80)
+        guard !bars.isEmpty else { return }
+        candlesByAsset[asset] = bars
+        if pair == asset {
+            candles = bars
+        }
     }
 
     /// Illuminates the mark, then the word. Leaves as soon as the feed is actually live.
@@ -69,6 +126,10 @@ public final class LightningDeskModel: ObservableObject {
     }
 
     public func run() async {
+        await reloadFromDisk()
+        if candles.isEmpty {
+            Task { await self.loadCandles(for: self.pair) }
+        }
         await withTaskGroup(of: Void.self) { group in
             group.addTask { await self.quoteLoop() }
             group.addTask { await self.beamLoop() }
@@ -90,6 +151,8 @@ public final class LightningDeskModel: ObservableObject {
         cabinetSide = "WAIT"
         armedAt = nil
         expired = false
+        awaitingOutcome = false
+        armID = nil
         candles = []
         notice = nil
         book = pairs.map { BookRow(asset: $0, side: "—") }
@@ -118,7 +181,12 @@ public final class LightningDeskModel: ObservableObject {
                 let envelope = try await ScanKernel.fetch(asset: asset, session: session)
                 if let signal = envelope.signal {
                     bag.append(signal)
-                    barsByAsset[asset] = envelope.snapshotBars ?? envelope.candles ?? []
+                    let bars = envelope.snapshotBars ?? envelope.candles ?? []
+                    barsByAsset[asset] = bars
+                    candlesByAsset[asset] = bars
+                    cabinetSideByAsset[asset] = signal.cabinetSide
+                    let assetCommit = ScanKernel.commit(from: signal, bars: bars, scannedAt: started)
+                    commitsByAsset[asset] = assetCommit
                     rows[index] = BookRow(asset: asset, side: signal.cabinetSide)
                 }
             } catch {
@@ -152,6 +220,9 @@ public final class LightningDeskModel: ObservableObject {
         commit = next
         cabinetSide = side
         candles = bars
+        candlesByAsset[picked.asset] = bars
+        commitsByAsset[picked.asset] = next
+        cabinetSideByAsset[picked.asset] = side
         expired = false
         let armedClock = Date()
         armedAt = (side == "HIGH" || side == "LOW") && next.veto == nil ? armedClock : nil
@@ -160,8 +231,46 @@ public final class LightningDeskModel: ObservableObject {
         publishFrame()
         liftHero()
         if let frame {
-            remember(next, verb: frame.verb)
+            await remember(next, verb: frame.verb)
         }
+    }
+
+    /// Records the expired arm once, then leaves the hero. A second call does not append.
+    public func settle(_ outcome: DeskOutcome) async {
+        guard awaitingOutcome, let commit, let armID else { return }
+        awaitingOutcome = false
+        let row = LedgerRow(
+            timestamp: Date(),
+            pair: commit.asset,
+            hash: commit.fingerprint,
+            score: commit.score,
+            side: commit.engineCall,
+            veto: commit.veto != nil,
+            drift: commit.driftPips ?? 0,
+            outcome: outcome.rawValue,
+            outcomeEventID: armID
+        )
+        let snapshot = SnapshotRecord(
+            hash: commit.fingerprint,
+            pair: commit.asset,
+            bars: commit.candles,
+            strike: commit.strike,
+            score: commit.score,
+            side: commit.engineCall
+        )
+        do {
+            _ = try await persistence.settle(armID: armID, row: row, snapshot: snapshot)
+            await reloadFromDisk()
+        } catch {
+            notice = "Outcome was not saved"
+        }
+        self.armID = nil
+        self.commit = nil
+        cabinetSide = "WAIT"
+        armedAt = nil
+        expired = false
+        candles = []
+        publishFrame()
     }
 
     /// Engine pick. If the desk pick is unavailable, stay on WAIT. Never invent HIGH or LOW.
@@ -211,18 +320,67 @@ public final class LightningDeskModel: ObservableObject {
         switch credentialLookup {
         case .ready(let ready):
             session = ready
+            keychainState = .ready
+            await consumePendingScanIfReady()
             return ready
         case .locked where allowPrompt:
             let prompted = DeskCredentials.session(allowPrompt: true)
             credentialLookup = prompted
             if case .ready(let ready) = prompted {
                 session = ready
+                keychainState = .ready
+                await consumePendingScanIfReady()
                 return ready
             }
+            noteKeychain(prompted)
             return nil
-        case .locked, .missing, .none:
+        case .locked:
+            keychainState = .locked
+            return nil
+        case .missing:
+            keychainState = .missing
+            return nil
+        case .none:
             return nil
         }
+    }
+
+    /// Saves the phone Keychain and drops the fields from the caller. Does not log the token.
+    public func storeCredentials(token: String, accountId: String, environment: OandaEnvironment) -> Bool {
+        guard DeskCredentials.store(token: token, accountId: accountId, environment: environment) else {
+            return false
+        }
+        let ready = OandaSession(token: token, accountId: accountId, environment: environment)
+        session = ready
+        credentialLookup = .ready(ready)
+        keychainState = .ready
+        draftToken = ""
+        draftAccount = ""
+        credentialSaveFailed = false
+        Task { await consumePendingScanIfReady() }
+        return true
+    }
+
+    private func noteKeychain(_ gate: CredentialGate) {
+        switch gate {
+        case .ready:
+            keychainState = .ready
+        case .locked:
+            keychainState = .locked
+        case .missing:
+            keychainState = .missing
+        }
+    }
+
+    /// A Siri scan is a request to open the existing walk. It does not choose a side.
+    private func consumePendingScanIfReady() async {
+        #if os(iOS)
+        guard keychainState == .ready, !scanning else { return }
+        let defaults = UserDefaults(suiteName: PhoneTarget.appGroup)
+        guard defaults?.bool(forKey: PhoneTarget.pendingScanKey) == true else { return }
+        defaults?.set(false, forKey: PhoneTarget.pendingScanKey)
+        await scan()
+        #endif
     }
 
     private func liftHero() {
@@ -286,6 +444,9 @@ public final class LightningDeskModel: ObservableObject {
             lastFreshPollAt: lastFreshPollAt,
             now: clock
         )
+        if candles.isEmpty && batch.transport == .ok {
+            await loadCandles(for: pair)
+        }
         publishFrame()
     }
 
@@ -304,7 +465,7 @@ public final class LightningDeskModel: ObservableObject {
         if gate.veto {
             commit.veto = "Slippage"
             armedAt = nil
-            noteVeto("Slippage", fingerprint: commit.fingerprint)
+            noteVeto("Slippage")
         }
         self.commit = commit
     }
@@ -320,38 +481,97 @@ public final class LightningDeskModel: ObservableObject {
 
     func openReplay(_ id: String) {
         openReplayID = id
+        coachExplanation = nil
+        Task { await explainReplay(id) }
     }
 
     func closeReplay() {
         openReplayID = nil
+        coachExplanation = nil
     }
 
-    /// Snapshot the commit as it was sealed. Later quotes may add a veto only.
-    private func remember(_ commit: ScanCommit, verb: String) {
+    private func explainReplay(_ id: String) async {
+        guard let entry = journal.first(where: { $0.id == id }) else { return }
+        let brief = CoachBrief(
+            pair: entry.pair,
+            score: entry.score,
+            evidence: entry.why,
+            hash: entry.fingerprint
+        )
+        coachExplanation = PromptBuilder.sealedCard(brief)
+        let card = await FoundationCoachService().card(for: brief)
+        guard openReplayID == id else { return }
+        coachExplanation = card
+    }
+
+    /// Writes the frozen scan to disk, then reloads the journal from that file.
+    private func remember(_ commit: ScanCommit, verb: String) async {
         let id = "\(commit.fingerprint)-\(Int(commit.scannedAt.timeIntervalSince1970 * 1000))"
-        let entry = ReplayEntry(
+        armID = id
+        let entry = JournalEntry(
             id: id,
+            fingerprint: commit.fingerprint,
             pair: commit.asset,
             score: commit.score,
+            side: commit.engineCall,
             verb: verb,
             why: commit.evidence,
             strike: commit.strike,
             veto: commit.veto,
-            fingerprint: commit.fingerprint,
-            candles: commit.candles,
             scannedAt: commit.scannedAt
         )
-        journal.insert(entry, at: 0)
-        if journal.count > 30 {
-            journal.removeLast()
+        let snapshot = SnapshotRecord(
+            hash: commit.fingerprint,
+            pair: commit.asset,
+            bars: commit.candles,
+            strike: commit.strike,
+            score: commit.score,
+            side: commit.engineCall
+        )
+        do {
+            try await persistence.recordScan(entry, snapshot: snapshot)
+            await reloadFromDisk()
+        } catch {
+            journal.insert(replay(entry, bars: commit.candles), at: 0)
         }
     }
 
-    private func noteVeto(_ veto: String, fingerprint: String) {
-        guard let index = journal.firstIndex(where: { $0.fingerprint == fingerprint && $0.veto == nil }) else {
+    private func noteVeto(_ veto: String) {
+        guard let armID, let index = journal.firstIndex(where: { $0.id == armID && $0.veto == nil }) else {
             return
         }
         journal[index].veto = veto
+        Task { try? await persistence.noteVeto(armID: armID, veto: veto) }
+    }
+
+    private func reloadFromDisk() async {
+        let restored = await persistence.restore()
+        outcomeStats = restored.stats
+        journal = restored.entries.map { replay($0, bars: restored.bars(for: $0.fingerprint)) }
+        for entry in journal {
+            if candlesByAsset[entry.pair] == nil && !entry.candles.isEmpty {
+                candlesByAsset[entry.pair] = entry.candles
+            }
+        }
+        if candles.isEmpty, let saved = candlesByAsset[pair], !saved.isEmpty {
+            candles = saved
+        }
+    }
+
+    private func replay(_ entry: JournalEntry, bars: [Candle]) -> ReplayEntry {
+        ReplayEntry(
+            id: entry.id,
+            pair: entry.pair,
+            score: entry.score,
+            verb: entry.verb,
+            why: entry.why,
+            strike: entry.strike,
+            veto: entry.veto,
+            fingerprint: entry.fingerprint,
+            candles: bars,
+            scannedAt: entry.scannedAt,
+            outcome: entry.outcome
+        )
     }
 
     private func publishFrame() {
@@ -361,6 +581,9 @@ public final class LightningDeskModel: ObservableObject {
         }
         if expired {
             frame = frozen(commit, verb: "EXPIRED", remainingMs: 0)
+            if journal.first(where: { $0.id == armID })?.outcome == nil {
+                awaitingOutcome = true
+            }
             return
         }
         let elapsed: Double
@@ -379,6 +602,7 @@ public final class LightningDeskModel: ObservableObject {
             expired = true
             armedAt = nil
             frame = frozen(commit, verb: "EXPIRED", remainingMs: 0)
+            awaitingOutcome = true
             return
         }
         let armed = next.verb == "TAP HIGH" || next.verb == "TAP LOW"
@@ -407,6 +631,13 @@ struct BookRow: Equatable, Identifiable {
     var side: String
 }
 
+enum KeychainState: Equatable {
+    case unknown
+    case ready
+    case locked
+    case missing
+}
+
 /// One committed scan, frozen for the journal. Not a second engine result.
 struct ReplayEntry: Identifiable, Equatable {
     var id: String
@@ -419,4 +650,5 @@ struct ReplayEntry: Identifiable, Equatable {
     var fingerprint: String
     var candles: [Candle]
     var scannedAt: Date
+    var outcome: String?
 }
