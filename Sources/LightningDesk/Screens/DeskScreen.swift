@@ -12,9 +12,11 @@ struct DeskScreen: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 4)
 
+            radarLeaderBar
+
             hero
                 .padding(.horizontal, 20)
-                .padding(.top, 8)
+                .padding(.top, 6)
                 .offset(y: reduceMotion ? 0 : model.heroLift)
 
             Spacer(minLength: 12)
@@ -317,29 +319,70 @@ struct DeskScreen: View {
                     }
                 }
                 .frame(minHeight: 26, alignment: .leading)
+
+                Text(whyText)
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(DeskInk.slate)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, minHeight: 34, alignment: .topLeading)
             } else {
+                let telemetry = model.stalkingTelemetry
                 HStack(spacing: 8) {
                     if isArmed {
                         Circle()
                             .fill(verbColor)
                             .frame(width: 8, height: 8)
                             .shadow(color: verbColor.opacity(0.9), radius: 4)
+                        Text(verbText)
+                            .font(.system(size: 22, weight: .bold))
+                            .foregroundStyle(verbColor)
+
+                        Text(telemetry.badgeLabel)
+                            .font(.system(size: 9, weight: .heavy))
+                            .foregroundStyle(telemetryBadgeColor(telemetry.tier))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2.5)
+                            .background(telemetryBadgeColor(telemetry.tier).opacity(0.16), in: Capsule())
+                    } else {
+                        HStack(spacing: 6) {
+                            Image(systemName: telemetryIcon(telemetry.tier))
+                                .font(.system(size: 10, weight: .bold))
+                            Text(telemetry.badgeLabel)
+                                .font(.system(size: 10, weight: .heavy))
+                        }
+                        .foregroundStyle(telemetryBadgeColor(telemetry.tier))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3.5)
+                        .background(telemetryBadgeColor(telemetry.tier).opacity(0.14), in: Capsule())
+                        .overlay(Capsule().strokeBorder(telemetryBadgeColor(telemetry.tier).opacity(0.35), lineWidth: 0.8))
                     }
-                    Text(verbText)
-                        .font(.system(size: isArmed ? 22 : 20, weight: isArmed ? .bold : .semibold))
-                        .foregroundStyle(verbColor)
-                        .opacity(verbText == "WAIT" ? 0.62 : 1)
                 }
                 .frame(minHeight: 26, alignment: .leading)
                 .animation(.spring(response: 0.35, dampingFraction: 0.7), value: verbText)
-            }
 
-            Text(whyText)
-                .font(.system(size: 15, weight: .regular))
-                .foregroundStyle(DeskInk.slate)
-                .lineLimit(2)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(telemetry.telemetryHeadline)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(DeskInk.ink)
+                        .lineLimit(1)
+                    Text(telemetry.telemetryDetail)
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(DeskInk.slate)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 .frame(maxWidth: .infinity, minHeight: 38, alignment: .topLeading)
-                .animation(.easeInOut(duration: 0.25), value: whyText)
+                .padding(.top, 2)
+
+                HStack(spacing: 6) {
+                    Image(systemName: "shield.lefthalf.filled")
+                        .font(.system(size: 9, weight: .bold))
+                    Text(telemetry.stakeGuidance)
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                }
+                .foregroundStyle(telemetryBadgeColor(telemetry.tier).opacity(0.9))
+                .padding(.bottom, 2)
+            }
 
             Text(strikeText)
                 .font(.system(size: 13, weight: .medium, design: .monospaced))
@@ -593,6 +636,84 @@ struct DeskScreen: View {
         case "TAP HIGH", "HIGH ACTIVE": return DeskInk.emerald
         case "TAP LOW", "LOW ACTIVE":  return DeskInk.coral
         default:                        return DeskInk.slate
+        }
+    }
+
+    // MARK: - Multi-Pair Radar & Telemetry Helpers
+
+    @ViewBuilder
+    private var radarLeaderBar: some View {
+        if let leader = model.radarLeader, leader.asset != model.pair {
+            Button {
+                DeskHaptics.tabSwitch()
+                model.select(pair: leader.asset)
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "scope")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(DeskInk.electric)
+                    Text("RADAR LEADER:")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(DeskInk.slate)
+                    Text(leader.asset)
+                        .font(.system(size: 11, weight: .heavy, design: .monospaced))
+                        .foregroundStyle(DeskInk.ink)
+                    Text("Score \(leader.score)")
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .foregroundStyle(leader.score >= 70 ? DeskInk.emerald : DeskInk.electric)
+                    if leader.side == "HIGH" || leader.side == "LOW" {
+                        Text(leader.side == "HIGH" ? "CALL" : "PUT")
+                            .font(.system(size: 8, weight: .heavy))
+                            .foregroundStyle(leader.side == "HIGH" ? DeskInk.emerald : DeskInk.coral)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background((leader.side == "HIGH" ? DeskInk.emerald : DeskInk.coral).opacity(0.16), in: RoundedRectangle(cornerRadius: 3))
+                    }
+                    Spacer()
+                    HStack(spacing: 2) {
+                        Text("Switch")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(DeskInk.electric)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 7, weight: .bold))
+                            .foregroundStyle(DeskInk.electric)
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(DeskInk.surface)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .strokeBorder(DeskInk.electric.opacity(0.35), lineWidth: 0.8)
+                        )
+                )
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 20)
+            .padding(.top, 4)
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+
+    private func telemetryBadgeColor(_ tier: StalkingTelemetry.Tier) -> Color {
+        switch tier {
+        case .apexPrime: return DeskInk.emerald
+        case .tacticalProbe: return DeskInk.electric
+        case .stalkingSetup: return DeskInk.violet
+        case .capitalShield: return DeskInk.slate
+        case .safetyBrake, .pairWarning: return DeskInk.coral
+        }
+    }
+
+    private func telemetryIcon(_ tier: StalkingTelemetry.Tier) -> String {
+        switch tier {
+        case .apexPrime: return "bolt.fill"
+        case .tacticalProbe: return "scope"
+        case .stalkingSetup: return "binoculars.fill"
+        case .capitalShield: return "shield.fill"
+        case .safetyBrake, .pairWarning: return "exclamationmark.shield.fill"
         }
     }
 }

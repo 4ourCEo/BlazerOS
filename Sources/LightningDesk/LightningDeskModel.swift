@@ -52,6 +52,51 @@ public final class LightningDeskModel: ObservableObject {
     @Published var credentialSaveFailed = false
     /// Voice coach session for the open replay. One active session at a time.
     @Published var voiceSession = VoiceSession()
+    /// Count of low-edge/chop traps actively avoided during session.
+    @Published public private(set) var trapsAvoidedCount: Int = 0
+
+    /// The current leader across all scanned pairs based on conviction and score.
+    public var radarLeader: (asset: String, score: Int, side: String)? {
+        var topAsset: String?
+        var topScore: Int = -1
+        var topSide: String = "WAIT"
+
+        for p in pairs {
+            if let commit = commitsByAsset[p] {
+                let score = commit.score
+                let side = cabinetSideByAsset[p] ?? "WAIT"
+                let isActionable = side == "HIGH" || side == "LOW"
+                let currentIsActionable = topSide == "HIGH" || topSide == "LOW"
+                if (isActionable && !currentIsActionable) || (isActionable == currentIsActionable && score > topScore) {
+                    topScore = score
+                    topAsset = p
+                    topSide = side
+                }
+            }
+        }
+        guard let topAsset, topScore >= 0 else { return nil }
+        return (topAsset, topScore, topSide)
+    }
+
+    /// Evaluates rich stalking telemetry for the currently selected pair.
+    public var stalkingTelemetry: StalkingTelemetry {
+        guard let commit else {
+            return StalkingTelemetry.evaluate(
+                asset: pair,
+                score: 0,
+                side: "WAIT",
+                evidence: "Awaiting scan",
+                veto: nil
+            )
+        }
+        return StalkingTelemetry.evaluate(
+            asset: pair,
+            score: commit.score,
+            side: cabinetSide,
+            evidence: commit.evidence,
+            veto: commit.veto
+        )
+    }
 
     private let persistence: PersistenceCoordinator
     private var session: OandaSession?
@@ -275,6 +320,9 @@ public final class LightningDeskModel: ObservableObject {
                     let assetCommit = ScanKernel.commit(from: signal, bars: bars, scannedAt: started)
                     commitsByAsset[asset] = assetCommit
                     rows[index] = BookRow(asset: asset, side: signal.cabinetSide)
+                    if signal.cabinetSide == "WAIT" {
+                        trapsAvoidedCount += 1
+                    }
                 }
             } catch {
                 let message = error.localizedDescription
