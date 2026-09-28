@@ -17,3 +17,19 @@ public struct ScanIntent: AppIntent {
         return .result()
     }
 }
+
+public struct BlazerShortcuts: AppShortcutsProvider {
+    public static var appShortcuts: [AppShortcut] {
+        AppShortcut(
+            intent: ScanIntent(),
+            phrases: [
+                "Scan with \(.applicationName)",
+                "Start \(.applicationName) scan",
+                "Scan watchlist in \(.applicationName)"
+            ],
+            shortTitle: "Scan",
+            systemImageName: "bolt.fill"
+        )
+    }
+}
+

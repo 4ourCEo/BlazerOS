@@ -552,6 +552,22 @@ public final class LightningDeskModel: ObservableObject {
         voiceSession.cancel()
     }
 
+    /// Ask the coach about the latest recorded scan without opening a replay modal.
+    public func askCoachLatest() {
+        guard let entry = journal.first else { return }
+        askCoach(for: entry)
+    }
+
+    /// Save a spoken voice note to a journal entry.
+    public func saveVoiceNote(_ transcript: String, for entryID: String) async {
+        let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let note = VoiceNote(transcript: trimmed, createdAt: Date())
+        try? await persistence.annotate(entryID: entryID, voiceNote: note)
+        await reloadFromDisk()
+    }
+
+
     private func explainReplay(_ id: String) async {
         guard let entry = journal.first(where: { $0.id == id }) else { return }
         let brief = CoachBrief(
@@ -645,9 +661,14 @@ public final class LightningDeskModel: ObservableObject {
             fingerprint: entry.fingerprint,
             candles: bars,
             scannedAt: entry.scannedAt,
+            voiceNote: entry.voiceNote,
+            tag: entry.tag,
+            emotion: entry.emotion,
+            lesson: entry.lesson,
             outcome: entry.outcome
         )
     }
+
 
     private func publishFrame() {
         guard let commit else {
@@ -725,6 +746,10 @@ struct ReplayEntry: Identifiable, Equatable {
     var fingerprint: String
     var candles: [Candle]
     var scannedAt: Date
+    var voiceNote: VoiceNote?
+    var tag: Tag?
+    var emotion: Emotion?
+    var lesson: Lesson?
     var outcome: String?
 }
 

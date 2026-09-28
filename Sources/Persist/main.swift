@@ -24,6 +24,7 @@ struct PersistCheck {
         await malformedSnapshot(check)
         await relaunch(check)
         await malformedJournal(check)
+        await voiceNoteAndJournalAnnotation(check)
         await cloudSecurityGate(check)
         await cloudSyncRoundTrip(check)
         await cloudLedgerIdempotency(check)
@@ -266,6 +267,45 @@ struct PersistCheck {
             check("journal upsert keeps both entries", saved.map(\.id) == ["arm-7", "arm-8"], saved.map(\.id).joined(separator: ","))
         } catch {
             check("malformed journal keeps the valid entry", false, error.localizedDescription)
+        }
+    }
+
+    @MainActor
+    private static func voiceNoteAndJournalAnnotation(_ check: @MainActor (String, Bool, String) -> Void) async {
+        let root = makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let coord = PersistenceCoordinator(root: root)
+        let entry = sampleEntry(id: "arm-vn-1", hash: "F9813E3C")
+        let snapshot = sampleSnapshot(hash: "F9813E3C")
+
+        do {
+            try await coord.recordScan(entry, snapshot: snapshot)
+            let note = VoiceNote(transcript: "Clean high wick rejection at 1.17350.", createdAt: Date())
+            let tag = Tag(label: "KeyLevelBreak")
+            let emotion = Emotion(name: "Calm")
+            let lesson = Lesson(text: "Patience on the 8s beam paid off.")
+            try await coord.annotate(entryID: entry.id, voiceNote: note, tag: tag, emotion: emotion, lesson: lesson)
+
+            // Simulate app relaunch
+            let relaunchCoord = PersistenceCoordinator(root: root)
+            let restored = await relaunchCoord.restore()
+            let recovered = restored.entries.first(where: { $0.id == entry.id })
+
+            check(
+                "voice note survives app relaunch",
+                recovered?.voiceNote?.transcript == "Clean high wick rejection at 1.17350.",
+                recovered?.voiceNote?.transcript ?? "nil"
+            )
+            check(
+                "tags and lessons survive app relaunch",
+                recovered?.tag?.label == "KeyLevelBreak"
+                    && recovered?.emotion?.name == "Calm"
+                    && recovered?.lesson?.text == "Patience on the 8s beam paid off.",
+                recovered?.lesson?.text ?? "nil"
+            )
+        } catch {
+            check("voice note survives app relaunch", false, error.localizedDescription)
+            check("tags and lessons survive app relaunch", false, error.localizedDescription)
         }
     }
 

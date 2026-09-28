@@ -42,6 +42,13 @@ struct CoachScreen: View {
                                 .foregroundStyle(DeskInk.slate)
                             CoachCard(explanation: explanation)
                         }
+
+                        VoiceCoachButton(
+                            voiceSession: model.voiceSession,
+                            title: "Ask Coach about Scan",
+                            onAsk: { model.askCoachLatest() },
+                            onStop: { model.stopVoice() }
+                        )
                     }
 
                     CoachPrinciplesCard()

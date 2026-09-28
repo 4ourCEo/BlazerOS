@@ -120,6 +120,21 @@ struct JournalRowCard: View {
                     .padding(.vertical, 4)
                     .background(DeskInk.coral.opacity(0.12), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
             }
+
+            if let voiceNote = entry.voiceNote, !voiceNote.transcript.isEmpty {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(DeskInk.violet)
+                    Text(voiceNote.transcript)
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(DeskInk.violet.opacity(0.95))
+                        .lineLimit(2)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(DeskInk.violet.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)

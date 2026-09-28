@@ -62,6 +62,24 @@ public actor PersistenceCoordinator {
         try await journal.save(entries)
     }
 
+    /// Attaches voice notes, tags, emotions, or lessons to a journal entry.
+    public func annotate(
+        entryID: String,
+        voiceNote: VoiceNote? = nil,
+        tag: Tag? = nil,
+        emotion: Emotion? = nil,
+        lesson: Lesson? = nil
+    ) async throws {
+        var entries = try await journal.load()
+        guard let index = entries.firstIndex(where: { $0.id == entryID }) else { return }
+        if let voiceNote { entries[index].voiceNote = voiceNote }
+        if let tag { entries[index].tag = tag }
+        if let emotion { entries[index].emotion = emotion }
+        if let lesson { entries[index].lesson = lesson }
+        try await journal.save(entries)
+    }
+
+
     /// Appends one ledger row and stamps the journal. A second call does not append.
     @discardableResult
     public func settle(armID: String, row: LedgerRow, snapshot: SnapshotRecord) async throws -> Bool {

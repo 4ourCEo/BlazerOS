@@ -39,7 +39,7 @@ These stay off CloudKit and out of every document this layer writes:
 | M3 | Apple Intelligence surfaces | Voice, Siri, journal speech, Dynamic Island |
 | M4 | TestFlight RC | Polish, soak tests, release |
 
-M0 through M2.1 are complete and verified across both macOS and iOS (iPhone 16). CloudKit document sync is sealed in Persist. M3 (Apple Intelligence) is next.
+M0 through M3 are complete and verified across both macOS and iOS (iPhone 16). CloudKit document sync is sealed in Persist. M4 (TestFlight RC) is next.
 
 ## M0 — Foundation
 
@@ -144,13 +144,12 @@ Verifies Debug build, Release build, and executes all `BlazerTests` (`DeskLayout
 
 A milestone is complete only when the report includes: files changed, debug build, release build, tests added, tests passing, manual verification, and remaining blockers.
 
-M1.2, M1.3, M1.4, M1.5, M2, and M2.1 are sealed:
+M1.2, M1.3, M1.4, M1.5, M2, M2.1, and M3 are sealed:
 
 - `swift run -c release Parity`: 43/43 PASS
-- `swift run -c release Persist`: 39/39 PASS (includes 12 CloudKit tests)
+- `swift run -c release Persist`: 41/41 PASS (includes 12 CloudKit tests + 2 voice note tests)
 - `iPhone/build-iphone16.sh`: Debug SUCCEEDED, Release SUCCEEDED, 6/6 iPhone 16 tests PASS
 
 ## Next implementation order
 
-1. M3 — Apple Intelligence surfaces (Voice, Siri, journal speech notes)
-2. M4 — TestFlight RC (Polish, soak tests, release)
+1. M4 — TestFlight RC (Polish, soak tests, release)
