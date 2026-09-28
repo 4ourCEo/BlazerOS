@@ -4,42 +4,27 @@ import SwiftUI
 struct MarketsScreen: View {
     @ObservedObject var model: LightningDeskModel
 
+    private let columns = [
+        GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible(), spacing: 10)
+    ]
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Markets")
-                        .font(.system(size: 28, weight: .semibold))
-                        .foregroundStyle(DeskInk.ink)
-                    Text("Watchlist · 6 Core Pairs")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(DeskInk.slate)
-                }
-                Spacer()
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(feedColor)
-                        .frame(width: 6, height: 6)
-                    Text(feedWord)
-                        .font(.system(size: 11, weight: .semibold))
-                        .tracking(1.0)
-                        .foregroundStyle(feedColor)
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(DeskInk.surface, in: Capsule())
-                .overlay(Capsule().strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5))
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 14)
+        VStack(alignment: .leading, spacing: 12) {
+            header
+                .padding(.horizontal, 20)
+                .padding(.top, 14)
 
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 10) {
+                LazyVGrid(columns: columns, spacing: 10) {
                     ForEach(model.pairs, id: \.self) { pair in
-                        MarketPairCard(
+                        MarketTacticalTile(
                             pair: pair,
                             isSelected: pair == model.pair,
-                            side: model.side(for: pair) ?? "WAIT"
+                            score: model.score(for: pair),
+                            side: model.side(for: pair) ?? "WAIT",
+                            strike: model.strike(for: pair),
+                            candles: model.candles(for: pair)
                         ) {
                             DeskHaptics.tabSwitch()
                             model.selectAndNavigate(pair: pair)
@@ -49,6 +34,34 @@ struct MarketsScreen: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 24)
             }
+        }
+    }
+
+    private var header: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Markets")
+                    .font(.system(size: 28, weight: .semibold))
+                    .foregroundStyle(DeskInk.ink)
+                Text("Tactical Matrix · 6 Core Pairs")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(DeskInk.slate)
+            }
+            Spacer()
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(feedColor)
+                    .frame(width: 6, height: 6)
+                    .shadow(color: feedColor.opacity(0.8), radius: 3)
+                Text(feedWord)
+                    .font(.system(size: 11, weight: .semibold))
+                    .tracking(1.0)
+                    .foregroundStyle(feedColor)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(DeskInk.surface, in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5))
         }
     }
 
@@ -63,87 +76,179 @@ struct MarketsScreen: View {
     }
 }
 
-struct MarketPairCard: View {
+// MARK: - Tactical Matrix Tile
+
+struct MarketTacticalTile: View {
     let pair: String
     let isSelected: Bool
+    let score: Int?
     let side: String
+    let strike: Double?
+    let candles: [Candle]
     let action: () -> Void
 
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 14) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        Text(pair)
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(DeskInk.ink)
-                        if isSelected {
-                            Text("DESK")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(DeskInk.indigo)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(DeskInk.indigo.opacity(0.18), in: Capsule())
-                        }
-                    }
-                    Text(pairDescription(pair))
-                        .font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(DeskInk.slate.opacity(0.8))
-                }
-
-                Spacer()
-
-                Text(sideBadgeText(side))
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(sideColor(side))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(sideColor(side).opacity(0.14), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(DeskInk.slate.opacity(0.5))
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .background(DeskInk.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(
-                        isSelected ? DeskInk.indigo.opacity(0.4) : Color.white.opacity(0.06),
-                        lineWidth: isSelected ? 1.0 : 0.5
-                    )
-            )
-        }
-        .buttonStyle(SpringPressButtonStyle())
-        .accessibilityLabel("\(pair) \(side)")
+    private var isHighConviction: Bool {
+        (score ?? 0) >= 70 && (side == "HIGH" || side == "LOW")
     }
 
-    private func pairDescription(_ pair: String) -> String {
-        switch pair {
-        case "EUR/USD": return "Euro / US Dollar"
-        case "GBP/USD": return "British Pound / US Dollar"
-        case "USD/JPY": return "US Dollar / Japanese Yen"
-        case "AUD/USD": return "Australian Dollar / US Dollar"
-        case "USD/CAD": return "US Dollar / Canadian Dollar"
-        case "NZD/USD": return "New Zealand Dollar / US Dollar"
-        default: return "Foreign Exchange"
-        }
-    }
-
-    private func sideBadgeText(_ side: String) -> String {
-        switch side {
-        case "HIGH": return "TAP HIGH"
-        case "LOW":  return "TAP LOW"
-        default:     return side
-        }
-    }
-
-    private func sideColor(_ side: String) -> Color {
+    private var tint: Color {
         switch side {
         case "HIGH": return DeskInk.emerald
         case "LOW":  return DeskInk.coral
-        default:     return DeskInk.slate
+        default:     return isSelected ? DeskInk.electric : DeskInk.slate
+        }
+    }
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 8) {
+                // Top Row: Pair & Desk status
+                HStack(alignment: .center) {
+                    Text(pair)
+                        .font(.system(size: 15, weight: .bold, design: .monospaced))
+                        .foregroundStyle(DeskInk.ink)
+
+                    Spacer()
+
+                    if isSelected {
+                        Text("DESK")
+                            .font(.system(size: 9, weight: .heavy))
+                            .foregroundStyle(DeskInk.electric)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(DeskInk.electric.opacity(0.18), in: Capsule())
+                    } else if isHighConviction {
+                        Circle()
+                            .fill(tint)
+                            .frame(width: 6, height: 6)
+                            .shadow(color: tint.opacity(0.9), radius: 3)
+                    }
+                }
+
+                // Middle Row: Radial Score Arc + Micro Sparkline
+                HStack(spacing: 8) {
+                    scoreGauge
+                    sparklineView
+                        .frame(height: 38)
+                        .frame(maxWidth: .infinity)
+                }
+
+                // Bottom Row: Directional Badge & Strike
+                HStack(alignment: .center) {
+                    HStack(spacing: 3) {
+                        if side == "HIGH" {
+                            Image(systemName: "arrow.up.right")
+                                .font(.system(size: 9, weight: .bold))
+                        } else if side == "LOW" {
+                            Image(systemName: "arrow.down.right")
+                                .font(.system(size: 9, weight: .bold))
+                        }
+                        Text(sideBadgeText)
+                            .font(.system(size: 10, weight: .bold))
+                    }
+                    .foregroundStyle(tint)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+
+                    Spacer()
+
+                    if let s = strike {
+                        Text(PriceFormat.px(s))
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundStyle(DeskInk.slate.opacity(0.8))
+                            .monospacedDigit()
+                    }
+                }
+            }
+            .padding(12)
+            .frame(height: 126)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(DeskInk.surface)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(
+                        isSelected ? DeskInk.electric.opacity(0.5) : (isHighConviction ? tint.opacity(0.4) : Color.white.opacity(0.06)),
+                        lineWidth: isSelected || isHighConviction ? 1.0 : 0.5
+                    )
+            )
+            .shadow(
+                color: isHighConviction ? tint.opacity(0.12) : Color.black.opacity(0.2),
+                radius: isHighConviction ? 8 : 4,
+                y: 2
+            )
+        }
+        .buttonStyle(SpringPressButtonStyle())
+        .accessibilityLabel("\(pair) score \(score ?? 0) \(side)")
+    }
+
+    private var scoreGauge: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.white.opacity(0.08), lineWidth: 3)
+                .frame(width: 38, height: 38)
+
+            let fraction = Double(min(100, max(0, score ?? 0))) / 100.0
+            Circle()
+                .trim(from: 0, to: CGFloat(fraction))
+                .stroke(
+                    LinearGradient(
+                        colors: [tint.opacity(0.6), tint],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    style: StrokeStyle(lineWidth: 3, lineCap: .round)
+                )
+                .rotationEffect(.degrees(-90))
+                .frame(width: 38, height: 38)
+
+            Text("\(score ?? 0)")
+                .font(.system(size: 12, weight: .bold, design: .monospaced))
+                .foregroundStyle(DeskInk.ink)
+                .monospacedDigit()
+        }
+    }
+
+    private var sparklineView: some View {
+        GeometryReader { geo in
+            let bars = Array(candles.suffix(14))
+            if bars.count >= 2 {
+                let closes = bars.map(\.close)
+                let minC = closes.min() ?? 0
+                let maxC = closes.max() ?? 1
+                let span = max(maxC - minC, 0.00001)
+
+                Path { path in
+                    for (index, val) in closes.enumerated() {
+                        let x = CGFloat(index) / CGFloat(closes.count - 1) * geo.size.width
+                        let y = geo.size.height - (CGFloat((val - minC) / span) * (geo.size.height - 4) + 2)
+                        if index == 0 {
+                            path.move(to: CGPoint(x: x, y: y))
+                        } else {
+                            path.addLine(to: CGPoint(x: x, y: y))
+                        }
+                    }
+                }
+                .stroke(tint.opacity(0.7), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+            } else {
+                HStack {
+                    Spacer()
+                    Text("—")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(DeskInk.slate.opacity(0.4))
+                    Spacer()
+                }
+            }
+        }
+    }
+
+    private var sideBadgeText: String {
+        switch side {
+        case "HIGH": return "HIGH"
+        case "LOW":  return "LOW"
+        default:     return "WAIT"
         }
     }
 }

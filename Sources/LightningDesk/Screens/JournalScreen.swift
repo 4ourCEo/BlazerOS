@@ -161,12 +161,34 @@ struct PerformanceAnalyticsCard: View {
     let misses: Int
     let journal: [ReplayEntry]
 
+    @State private var stakeAmount: Double = 25.0
+
     private var totalSettled: Int { hits + misses }
     private var winRate: Double {
         totalSettled > 0 ? (Double(hits) / Double(totalSettled)) * 100.0 : 0
     }
     private var edgeVsBreakeven: Double {
         winRate - 54.05
+    }
+
+    private var netDollarPnL: Double {
+        let winProfit = Double(hits) * (stakeAmount * 0.85)
+        let lossAmount = Double(misses) * stakeAmount
+        return winProfit - lossAmount
+    }
+
+    private var currentStreak: (count: Int, isHit: Bool)? {
+        guard !recentOutcomes.isEmpty else { return nil }
+        let firstIsHit = recentOutcomes[0] == "HIT"
+        var streak = 0
+        for item in recentOutcomes {
+            if (item == "HIT") == firstIsHit {
+                streak += 1
+            } else {
+                break
+            }
+        }
+        return (streak, firstIsHit)
     }
 
     private var pairStats: [(pair: String, hits: Int, total: Int, rate: Int)] {
@@ -193,7 +215,7 @@ struct PerformanceAnalyticsCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            // Header
+            // Header: Win Rate & Edge
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("EDGE ANALYTICS")
@@ -208,17 +230,79 @@ struct PerformanceAnalyticsCard: View {
 
                 Spacer()
 
-                HStack(spacing: 4) {
-                    Image(systemName: edgeVsBreakeven >= 0 ? "arrow.up.right" : "arrow.down.right")
-                        .font(.system(size: 11, weight: .bold))
-                    Text(String(format: "%+.1f%% Edge", edgeVsBreakeven))
-                        .font(.system(size: 11, weight: .bold))
+                HStack(spacing: 6) {
+                    if let streak = currentStreak, streak.count >= 2 {
+                        HStack(spacing: 3) {
+                            Text(streak.isHit ? "🔥" : "⚠️")
+                                .font(.system(size: 10))
+                            Text("\(streak.count) \(streak.isHit ? "HIT" : "MISS")")
+                                .font(.system(size: 10, weight: .heavy))
+                        }
+                        .foregroundStyle(streak.isHit ? DeskInk.emerald : DeskInk.coral)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background((streak.isHit ? DeskInk.emerald : DeskInk.coral).opacity(0.16), in: Capsule())
+                    }
+
+                    HStack(spacing: 4) {
+                        Image(systemName: edgeVsBreakeven >= 0 ? "arrow.up.right" : "arrow.down.right")
+                            .font(.system(size: 11, weight: .bold))
+                        Text(String(format: "%+.1f%% Edge", edgeVsBreakeven))
+                            .font(.system(size: 11, weight: .bold))
+                    }
+                    .foregroundStyle(edgeVsBreakeven >= 0 ? DeskInk.emerald : DeskInk.coral)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background((edgeVsBreakeven >= 0 ? DeskInk.emerald : DeskInk.coral).opacity(0.14), in: Capsule())
                 }
-                .foregroundStyle(edgeVsBreakeven >= 0 ? DeskInk.emerald : DeskInk.coral)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background((edgeVsBreakeven >= 0 ? DeskInk.emerald : DeskInk.coral).opacity(0.14), in: Capsule())
             }
+
+            // Stake & Net PnL Bar
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("EST. NET P&L (85% PO)")
+                        .font(.system(size: 9, weight: .bold))
+                        .tracking(0.8)
+                        .foregroundStyle(DeskInk.slate.opacity(0.7))
+
+                    Text(String(format: "%@$%.2f", netDollarPnL >= 0 ? "+" : "", netDollarPnL))
+                        .font(.system(size: 16, weight: .heavy, design: .monospaced))
+                        .foregroundStyle(netDollarPnL >= 0 ? DeskInk.emerald : DeskInk.coral)
+                }
+
+                Spacer()
+
+                HStack(spacing: 4) {
+                    ForEach([10.0, 25.0, 50.0, 100.0], id: \.self) { amount in
+                        Button {
+                            withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
+                                stakeAmount = amount
+                            }
+                            DeskHaptics.tabSwitch()
+                        } label: {
+                            Text("$\(Int(amount))")
+                                .font(.system(size: 10, weight: stakeAmount == amount ? .bold : .medium))
+                                .foregroundStyle(stakeAmount == amount ? DeskInk.ink : DeskInk.slate)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background(
+                                    stakeAmount == amount ? DeskInk.indigo.opacity(0.3) : Color.white.opacity(0.04),
+                                    in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                        .strokeBorder(
+                                            stakeAmount == amount ? DeskInk.electric.opacity(0.5) : Color.clear,
+                                            lineWidth: 0.75
+                                        )
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .padding(10)
+            .background(Color.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
 
             // Dual-tone Win/Loss Progress Meter
             VStack(spacing: 6) {

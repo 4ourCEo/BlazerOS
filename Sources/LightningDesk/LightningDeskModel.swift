@@ -147,6 +147,18 @@ public final class LightningDeskModel: ObservableObject {
         book.first(where: { $0.asset == asset })?.side ?? cabinetSideByAsset[asset]
     }
 
+    public func score(for asset: String) -> Int? {
+        commitsByAsset[asset]?.score
+    }
+
+    public func candles(for asset: String) -> [Candle] {
+        candlesByAsset[asset] ?? []
+    }
+
+    public func strike(for asset: String) -> Double? {
+        commitsByAsset[asset]?.strike
+    }
+
     /// Fetches recent completed M1 candles from OANDA with in-flight deduplication and TTL caching.
     public func loadCandles(for asset: String, force: Bool = false) async {
         if !force, let cached = candlesByAsset[asset], !cached.isEmpty,
