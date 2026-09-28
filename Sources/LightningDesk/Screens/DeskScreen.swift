@@ -4,6 +4,7 @@ import SwiftUI
 struct DeskScreen: View {
     @ObservedObject var model: LightningDeskModel
     var reduceMotion: Bool
+    @State private var showingPrimeSchedule = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -28,31 +29,59 @@ struct DeskScreen: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 12)
         }
+        .sheet(isPresented: $showingPrimeSchedule) {
+            PrimeScheduleSheet()
+        }
     }
 
     private var sessionPill: some View {
         let edgeWindow = MarketEdgeWindow.current()
         let isOpen = FxSession.isOpen()
 
-        return HStack(spacing: 6) {
-            Circle()
-                .fill(edgeWindow.isPrime ? DeskInk.emerald : (isOpen ? DeskInk.slate : DeskInk.coral))
-                .frame(width: 6, height: 6)
-                .shadow(color: (edgeWindow.isPrime ? DeskInk.emerald : DeskInk.slate).opacity(0.8), radius: 3)
+        return Button {
+            DeskHaptics.tabSwitch()
+            showingPrimeSchedule = true
+        } label: {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(edgeWindow.isPrime ? DeskInk.emerald : (isOpen ? DeskInk.violet : DeskInk.coral))
+                    .frame(width: 6, height: 6)
+                    .shadow(color: (edgeWindow.isPrime ? DeskInk.emerald : DeskInk.violet).opacity(0.8), radius: 3)
 
-            Text(edgeWindow.isPrime ? "⚡ \(edgeWindow.badgeTitle)" : FxSession.activeSessionName())
-                .font(.system(size: 10, weight: .bold))
-                .tracking(1.1)
-                .foregroundStyle(edgeWindow.isPrime ? DeskInk.emerald : DeskInk.slate)
+                Text(edgeWindow.isPrime ? "⚡ \(edgeWindow.badgeTitle)" : "⚡ OFF-PEAK · \(FxSession.activeSessionName())")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(1.0)
+                    .foregroundStyle(edgeWindow.isPrime ? DeskInk.emerald : DeskInk.slate)
 
-            Spacer()
+                Spacer()
 
-            Text(edgeWindow.detailText)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(edgeWindow.isPrime ? DeskInk.emerald : DeskInk.slate.opacity(0.75))
+                HStack(spacing: 4) {
+                    Text(edgeWindow.detailText)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(edgeWindow.isPrime ? DeskInk.emerald : DeskInk.slate.opacity(0.85))
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(edgeWindow.isPrime ? DeskInk.emerald.opacity(0.8) : DeskInk.slate.opacity(0.5))
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                Capsule()
+                    .fill(edgeWindow.isPrime ? DeskInk.emerald.opacity(0.12) : Color.white.opacity(0.04))
+            )
+            .overlay(
+                Capsule()
+                    .strokeBorder(
+                        edgeWindow.isPrime ? DeskInk.emerald.opacity(0.35) : Color.white.opacity(0.07),
+                        lineWidth: 0.8
+                    )
+            )
         }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 2)
+        .buttonStyle(.plain)
+        .accessibilityLabel(edgeWindow.isPrime ? "Prime window active" : "Off-peak session")
+        .accessibilityHint("Tap to view Pacific Time prime window schedule and alert settings")
     }
 
     private var hero: some View {
