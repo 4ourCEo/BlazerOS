@@ -14,15 +14,13 @@ struct CredentialCover: View {
                         .font(.system(size: 28, weight: .semibold))
                         .foregroundStyle(DeskInk.ink)
                     Spacer()
-                    if model.keychainState != .missing {
-                        Button("Close") {
-                            model.showingCredentials = false
-                        }
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(DeskInk.slate)
-                        .frame(minHeight: 44)
-                        .buttonStyle(.plain)
+                    Button("Close") {
+                        model.showingCredentials = false
                     }
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(DeskInk.slate)
+                    .frame(minHeight: 44)
+                    .buttonStyle(.plain)
                 }
 
                 Text("Saved in the Keychain on this device only.")
@@ -42,9 +40,17 @@ struct CredentialCover: View {
                     .background(DeskInk.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .foregroundStyle(DeskInk.ink)
 
-                HStack(spacing: 10) {
-                    environmentChoice(.practice, title: "Practice")
-                    environmentChoice(.live, title: "Live")
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 10) {
+                        environmentChoice(.practice, title: "Practice")
+                        environmentChoice(.live, title: "Live")
+                    }
+
+                    Text(model.draftEnvironment == .practice
+                        ? "Practice connects to OANDA fxpractice (demo account)."
+                        : "Live connects to OANDA fxtrade (real funded account).")
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundStyle(DeskInk.slate)
                 }
 
                 if model.credentialSaveFailed {
@@ -64,7 +70,7 @@ struct CredentialCover: View {
                         model.showingCredentials = false
                     }
                 } label: {
-                    Text("Continue")
+                    Text("Connect Account")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(DeskInk.ink)
                         .frame(maxWidth: .infinity)
@@ -77,7 +83,20 @@ struct CredentialCover: View {
                 .buttonStyle(.plain)
                 .disabled(model.draftToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     || model.draftAccount.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .padding(.top, 8)
+                .padding(.top, 4)
+
+                Button {
+                    model.loadDemoDesk()
+                    model.showingCredentials = false
+                } label: {
+                    Text("Explore Demo Desk (Simulated)")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(DeskInk.electric)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                        .background(DeskInk.surface, in: Capsule())
+                }
+                .buttonStyle(.plain)
 
                 Spacer()
             }
@@ -88,18 +107,29 @@ struct CredentialCover: View {
     }
 
     private func environmentChoice(_ choice: OandaEnvironment, title: String) -> some View {
-        Button {
+        let isSelected = model.draftEnvironment == choice
+        return Button {
+            DeskHaptics.tabSwitch()
             model.draftEnvironment = choice
         } label: {
-            Text(title)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(model.draftEnvironment == choice ? DeskInk.ink : DeskInk.slate)
-                .frame(maxWidth: .infinity)
-                .frame(height: 44)
-                .background(
-                    (model.draftEnvironment == choice ? DeskInk.indigo.opacity(0.45) : DeskInk.surface),
-                    in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-                )
+            HStack(spacing: 8) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(isSelected ? DeskInk.electric : DeskInk.slate.opacity(0.6))
+                Text(title)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(isSelected ? DeskInk.ink : DeskInk.slate)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 46)
+            .background(
+                (isSelected ? DeskInk.indigo.opacity(0.4) : DeskInk.surface),
+                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(isSelected ? DeskInk.electric.opacity(0.7) : Color.clear, lineWidth: 1.5)
+            )
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)

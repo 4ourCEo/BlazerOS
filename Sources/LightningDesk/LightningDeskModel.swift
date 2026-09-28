@@ -111,6 +111,30 @@ public final class LightningDeskModel: ObservableObject {
         activeTab = .desk
     }
 
+    /// Populates the desk with sample market candles from the golden fixture for offline testing.
+    public func loadDemoDesk() {
+        let fixture = GoldenFixture.market()
+        let bars = GoldenFixture.frozenBars(from: fixture)
+        candles = bars
+        candlesByAsset[pair] = bars
+        candlesFetchedAt[pair] = Date()
+        let signal = EngineSignal(
+            asset: pair,
+            cabinetSide: "WAIT",
+            call: "WAIT",
+            why: "Demo desk active. Connect OANDA in settings for live broker feed.",
+            price: fixture.lastPrice,
+            entryPrice: fixture.lastPrice
+        )
+        let demoCommit = ScanKernel.commit(from: signal, bars: bars, scannedAt: Date())
+        commit = demoCommit
+        cabinetSide = "WAIT"
+        commitsByAsset[pair] = demoCommit
+        cabinetSideByAsset[pair] = "WAIT"
+        notice = "Demo Desk (Offline)"
+        publishFrame()
+    }
+
     public func side(for asset: String) -> String? {
         book.first(where: { $0.asset == asset })?.side ?? cabinetSideByAsset[asset]
     }
