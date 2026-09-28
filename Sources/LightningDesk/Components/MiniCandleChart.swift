@@ -8,6 +8,8 @@ struct MiniCandleChart: View, Equatable {
     var side: String? = nil
     var pair: String? = nil
 
+    @State private var scrubbedIndex: Int? = nil
+
     static nonisolated func == (lhs: MiniCandleChart, rhs: MiniCandleChart) -> Bool {
         lhs.candles == rhs.candles
             && lhs.strike == rhs.strike
@@ -59,21 +61,116 @@ struct MiniCandleChart: View, Equatable {
         let minP = rawMin - pad
         let span = maxP - minP
 
-        return ZStack(alignment: .topTrailing) {
-            gridLines
-            CandleCanvas(
-                bars: bars,
-                minP: minP,
-                span: span,
-                strike: strike,
-                currentPrice: currentPrice,
-                side: side,
-                pair: pair
+        return GeometryReader { geo in
+            let width = geo.size.width
+            let count = bars.count
+            let spacing: CGFloat = 3.5
+            let totalSpacing = spacing * CGFloat(count - 1)
+            let candleWidth = max(2.5, min(8.0, (width - totalSpacing) / CGFloat(count)))
+            let effectiveWidth = (candleWidth + spacing) * CGFloat(count) - spacing
+            let xOffset = max(0, width - effectiveWidth)
+
+            ZStack(alignment: .top) {
+                gridLines
+
+                CandleCanvas(
+                    bars: bars,
+                    minP: minP,
+                    span: span,
+                    strike: strike,
+                    currentPrice: currentPrice,
+                    side: side,
+                    pair: pair,
+                    scrubbedIndex: scrubbedIndex
+                )
+
+                // High / Low boundary labels on right edge
+                priceLabels(high: rawMax, low: rawMin)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .opacity(scrubbedIndex == nil ? 1.0 : 0.2)
+                    .animation(.easeInOut(duration: 0.15), value: scrubbedIndex)
+
+                // Floating OHLC Telemetry HUD when scrubbing
+                if let idx = scrubbedIndex, idx >= 0, idx < bars.count {
+                    let bar = bars[idx]
+                    scrubPill(for: bar)
+                        .transition(.asymmetric(
+                            insertion: .opacity.combined(with: .scale(scale: 0.94)),
+                            removal: .opacity
+                        ))
+                }
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        let touchX = value.location.x
+                        let relativeX = touchX - xOffset
+                        let rawIndex = Int(round((relativeX - candleWidth / 2) / (candleWidth + spacing)))
+                        let clamped = max(0, min(count - 1, rawIndex))
+                        if clamped != scrubbedIndex {
+                            scrubbedIndex = clamped
+                            DeskHaptics.scrubTick()
+                        }
+                    }
+                    .onEnded { _ in
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                            scrubbedIndex = nil
+                        }
+                    }
             )
-            priceLabels(high: rawMax, low: rawMin)
         }
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .accessibilityLabel("Completed candles")
+        .accessibilityLabel("Interactive candle chart")
+        .accessibilityHint("Drag horizontally to scrub historical prices")
+    }
+
+    private func scrubPill(for bar: Candle) -> some View {
+        HStack(spacing: 7) {
+            Group {
+                Text("O")
+                    .foregroundStyle(DeskInk.slate.opacity(0.8))
+                + Text(" \(PriceFormat.px(bar.bodyOpen))")
+                    .foregroundStyle(DeskInk.ink)
+            }
+            .font(.system(size: 9.5, weight: .medium, design: .monospaced))
+
+            Group {
+                Text("H")
+                    .foregroundStyle(DeskInk.slate.opacity(0.8))
+                + Text(" \(PriceFormat.px(bar.bodyHigh))")
+                    .foregroundStyle(DeskInk.ink)
+            }
+            .font(.system(size: 9.5, weight: .medium, design: .monospaced))
+
+            Group {
+                Text("L")
+                    .foregroundStyle(DeskInk.slate.opacity(0.8))
+                + Text(" \(PriceFormat.px(bar.bodyLow))")
+                    .foregroundStyle(DeskInk.ink)
+            }
+            .font(.system(size: 9.5, weight: .medium, design: .monospaced))
+
+            Group {
+                Text("C")
+                    .foregroundStyle(DeskInk.slate.opacity(0.8))
+                + Text(" \(PriceFormat.px(bar.close))")
+                    .foregroundStyle(bar.isUp ? DeskInk.emerald : DeskInk.coral)
+            }
+            .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 4.5)
+        .background(
+            Capsule()
+                .fill(DeskInk.surface.opacity(0.94))
+        )
+        .overlay(
+            Capsule()
+                .strokeBorder(Color.white.opacity(0.14), lineWidth: 0.8)
+        )
+        .shadow(color: Color.black.opacity(0.4), radius: 6, y: 2)
+        .padding(.top, 4)
     }
 
     private var gridLines: some View {
@@ -110,6 +207,7 @@ struct CandleCanvas: View {
     var currentPrice: Double? = nil
     var side: String? = nil
     var pair: String? = nil
+    var scrubbedIndex: Int? = nil
 
     var body: some View {
         Canvas { context, size in
@@ -219,6 +317,33 @@ struct CandleCanvas: View {
                 // Glow halo
                 context.fill(diamond, with: .color(beaconTint))
                 context.stroke(diamond, with: .color(Color.white.opacity(0.9)), lineWidth: 0.75)
+            }
+
+            // Scrub Crosshair Cursor & Highlighted Close Beacon
+            if let idx = scrubbedIndex, idx >= 0, idx < count {
+                let sBar = bars[idx]
+                let scx = xOffset + CGFloat(idx) * (candleWidth + spacing) + candleWidth / 2
+
+                // Vertical laser cursor
+                var crosshair = Path()
+                crosshair.move(to: CGPoint(x: scx, y: 0))
+                crosshair.addLine(to: CGPoint(x: scx, y: height))
+                context.stroke(
+                    crosshair,
+                    with: .color(Color.white.opacity(0.38)),
+                    style: StrokeStyle(lineWidth: 1.0, dash: [4, 3])
+                )
+
+                // Glowing beacon on bar close
+                let cFrac = CGFloat((sBar.close - minP) / span)
+                let cY = max(4, min(height - 4, height - (cFrac * height)))
+                let dotRect = CGRect(x: scx - 3.5, y: cY - 3.5, width: 7, height: 7)
+                let haloRect = CGRect(x: scx - 6.5, y: cY - 6.5, width: 13, height: 13)
+
+                let tint = sBar.isUp ? DeskInk.emerald : DeskInk.coral
+                context.fill(Path(ellipseIn: haloRect), with: .color(tint.opacity(0.3)))
+                context.fill(Path(ellipseIn: dotRect), with: .color(tint))
+                context.stroke(Path(ellipseIn: dotRect), with: .color(Color.white), lineWidth: 1.0)
             }
         }
     }

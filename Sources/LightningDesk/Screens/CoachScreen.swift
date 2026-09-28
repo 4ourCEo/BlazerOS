@@ -51,6 +51,7 @@ struct CoachScreen: View {
                         )
                     }
 
+                    CoachVoiceDebriefCard(model: model)
                     CoachPrinciplesCard()
                     CoachContractCard()
                 }
@@ -58,6 +59,40 @@ struct CoachScreen: View {
                 .padding(.bottom, 24)
             }
         }
+    }
+}
+
+struct CoachVoiceDebriefCard: View {
+    @ObservedObject var model: LightningDeskModel
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: model.voiceDebriefEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                .font(.system(size: 18))
+                .foregroundStyle(model.voiceDebriefEnabled ? DeskInk.violet : DeskInk.slate)
+                .frame(width: 28)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Spoken Trade Debrief")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(DeskInk.ink)
+                Text(model.voiceDebriefEnabled ? "Audio debriefing as binary positions settle" : "Voice announcements muted")
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(DeskInk.slate)
+            }
+
+            Spacer()
+
+            Toggle("", isOn: $model.voiceDebriefEnabled)
+                .labelsHidden()
+                .tint(DeskInk.violet)
+        }
+        .padding(14)
+        .background(DeskInk.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.06), lineWidth: 0.5)
+        )
     }
 }
 

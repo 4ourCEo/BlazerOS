@@ -58,6 +58,12 @@ public final class VoiceSession: NSObject, ObservableObject {
         state = .idle
     }
 
+    /// Announce a debriefing or settlement message aloud.
+    public func speakAnnouncement(_ text: String) {
+        cancel()
+        speak(text)
+    }
+
     // MARK: - Permission
 
     private func requestPermissionsAndListen(
@@ -265,5 +271,6 @@ public final class VoiceSession: ObservableObject {
     public init() {}
     public func start(seal: ParitySeal, evidence: String, using service: FoundationCoachService) {}
     public func cancel() {}
+    public func speakAnnouncement(_ text: String) {}
 }
 #endif

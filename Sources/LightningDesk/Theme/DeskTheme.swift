@@ -49,6 +49,14 @@ enum DeskHaptics {
         #endif
     }
 
+    static func scrubTick() {
+        #if os(macOS)
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+        #elseif os(iOS)
+        UISelectionFeedbackGenerator().selectionChanged()
+        #endif
+    }
+
     static func tradeLocked() {
         #if os(macOS)
         NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)

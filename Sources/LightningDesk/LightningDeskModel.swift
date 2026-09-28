@@ -52,6 +52,12 @@ public final class LightningDeskModel: ObservableObject {
     @Published var credentialSaveFailed = false
     /// Voice coach session for the open replay. One active session at a time.
     @Published var voiceSession = VoiceSession()
+    /// Whether spoken audio debriefing plays when a 60s binary position expires.
+    @Published public var voiceDebriefEnabled: Bool = UserDefaults.standard.object(forKey: "blazer.voice_debrief_enabled") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(voiceDebriefEnabled, forKey: "blazer.voice_debrief_enabled")
+        }
+    }
     /// Count of low-edge/chop traps actively avoided during session.
     @Published public private(set) var trapsAvoidedCount: Int = 0
 
@@ -606,6 +612,14 @@ public final class LightningDeskModel: ObservableObject {
         activeTrade = nil
         awaitingOutcome = true
         DeskHaptics.settleAlert()
+
+        if voiceDebriefEnabled {
+            let announcement = isWin
+                ? "Position settled in the money on \(trade.pair)."
+                : "Position settled out of the money on \(trade.pair). Capital preservation active."
+            voiceSession.speakAnnouncement(announcement)
+        }
+
         publishFrame()
     }
 
