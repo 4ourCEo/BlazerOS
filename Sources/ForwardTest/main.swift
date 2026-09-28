@@ -448,6 +448,33 @@ final class ForwardTestRunner {
             print("  \(Dashboard.red)\(Dashboard.bold)RESULT: EDGE NOT CONFIRMED (< 60%)\(Dashboard.reset)")
         }
     }
+
+    func printStats() async {
+        let root = FileLocations.applicationSupport()
+        let ledger = LedgerStore(root: root)
+        let rows = (try? await ledger.rows()) ?? []
+        print("\n\(Dashboard.bold)\(Dashboard.cyan)========================================================================\(Dashboard.reset)")
+        print("\(Dashboard.bold)\(Dashboard.cyan)       BLAZER OS // LIVE FORWARD-TEST LEDGER AUDIT                      \(Dashboard.reset)")
+        print("\(Dashboard.bold)\(Dashboard.cyan)========================================================================\(Dashboard.reset)")
+        print(" \(Dashboard.gray)Storage:\(Dashboard.reset) \(FileLocations.ledgerCSV(in: root).path)")
+        print(" \(Dashboard.gray)Total Recorded Trades:\(Dashboard.reset) \(rows.count)")
+
+        let hits = rows.filter { $0.outcome == "HIT" }.count
+        let misses = rows.filter { $0.outcome == "MISS" }.count
+        let winRate = rows.count > 0 ? (Double(hits) / Double(rows.count)) * 100 : 0.0
+        let color = winRate >= 60.0 ? Dashboard.green : (rows.count >= 5 ? Dashboard.red : Dashboard.yellow)
+
+        print("  Hits: \(Dashboard.green)\(hits)\(Dashboard.reset)   Misses: \(Dashboard.red)\(misses)\(Dashboard.reset)   Win Rate: \(color)\(Dashboard.bold)\(String(format: "%.1f%%", winRate))\(Dashboard.reset)")
+        print("\(Dashboard.gray)------------------------------------------------------------------------\(Dashboard.reset)")
+        print("\(Dashboard.bold) RECENT TRADES:\(Dashboard.reset)")
+        let formatter = ISO8601DateFormatter()
+        for row in rows.suffix(10).reversed() {
+            let mark = row.outcome == "HIT" ? "\(Dashboard.green)\(Dashboard.bold)HIT \(Dashboard.reset)" : "\(Dashboard.red)\(Dashboard.bold)MISS\(Dashboard.reset)"
+            let drift = String(format: "%+.1f", row.drift)
+            print("  \(formatter.string(from: row.timestamp))  \(row.pair.padding(toLength: 8, withPad: " ", startingAt: 0))  \(row.side.padding(toLength: 8, withPad: " ", startingAt: 0))  \(drift)p  \(mark)")
+        }
+        print("\(Dashboard.bold)\(Dashboard.cyan)========================================================================\(Dashboard.reset)\n")
+    }
 }
 
 // MARK: - Entry Point
@@ -458,6 +485,11 @@ struct ForwardTestApp {
         let args = CommandLine.arguments
 
         let runner = ForwardTestRunner()
+
+        if args.contains("--stats") || args.contains("-s") {
+            await runner.printStats()
+            return
+        }
 
         if args.contains("--benchmark") || args.contains("-b") {
             let count = 100
