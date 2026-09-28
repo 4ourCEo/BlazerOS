@@ -119,6 +119,66 @@ public struct DeskFrame: Sendable, Equatable {
     }
 }
 
+/// An executed 60-second binary options trade horizon.
+public struct ActiveTrade: Sendable, Equatable, Identifiable {
+    public var id: String
+    public var pair: String
+    public var side: String
+    public var strike: Double
+    public var score: Int
+    public var enteredAt: Date
+    public var expiresAt: Date
+    public var durationSec: Double
+    public var currentPrice: Double?
+    public var fingerprint: String
+
+    public init(
+        id: String,
+        pair: String,
+        side: String,
+        strike: Double,
+        score: Int,
+        enteredAt: Date = Date(),
+        durationSec: Double = 60.0,
+        currentPrice: Double? = nil,
+        fingerprint: String
+    ) {
+        self.id = id
+        self.pair = pair
+        self.side = side
+        self.strike = strike
+        self.score = score
+        self.enteredAt = enteredAt
+        self.expiresAt = enteredAt.addingTimeInterval(durationSec)
+        self.durationSec = durationSec
+        self.currentPrice = currentPrice
+        self.fingerprint = fingerprint
+    }
+
+    public var remainingMs: Double {
+        max(0, expiresAt.timeIntervalSince(Date()) * 1000)
+    }
+
+    public var isExpired: Bool {
+        remainingMs <= 0
+    }
+
+    public var pipDiff: Double? {
+        guard let currentPrice else { return nil }
+        let pip = pair.uppercased().contains("JPY") ? 0.01 : 0.0001
+        if side == "HIGH" {
+            return (currentPrice - strike) / pip
+        } else {
+            return (strike - currentPrice) / pip
+        }
+    }
+
+    public var isInTheMoney: Bool? {
+        guard let pipDiff else { return nil }
+        return pipDiff > 0
+    }
+}
+
 /// Spoken note attached to a fingerprint. Tags are annotations. They are not scan inputs.
 public struct JournalTags: Sendable, Equatable, Codable {
     public var emotion: String

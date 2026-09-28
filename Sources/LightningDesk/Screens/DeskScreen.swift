@@ -7,12 +7,16 @@ struct DeskScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            sessionPill
+                .padding(.horizontal, 20)
+                .padding(.top, 4)
+
             hero
                 .padding(.horizontal, 20)
-                .padding(.top, 14)
+                .padding(.top, 8)
                 .offset(y: reduceMotion ? 0 : model.heroLift)
 
-            Spacer(minLength: 16)
+            Spacer(minLength: 12)
 
             ScanControl(
                 scanning: model.scanning,
@@ -24,6 +28,25 @@ struct DeskScreen: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 12)
         }
+    }
+
+    private var sessionPill: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(FxSession.isOpen() ? DeskInk.emerald : DeskInk.slate)
+                .frame(width: 6, height: 6)
+                .shadow(color: (FxSession.isOpen() ? DeskInk.emerald : DeskInk.slate).opacity(0.8), radius: 3)
+            Text(FxSession.activeSessionName())
+                .font(.system(size: 10, weight: .bold))
+                .tracking(1.2)
+                .foregroundStyle(DeskInk.slate)
+            Spacer()
+            Text(FxSession.label())
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(FxSession.isOpen() ? DeskInk.emerald : DeskInk.coral)
+        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 2)
     }
 
     private var hero: some View {
@@ -77,8 +100,8 @@ struct DeskScreen: View {
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .accessibilityElement(children: .contain)
         .onTapGesture {
-            if isArmed {
-                DeskHaptics.commit()
+            if model.activeTrade == nil && isArmed {
+                model.lockInTrade()
             }
         }
         .gesture(
@@ -134,10 +157,20 @@ struct DeskScreen: View {
         if model.scanning {
             return [DeskInk.violet.opacity(0.8), DeskInk.electric.opacity(0.25), .clear]
         }
+        if let trade = model.activeTrade {
+            if let isITM = trade.isInTheMoney {
+                return isITM
+                    ? [DeskInk.emerald.opacity(0.42), DeskInk.indigo.opacity(0.7), .clear]
+                    : [DeskInk.coral.opacity(0.40), DeskInk.indigo.opacity(0.7), .clear]
+            }
+            return trade.side == "HIGH"
+                ? [DeskInk.emerald.opacity(0.38), DeskInk.indigo.opacity(0.7), .clear]
+                : [DeskInk.coral.opacity(0.35), DeskInk.indigo.opacity(0.7), .clear]
+        }
         switch verbText {
-        case "TAP HIGH":
+        case "TAP HIGH", "HIGH ACTIVE":
             return [DeskInk.emerald.opacity(0.38), DeskInk.indigo.opacity(0.7), .clear]
-        case "TAP LOW":
+        case "TAP LOW", "LOW ACTIVE":
             return [DeskInk.coral.opacity(0.35), DeskInk.indigo.opacity(0.7), .clear]
         default:
             return [DeskInk.indigo.opacity(0.85), DeskInk.electric.opacity(0.12), .clear]
@@ -217,20 +250,48 @@ struct DeskScreen: View {
                 .frame(minHeight: 58, alignment: .leading)
                 .animation(.spring(response: 0.45, dampingFraction: 0.72), value: scoreText)
 
-            HStack(spacing: 8) {
-                if isArmed {
+            if let trade = model.activeTrade {
+                HStack(spacing: 8) {
                     Circle()
                         .fill(verbColor)
                         .frame(width: 8, height: 8)
                         .shadow(color: verbColor.opacity(0.9), radius: 4)
+
+                    Text(trade.side == "HIGH" ? "CALL · HIGH" : "PUT · LOW")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(verbColor)
+
+                    if let pip = trade.pipDiff {
+                        let isITM = pip > 0
+                        HStack(spacing: 3) {
+                            Image(systemName: isITM ? "arrow.up.right" : "arrow.down.right")
+                                .font(.system(size: 10, weight: .bold))
+                            Text(String(format: "%@%.1f pips", pip >= 0 ? "+" : "", pip))
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        }
+                        .foregroundStyle(isITM ? DeskInk.emerald : DeskInk.coral)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background((isITM ? DeskInk.emerald : DeskInk.coral).opacity(0.18), in: Capsule())
+                    }
                 }
-                Text(verbText)
-                    .font(.system(size: isArmed ? 22 : 20, weight: isArmed ? .bold : .semibold))
-                    .foregroundStyle(verbColor)
-                    .opacity(verbText == "WAIT" ? 0.62 : 1)
+                .frame(minHeight: 26, alignment: .leading)
+            } else {
+                HStack(spacing: 8) {
+                    if isArmed {
+                        Circle()
+                            .fill(verbColor)
+                            .frame(width: 8, height: 8)
+                            .shadow(color: verbColor.opacity(0.9), radius: 4)
+                    }
+                    Text(verbText)
+                        .font(.system(size: isArmed ? 22 : 20, weight: isArmed ? .bold : .semibold))
+                        .foregroundStyle(verbColor)
+                        .opacity(verbText == "WAIT" ? 0.62 : 1)
+                }
+                .frame(minHeight: 26, alignment: .leading)
+                .animation(.spring(response: 0.35, dampingFraction: 0.7), value: verbText)
             }
-            .frame(minHeight: 26, alignment: .leading)
-            .animation(.spring(response: 0.35, dampingFraction: 0.7), value: verbText)
 
             Text(whyText)
                 .font(.system(size: 15, weight: .regular))
@@ -244,12 +305,47 @@ struct DeskScreen: View {
                 .foregroundStyle(DeskInk.slate.opacity(0.85))
                 .monospacedDigit()
 
+            if model.activeTrade == nil && isArmed {
+                Button {
+                    model.lockInTrade()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "bolt.fill")
+                            .font(.system(size: 12, weight: .bold))
+                        Text("LOCK IN 60s POSITION")
+                            .font(.system(size: 13, weight: .bold))
+                        Spacer()
+                        Text("Tap to Enter")
+                            .font(.system(size: 11, weight: .medium))
+                            .opacity(0.8)
+                    }
+                    .foregroundStyle(verbColor)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(verbColor.opacity(0.14), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(verbColor.opacity(0.35), lineWidth: 0.75)
+                    )
+                }
+                .buttonStyle(SpringPressButtonStyle())
+                .padding(.top, 2)
+            }
+
             if model.awaitingOutcome {
                 HStack(spacing: 10) {
-                    outcomeChoice("HIT", tint: DeskInk.emerald) {
+                    outcomeChoice(
+                        model.predictedOutcome == .hit ? "HIT (WIN)" : "HIT",
+                        tint: DeskInk.emerald,
+                        isHighlighted: model.predictedOutcome == .hit
+                    ) {
                         Task { await model.settle(.hit) }
                     }
-                    outcomeChoice("MISS", tint: DeskInk.coral) {
+                    outcomeChoice(
+                        model.predictedOutcome == .miss ? "MISS (LOSS)" : "MISS",
+                        tint: DeskInk.coral,
+                        isHighlighted: model.predictedOutcome == .miss
+                    ) {
                         Task { await model.settle(.miss) }
                     }
                 }
@@ -258,17 +354,17 @@ struct DeskScreen: View {
         }
     }
 
-    private func outcomeChoice(_ title: String, tint: Color, action: @escaping () -> Void) -> some View {
+    private func outcomeChoice(_ title: String, tint: Color, isHighlighted: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(tint)
                 .frame(maxWidth: .infinity)
                 .frame(height: 42)
-                .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(tint.opacity(isHighlighted ? 0.25 : 0.14), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(tint.opacity(0.3), lineWidth: 0.75)
+                        .strokeBorder(tint.opacity(isHighlighted ? 0.9 : 0.3), lineWidth: isHighlighted ? 1.5 : 0.75)
                 )
         }
         .buttonStyle(SpringPressButtonStyle())
@@ -285,6 +381,7 @@ struct DeskScreen: View {
     }
 
     private var isArmed: Bool {
+        if model.activeTrade != nil { return true }
         guard let frame = model.frame else { return false }
         return frame.remainingMs > 0
     }
@@ -330,7 +427,7 @@ struct DeskScreen: View {
                 Spacer()
 
                 if isArmed {
-                    Text("ACTIVE WINDOW")
+                    Text(model.activeTrade != nil ? "60s BINARY HORIZON" : "ACTION WINDOW")
                         .font(.system(size: 9, weight: .bold))
                         .tracking(1.0)
                         .foregroundStyle(verbColor.opacity(0.8))
@@ -393,25 +490,39 @@ struct DeskScreen: View {
     }
 
     private var strikeText: String {
+        if let trade = model.activeTrade {
+            let pxMid = trade.currentPrice.map { " · Live \(PriceFormat.px($0))" } ?? ""
+            return "Strike \(PriceFormat.px(trade.strike))\(pxMid)"
+        }
         guard let frame = model.frame else { return "Strike —" }
         return "Strike \(PriceFormat.px(frame.strike))"
     }
 
     private var railFraction: CGFloat {
+        if let trade = model.activeTrade {
+            guard trade.durationSec > 0 else { return 0 }
+            return CGFloat(min(1, max(0, (trade.remainingMs / 1000.0) / trade.durationSec)))
+        }
         guard let frame = model.frame, Timing.liveMs > 0 else { return 0 }
         return CGFloat(min(1, max(0, frame.remainingMs / Timing.liveMs)))
     }
 
     private var railLabel: String {
+        if let trade = model.activeTrade {
+            return String(format: "%.1fs REMAINING", trade.remainingMs / 1000)
+        }
         guard let frame = model.frame, frame.remainingMs > 0 else { return " " }
-        return String(format: "%.1fs", frame.remainingMs / 1000)
+        return String(format: "%.1fs TO ENTER", frame.remainingMs / 1000)
     }
 
     private var verbColor: Color {
+        if let trade = model.activeTrade {
+            return trade.side == "HIGH" ? DeskInk.emerald : DeskInk.coral
+        }
         switch verbText {
-        case "TAP HIGH": return DeskInk.emerald
-        case "TAP LOW":  return DeskInk.coral
-        default:         return DeskInk.slate
+        case "TAP HIGH", "HIGH ACTIVE": return DeskInk.emerald
+        case "TAP LOW", "LOW ACTIVE":  return DeskInk.coral
+        default:                        return DeskInk.slate
         }
     }
 }

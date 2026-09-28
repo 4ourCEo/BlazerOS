@@ -10,7 +10,10 @@ struct BlazerOSPhoneApp: App {
         WindowGroup {
             LightningDeskView(model: model)
                 .onChange(of: model.frame) { _, next in
-                    LiveActivityController.shared.update(with: next)
+                    LiveActivityController.shared.update(with: next, trade: model.activeTrade)
+                }
+                .onChange(of: model.activeTrade) { _, trade in
+                    LiveActivityController.shared.update(with: model.frame, trade: trade)
                 }
         }
     }

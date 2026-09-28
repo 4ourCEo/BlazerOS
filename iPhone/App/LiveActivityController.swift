@@ -10,7 +10,7 @@ final class LiveActivityController {
     static let shared = LiveActivityController()
     private var currentActivity: Activity<DeskActivityAttributes>?
 
-    func update(with frame: DeskFrame?) {
+    func update(with frame: DeskFrame?, trade: ActiveTrade? = nil) {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
 
         guard let frame else {
@@ -18,9 +18,41 @@ final class LiveActivityController {
             return
         }
 
+        let isLiveTrade = trade != nil && !(trade?.isExpired ?? true)
         let isArmed = (frame.verb == "TAP HIGH" || frame.verb == "TAP LOW") && frame.remainingMs > 0
 
-        if isArmed {
+        if isLiveTrade, let trade {
+            let contentState = DeskActivityAttributes.ContentState(
+                verb: "\(trade.side) 60s",
+                endsAt: trade.expiresAt,
+                veto: nil
+            )
+
+            if let activity = currentActivity, activity.attributes.fingerprint == trade.fingerprint {
+                Task {
+                    await activity.update(
+                        ActivityContent(state: contentState, staleDate: trade.expiresAt)
+                    )
+                }
+            } else {
+                endCurrentActivity()
+                let attributes = DeskActivityAttributes(
+                    pair: trade.pair,
+                    score: trade.score,
+                    strike: trade.strike,
+                    fingerprint: trade.fingerprint
+                )
+                do {
+                    currentActivity = try Activity.request(
+                        attributes: attributes,
+                        content: ActivityContent(state: contentState, staleDate: trade.expiresAt),
+                        pushType: nil
+                    )
+                } catch {
+                    // Fail gracefully
+                }
+            }
+        } else if isArmed {
             let endsAt = Date().addingTimeInterval(max(0, frame.remainingMs / 1000.0))
             let contentState = DeskActivityAttributes.ContentState(
                 verb: frame.verb,

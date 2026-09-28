@@ -18,6 +18,10 @@ public final class LightningDeskModel: ObservableObject {
     @Published var book: [BookRow] = Assets.watchlist.map { BookRow(asset: $0, side: "—") }
     @Published var notice: String?
     @Published public private(set) var frame: DeskFrame?
+    /// Active 60-second binary trade execution. Nil when not in an active position.
+    @Published public private(set) var activeTrade: ActiveTrade?
+    /// Predicted outcome based on live price at trade expiry.
+    @Published public private(set) var predictedOutcome: DeskOutcome?
     /// Brand cover. Dismisses on a real LIVE feed, otherwise after a short beat. Never invents LIVE.
     @Published public var showingLaunch = true
     @Published var launchMarkLit = false
@@ -216,6 +220,8 @@ public final class LightningDeskModel: ObservableObject {
         armedAt = nil
         expired = false
         awaitingOutcome = false
+        activeTrade = nil
+        predictedOutcome = nil
         armID = nil
         candles = []
         notice = nil
@@ -357,6 +363,8 @@ public final class LightningDeskModel: ObservableObject {
         cabinetSide = "WAIT"
         armedAt = nil
         expired = false
+        activeTrade = nil
+        predictedOutcome = nil
         candles = []
         publishFrame()
     }
@@ -490,12 +498,51 @@ public final class LightningDeskModel: ObservableObject {
 
     private func beamLoop() async {
         while !Task.isCancelled {
-            if armedAt != nil {
+            if armedAt != nil || activeTrade != nil {
                 now = Date()
+                if let trade = activeTrade, trade.isExpired {
+                    handleTradeExpiry(trade)
+                }
                 publishFrame()
             }
             try? await Task.sleep(nanoseconds: 100_000_000)
         }
+    }
+
+    /// Locks in an active 60-second binary trade horizon on the armed setup.
+    public func lockInTrade() {
+        guard let commit, armedAt != nil || (frame?.verb == "TAP HIGH" || frame?.verb == "TAP LOW") else {
+            return
+        }
+        guard cabinetSide == "HIGH" || cabinetSide == "LOW" else { return }
+        let tradeID = armID ?? "\(commit.fingerprint)-\(Int(Date().timeIntervalSince1970 * 1000))"
+        armID = tradeID
+        let liveStrike = commit.strike
+        let trade = ActiveTrade(
+            id: tradeID,
+            pair: commit.asset,
+            side: cabinetSide,
+            strike: liveStrike,
+            score: commit.score,
+            enteredAt: Date(),
+            durationSec: 60.0,
+            currentPrice: quote?.mid ?? liveStrike,
+            fingerprint: commit.fingerprint
+        )
+        activeTrade = trade
+        armedAt = nil
+        DeskHaptics.tradeLocked()
+        publishFrame()
+    }
+
+    private func handleTradeExpiry(_ trade: ActiveTrade) {
+        let isWin = trade.isInTheMoney ?? false
+        predictedOutcome = isWin ? .hit : .miss
+        expired = true
+        activeTrade = nil
+        awaitingOutcome = true
+        DeskHaptics.settleAlert()
+        publishFrame()
     }
 
     private func refreshQuote() async {
@@ -525,7 +572,17 @@ public final class LightningDeskModel: ObservableObject {
             if QuoteFreshness.isFresh(fresh, now: clock) {
                 lastFreshPollAt = clock
             }
-            applyLiveVeto(quote: fresh)
+            if activeTrade != nil {
+                let wasITM = activeTrade?.isInTheMoney
+                activeTrade?.currentPrice = fresh.mid
+                if let wasITM, let isITM = activeTrade?.isInTheMoney, wasITM != isITM {
+                    if isITM {
+                        DeskHaptics.flipITM()
+                    }
+                }
+            } else {
+                applyLiveVeto(quote: fresh)
+            }
         }
         feed = FeedStatusResolver.resolve(
             marketOpen: true,
@@ -723,6 +780,21 @@ public final class LightningDeskModel: ObservableObject {
     private func publishFrame() {
         guard let commit else {
             frame = nil
+            return
+        }
+        if let trade = activeTrade {
+            let verb = "\(trade.side) ACTIVE"
+            frame = DeskFrame(
+                pair: trade.pair,
+                feed: feed,
+                score: trade.score,
+                why: commit.evidence,
+                strike: trade.strike,
+                verb: verb,
+                remainingMs: trade.remainingMs,
+                veto: nil,
+                fingerprint: trade.fingerprint
+            )
             return
         }
         if expired {

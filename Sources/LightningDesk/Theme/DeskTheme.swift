@@ -48,6 +48,30 @@ enum DeskHaptics {
         UISelectionFeedbackGenerator().selectionChanged()
         #endif
     }
+
+    static func tradeLocked() {
+        #if os(macOS)
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+        #elseif os(iOS)
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred(intensity: 0.95)
+        #endif
+    }
+
+    static func settleAlert() {
+        #if os(macOS)
+        NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+        #elseif os(iOS)
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        #endif
+    }
+
+    static func flipITM() {
+        #if os(macOS)
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+        #elseif os(iOS)
+        UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.6)
+        #endif
+    }
 }
 
 // MARK: - Safe Area Inset
