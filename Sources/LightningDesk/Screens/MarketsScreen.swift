@@ -87,6 +87,10 @@ struct MarketTacticalTile: View {
     let candles: [Candle]
     let action: () -> Void
 
+    private var conviction: MarketEdgeWindow.PairConviction {
+        MarketEdgeWindow.conviction(for: pair)
+    }
+
     private var isHighConviction: Bool {
         (score ?? 0) >= 70 && (side == "HIGH" || side == "LOW")
     }
@@ -103,10 +107,26 @@ struct MarketTacticalTile: View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 8) {
                 // Top Row: Pair & Desk status
-                HStack(alignment: .center) {
+                HStack(alignment: .center, spacing: 6) {
                     Text(pair)
                         .font(.system(size: 15, weight: .bold, design: .monospaced))
                         .foregroundStyle(DeskInk.ink)
+
+                    if case .edgeConfirmed = conviction {
+                        Text("EDGE")
+                            .font(.system(size: 8, weight: .heavy))
+                            .foregroundStyle(DeskInk.emerald)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1.5)
+                            .background(DeskInk.emerald.opacity(0.16), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    } else if case .chopRisk = conviction {
+                        Text("CHOP")
+                            .font(.system(size: 8, weight: .heavy))
+                            .foregroundStyle(DeskInk.coral)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1.5)
+                            .background(DeskInk.coral.opacity(0.16), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    }
 
                     Spacer()
 

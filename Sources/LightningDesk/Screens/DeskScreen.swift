@@ -31,19 +31,25 @@ struct DeskScreen: View {
     }
 
     private var sessionPill: some View {
-        HStack(spacing: 6) {
+        let edgeWindow = MarketEdgeWindow.current()
+        let isOpen = FxSession.isOpen()
+
+        return HStack(spacing: 6) {
             Circle()
-                .fill(FxSession.isOpen() ? DeskInk.emerald : DeskInk.slate)
+                .fill(edgeWindow.isPrime ? DeskInk.emerald : (isOpen ? DeskInk.slate : DeskInk.coral))
                 .frame(width: 6, height: 6)
-                .shadow(color: (FxSession.isOpen() ? DeskInk.emerald : DeskInk.slate).opacity(0.8), radius: 3)
-            Text(FxSession.activeSessionName())
+                .shadow(color: (edgeWindow.isPrime ? DeskInk.emerald : DeskInk.slate).opacity(0.8), radius: 3)
+
+            Text(edgeWindow.isPrime ? "⚡ \(edgeWindow.badgeTitle)" : FxSession.activeSessionName())
                 .font(.system(size: 10, weight: .bold))
-                .tracking(1.2)
-                .foregroundStyle(DeskInk.slate)
+                .tracking(1.1)
+                .foregroundStyle(edgeWindow.isPrime ? DeskInk.emerald : DeskInk.slate)
+
             Spacer()
-            Text(FxSession.label())
+
+            Text(edgeWindow.detailText)
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(FxSession.isOpen() ? DeskInk.emerald : DeskInk.coral)
+                .foregroundStyle(edgeWindow.isPrime ? DeskInk.emerald : DeskInk.slate.opacity(0.75))
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 2)

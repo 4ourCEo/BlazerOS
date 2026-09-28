@@ -272,7 +272,7 @@ final class ForwardTestRunner {
 
     // MARK: - Live Forward-Testing Loop (OANDA Feed)
 
-    func runLive(session: OandaSession) async {
+    func runLive(session: OandaSession, smartSchedule: Bool = false) async {
         let pairs = Assets.watchlist
         print("Starting live forward testing across \(pairs.count) pairs with OANDA...")
 
@@ -316,8 +316,24 @@ final class ForwardTestRunner {
             }
             activeArms = remainingArms
 
-            // 2. Scan pairs for newly completed candles
+            // 2. Smart-schedule check: pause arming during off-peak chop
+            let edgeWindow = MarketEdgeWindow.current(at: now)
+            if smartSchedule && !edgeWindow.isPrime {
+                Dashboard.render(
+                    mode: "LIVE OANDA STREAM (\(session.environment.rawValue.uppercased())) [DORMANT]",
+                    sessionText: "Off-peak lull · \(edgeWindow.detailText) · Sleeping...",
+                    activeArms: activeArms,
+                    settled: settledHistory
+                )
+                try? await Task.sleep(nanoseconds: 10_000_000_000) // Sleep 10s between checks
+                continue
+            }
+
+            // 3. Scan pairs for newly completed candles
             for pair in pairs {
+                if smartSchedule, case .chopRisk = MarketEdgeWindow.conviction(for: pair) {
+                    continue // Skip known chop-drag pairs in smart-schedule mode
+                }
                 do {
                     guard let bundle = try await OandaClient.fetchBundle(asset: pair, session: session) else {
                         continue
@@ -341,10 +357,17 @@ final class ForwardTestRunner {
                 }
             }
 
-            // 3. Render dashboard
+            // 4. Render dashboard
+            let modeTitle = smartSchedule
+                ? "LIVE OANDA STREAM (\(session.environment.rawValue.uppercased())) [SMART-SCHEDULE]"
+                : "LIVE OANDA STREAM (\(session.environment.rawValue.uppercased()))"
+            let sessionInfo = smartSchedule
+                ? "⚡ \(edgeWindow.badgeTitle) (\(edgeWindow.detailText))"
+                : "Account: \(session.accountId.prefix(7))..."
+
             Dashboard.render(
-                mode: "LIVE OANDA STREAM (\(session.environment.rawValue.uppercased()))",
-                sessionText: "Account: \(session.accountId.prefix(7))...",
+                mode: modeTitle,
+                sessionText: sessionInfo,
                 activeArms: activeArms,
                 settled: settledHistory
             )
@@ -533,10 +556,11 @@ struct ForwardTestApp {
         let gate = DeskCredentials.session(allowPrompt: true)
         switch gate {
         case .ready(let session):
+            let smartSchedule = args.contains("--smart-schedule") || args.contains("--prime-only")
             if args.contains("--replay") {
                 await runner.runBenchmark(targetSignals: 100)
             } else {
-                await runner.runLive(session: session)
+                await runner.runLive(session: session, smartSchedule: smartSchedule)
             }
         case .locked:
             print("\(Dashboard.red)Keychain item exists but is locked. Unlock keychain and retry.\(Dashboard.reset)")
