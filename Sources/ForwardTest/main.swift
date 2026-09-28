@@ -349,6 +349,12 @@ final class ForwardTestRunner {
                 settled: settledHistory
             )
 
+            // Auto-stop once 100-trade calibration benchmark is satisfied
+            if settledHistory.count >= 100 && activeArms.isEmpty && !CommandLine.arguments.contains("--continuous") {
+                printFinalReport()
+                break
+            }
+
             try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 second polling interval
         }
     }
