@@ -22,6 +22,10 @@ public final class LightningDeskModel: ObservableObject {
     @Published public private(set) var activeTrade: ActiveTrade?
     /// Predicted outcome based on live price at trade expiry.
     @Published public private(set) var predictedOutcome: DeskOutcome?
+    /// Live mid quote for telemetry and chart horizon.
+    public var currentPrice: Double? {
+        activeTrade?.currentPrice ?? quote?.mid
+    }
     /// Brand cover. Dismisses on a real LIVE feed, otherwise after a short beat. Never invents LIVE.
     @Published public var showingLaunch = true
     @Published var launchMarkLit = false

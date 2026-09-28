@@ -3,9 +3,17 @@ import SwiftUI
 
 struct MiniCandleChart: View, Equatable {
     var candles: [Candle]
+    var strike: Double? = nil
+    var currentPrice: Double? = nil
+    var side: String? = nil
+    var pair: String? = nil
 
     static nonisolated func == (lhs: MiniCandleChart, rhs: MiniCandleChart) -> Bool {
         lhs.candles == rhs.candles
+            && lhs.strike == rhs.strike
+            && lhs.currentPrice == rhs.currentPrice
+            && lhs.side == rhs.side
+            && lhs.pair == rhs.pair
     }
 
     private var bars: [Candle] {
@@ -39,17 +47,29 @@ struct MiniCandleChart: View, Equatable {
     }
 
     private func chartPlot(bars: [Candle]) -> some View {
-        let rawMax = bars.map(\.bodyHigh).max() ?? 1.0
-        let rawMin = bars.map(\.bodyLow).min() ?? 0.0
+        var values = bars.map(\.bodyHigh) + bars.map(\.bodyLow)
+        if let s = strike { values.append(s) }
+        if let cp = currentPrice { values.append(cp) }
+
+        let rawMax = values.max() ?? 1.0
+        let rawMin = values.min() ?? 0.0
         let rawSpan = max(rawMax - rawMin, 0.00002)
-        let pad = rawSpan * 0.08
+        let pad = rawSpan * 0.12
         let maxP = rawMax + pad
         let minP = rawMin - pad
         let span = maxP - minP
 
         return ZStack(alignment: .topTrailing) {
             gridLines
-            CandleCanvas(bars: bars, minP: minP, span: span)
+            CandleCanvas(
+                bars: bars,
+                minP: minP,
+                span: span,
+                strike: strike,
+                currentPrice: currentPrice,
+                side: side,
+                pair: pair
+            )
             priceLabels(high: rawMax, low: rawMin)
         }
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -86,6 +106,10 @@ struct CandleCanvas: View {
     let bars: [Candle]
     let minP: Double
     let span: Double
+    var strike: Double? = nil
+    var currentPrice: Double? = nil
+    var side: String? = nil
+    var pair: String? = nil
 
     var body: some View {
         Canvas { context, size in
@@ -123,8 +147,18 @@ struct CandleCanvas: View {
                 let bodyRect = CGRect(x: cx - candleWidth / 2, y: topBody, width: candleWidth, height: bodyHeight)
                 let roundedBody = Path(roundedRect: bodyRect, cornerRadius: 1.0)
                 context.fill(roundedBody, with: .color(tint))
+
+                // Highlight latest candle with glowing edge
+                if i == count - 1 {
+                    context.stroke(
+                        roundedBody,
+                        with: .color(Color.white.opacity(0.4)),
+                        lineWidth: 0.75
+                    )
+                }
             }
 
+            // Reference close dashed line on last bar
             if let lastBar = bars.last {
                 let closeFrac = CGFloat((lastBar.close - minP) / span)
                 let lastY = height - (closeFrac * height)
@@ -132,10 +166,59 @@ struct CandleCanvas: View {
                 var refLine = Path()
                 refLine.move(to: CGPoint(x: 0, y: lastY))
                 refLine.addLine(to: CGPoint(x: size.width, y: lastY))
-                context.stroke(refLine, with: .color(lastTint.opacity(0.35)), style: StrokeStyle(lineWidth: 0.75, dash: [4, 4]))
+                context.stroke(refLine, with: .color(lastTint.opacity(0.25)), style: StrokeStyle(lineWidth: 0.5, dash: [4, 4]))
+            }
 
-                let beaconRect = CGRect(x: size.width - 5, y: lastY - 2.5, width: 5, height: 5)
-                context.fill(Path(ellipseIn: beaconRect), with: .color(lastTint))
+            // Laser Strike Horizon
+            if let strikePrice = strike {
+                let strikeFrac = CGFloat((strikePrice - minP) / span)
+                let strikeY = max(2, min(height - 2, height - (strikeFrac * height)))
+
+                var strikeLine = Path()
+                strikeLine.move(to: CGPoint(x: 0, y: strikeY))
+                strikeLine.addLine(to: CGPoint(x: size.width, y: strikeY))
+
+                // Glowing strike laser
+                context.stroke(
+                    strikeLine,
+                    with: .color(DeskInk.electric.opacity(0.45)),
+                    style: StrokeStyle(lineWidth: 2.0)
+                )
+                context.stroke(
+                    strikeLine,
+                    with: .color(Color.white.opacity(0.85)),
+                    style: StrokeStyle(lineWidth: 1.0, dash: [6, 3])
+                )
+            }
+
+            // Live Quote Diamond Beacon & Pip Drift Tag
+            if let current = currentPrice {
+                let currentFrac = CGFloat((current - minP) / span)
+                let currentY = max(4, min(height - 4, height - (currentFrac * height)))
+                let beaconX = size.width - 8
+
+                let pipScale = (pair?.contains("JPY") == true || current > 50) ? 0.01 : 0.0001
+                let pipDiff = strike != nil ? (current - strike!) / pipScale : 0.0
+
+                let isITM: Bool
+                if let s = side {
+                    isITM = s == "HIGH" ? pipDiff > 0 : (s == "LOW" ? pipDiff < 0 : false)
+                } else {
+                    isITM = pipDiff >= 0
+                }
+                let beaconTint = isITM ? DeskInk.emerald : DeskInk.coral
+
+                // Diamond Path
+                var diamond = Path()
+                diamond.move(to: CGPoint(x: beaconX, y: currentY - 4))
+                diamond.addLine(to: CGPoint(x: beaconX + 4, y: currentY))
+                diamond.addLine(to: CGPoint(x: beaconX, y: currentY + 4))
+                diamond.addLine(to: CGPoint(x: beaconX - 4, y: currentY))
+                diamond.closeSubpath()
+
+                // Glow halo
+                context.fill(diamond, with: .color(beaconTint))
+                context.stroke(diamond, with: .color(Color.white.opacity(0.9)), lineWidth: 0.75)
             }
         }
     }

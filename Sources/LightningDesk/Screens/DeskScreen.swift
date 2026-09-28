@@ -52,10 +52,16 @@ struct DeskScreen: View {
     private var hero: some View {
         VStack(alignment: .leading, spacing: 14) {
             pairRow
-            MiniCandleChart(candles: model.candles)
-                .equatable()
-                .frame(height: 136)
-                .frame(maxWidth: .infinity)
+            MiniCandleChart(
+                candles: model.candles,
+                strike: model.activeTrade?.strike ?? (isArmed ? model.frame?.strike : nil),
+                currentPrice: model.currentPrice,
+                side: model.activeTrade?.side ?? model.side(for: model.pair),
+                pair: model.pair
+            )
+            .equatable()
+            .frame(height: 136)
+            .frame(maxWidth: .infinity)
             verdict
             if !model.book.isEmpty {
                 bookStrip
@@ -309,27 +315,50 @@ struct DeskScreen: View {
                 Button {
                     model.lockInTrade()
                 } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "bolt.fill")
-                            .font(.system(size: 12, weight: .bold))
-                        Text("LOCK IN 60s POSITION")
-                            .font(.system(size: 13, weight: .bold))
+                    HStack(spacing: 10) {
+                        ZStack {
+                            Circle()
+                                .fill(verbColor.opacity(0.25))
+                                .frame(width: 28, height: 28)
+                            Image(systemName: "bolt.fill")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(verbColor)
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("LOCK IN 60s POSITION")
+                                .font(.system(size: 13, weight: .bold))
+                                .tracking(0.6)
+                                .foregroundStyle(DeskInk.ink)
+                            Text("Anchors live strike · Tap before beam expires")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(DeskInk.slate)
+                        }
                         Spacer()
-                        Text("Tap to Enter")
-                            .font(.system(size: 11, weight: .medium))
-                            .opacity(0.8)
+                        Image(systemName: "chevron.right.2")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(verbColor)
                     }
-                    .foregroundStyle(verbColor)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(verbColor.opacity(0.14), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .strokeBorder(verbColor.opacity(0.35), lineWidth: 0.75)
+                    .padding(.horizontal, 14)
+                    .frame(height: 48)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(verbColor.opacity(0.12))
                     )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(
+                                LinearGradient(
+                                    colors: [verbColor.opacity(0.8), verbColor.opacity(0.2)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 1.0
+                            )
+                    )
+                    .shadow(color: verbColor.opacity(0.15), radius: 8, y: 2)
                 }
                 .buttonStyle(SpringPressButtonStyle())
-                .padding(.top, 2)
+                .padding(.top, 4)
             }
 
             if model.awaitingOutcome {
@@ -360,11 +389,11 @@ struct DeskScreen: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(tint)
                 .frame(maxWidth: .infinity)
-                .frame(height: 42)
-                .background(tint.opacity(isHighlighted ? 0.25 : 0.14), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .frame(height: 46)
+                .background(tint.opacity(isHighlighted ? 0.25 : 0.14), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(tint.opacity(isHighlighted ? 0.9 : 0.3), lineWidth: isHighlighted ? 1.5 : 0.75)
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(tint.opacity(isHighlighted ? 0.9 : 0.35), lineWidth: isHighlighted ? 1.5 : 0.75)
                 )
         }
         .buttonStyle(SpringPressButtonStyle())
@@ -402,35 +431,41 @@ struct DeskScreen: View {
                             )
                         )
                         .frame(width: fillWidth)
-                        .shadow(color: verbColor.opacity(0.5), radius: 4, y: 0)
+                        .shadow(color: verbColor.opacity(0.6), radius: 6, y: 0)
 
                     if fillWidth > 8 {
                         Circle()
                             .fill(Color.white)
-                            .frame(width: 5, height: 5)
-                            .shadow(color: .white, radius: 3)
-                            .offset(x: fillWidth - 5)
+                            .frame(width: 6, height: 6)
+                            .shadow(color: .white, radius: 4)
+                            .shadow(color: verbColor, radius: 6)
+                            .offset(x: fillWidth - 6)
                     }
                 }
             }
-            .frame(height: 5)
+            .frame(height: 6)
             .animation(reduceMotion ? nil : .linear(duration: 0.1), value: railFraction)
 
             HStack {
-                Text(railLabel)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(railFraction < 0.25 ? DeskInk.coral : DeskInk.slate)
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
-                    .frame(minHeight: 14, alignment: .leading)
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(railFraction < 0.25 ? DeskInk.coral : verbColor)
+                        .frame(width: 5, height: 5)
+                    Text(railLabel)
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(railFraction < 0.25 ? DeskInk.coral : DeskInk.ink)
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
+                }
+                .frame(minHeight: 14, alignment: .leading)
 
                 Spacer()
 
                 if isArmed {
                     Text(model.activeTrade != nil ? "60s BINARY HORIZON" : "ACTION WINDOW")
-                        .font(.system(size: 9, weight: .bold))
-                        .tracking(1.0)
-                        .foregroundStyle(verbColor.opacity(0.8))
+                        .font(.system(size: 9, weight: .heavy))
+                        .tracking(1.2)
+                        .foregroundStyle(verbColor)
                 }
             }
         }
