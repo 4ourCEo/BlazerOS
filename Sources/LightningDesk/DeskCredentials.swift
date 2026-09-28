@@ -4,19 +4,19 @@ import Security
 import BlazerCore
 
 /// Result of a keychain read. `locked` means the item exists and needs an Allow click.
-enum CredentialGate: Sendable {
+public enum CredentialGate: Sendable {
     case ready(OandaSession)
     case locked
     case missing
 }
 
 /// Device Keychain only. The token is never written into the desk model or a synced record.
-enum DeskCredentials {
+public enum DeskCredentials {
     private static let phoneService = "com.blazer.os.oanda"
     private static let macService = "com.blazer.mac.oanda"
 
     /// `allowPrompt` false returns immediately when macOS would otherwise wait on an Allow dialog.
-    static func session(allowPrompt: Bool) -> CredentialGate {
+    public static func session(allowPrompt: Bool) -> CredentialGate {
         switch read(service: phoneService, allowPrompt: allowPrompt) {
         case .ready(let session):
             return .ready(session)

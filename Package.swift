@@ -11,6 +11,7 @@ let package = Package(
         .library(name: "BlazerCore", targets: ["BlazerCore"]),
         .library(name: "LightningDesk", targets: ["LightningDesk"]),
         .executable(name: "BlazerOS", targets: ["BlazerOS"]),
+        .executable(name: "ForwardTest", targets: ["ForwardTest"]),
     ],
     targets: [
         .target(
@@ -55,6 +56,13 @@ let package = Package(
         ),
         .executableTarget(
             name: "Soak",
+            dependencies: ["BlazerCore", "LightningDesk"],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+            ]
+        ),
+        .executableTarget(
+            name: "ForwardTest",
             dependencies: ["BlazerCore", "LightningDesk"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
