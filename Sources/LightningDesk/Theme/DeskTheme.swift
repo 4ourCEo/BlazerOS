@@ -23,6 +23,7 @@ enum DeskInk {
 
 // MARK: - Haptics
 
+@MainActor
 enum DeskHaptics {
     static func commit() {
         #if os(macOS)
