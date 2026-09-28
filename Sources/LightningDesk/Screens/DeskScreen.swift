@@ -46,20 +46,41 @@ struct DeskScreen: View {
         .background(heroSurface)
         .overlay(alignment: .bottom) {
             if let blocked {
-                Text(blocked)
-                    .font(.system(size: 14, weight: .medium))
+                Button {
+                    Task { await model.scan() }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.shield.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text(vetoExplanation(blocked))
+                            .font(.system(size: 12, weight: .medium))
+                            .lineLimit(2)
+                        Spacer(minLength: 4)
+                        Text("Rescan")
+                            .font(.system(size: 11, weight: .bold))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(DeskInk.coral.opacity(0.18), in: Capsule())
+                    }
                     .foregroundStyle(DeskInk.coral)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
                     .background(DeskInk.surface.opacity(0.96))
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .padding(8)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                .buttonStyle(.plain)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .accessibilityElement(children: .contain)
+        .onTapGesture {
+            if isArmed {
+                DeskHaptics.commit()
+            }
+        }
         .gesture(
             DragGesture(minimumDistance: 30, coordinateSpace: .local)
                 .onEnded { value in
@@ -77,24 +98,50 @@ struct DeskScreen: View {
             .fill(DeskInk.surface)
             .overlay(alignment: .top) {
                 LinearGradient(
-                    colors: [DeskInk.indigo.opacity(0.85), DeskInk.electric.opacity(0.12), .clear],
+                    colors: ambientColors,
                     startPoint: .topLeading,
                     endPoint: .bottom
                 )
-                .frame(height: 180)
+                .frame(height: 200)
                 .mask(
                     LinearGradient(
-                        colors: [.black, .black.opacity(0.3), .clear],
+                        colors: [.black, .black.opacity(0.35), .clear],
                         startPoint: .top,
                         endPoint: .bottom
                     )
                 )
                 .allowsHitTesting(false)
+                .animation(.easeInOut(duration: 0.5), value: verbText)
             }
             .overlay(
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
+                    .strokeBorder(
+                        isArmed ? verbColor.opacity(0.4) : Color.white.opacity(0.08),
+                        lineWidth: isArmed ? 1.0 : 0.5
+                    )
+                    .animation(.easeInOut(duration: 0.35), value: isArmed)
             )
+            .shadow(
+                color: isArmed ? verbColor.opacity(0.2) : Color.black.opacity(0.25),
+                radius: isArmed ? 16 : 8,
+                x: 0,
+                y: isArmed ? 6 : 2
+            )
+            .animation(.easeInOut(duration: 0.35), value: isArmed)
+    }
+
+    private var ambientColors: [Color] {
+        if model.scanning {
+            return [DeskInk.violet.opacity(0.8), DeskInk.electric.opacity(0.25), .clear]
+        }
+        switch verbText {
+        case "TAP HIGH":
+            return [DeskInk.emerald.opacity(0.38), DeskInk.indigo.opacity(0.7), .clear]
+        case "TAP LOW":
+            return [DeskInk.coral.opacity(0.35), DeskInk.indigo.opacity(0.7), .clear]
+        default:
+            return [DeskInk.indigo.opacity(0.85), DeskInk.electric.opacity(0.12), .clear]
+        }
     }
 
     private var pairRow: some View {
@@ -107,6 +154,7 @@ struct DeskScreen: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(maxWidth: .infinity)
+                .animation(.spring(response: 0.3, dampingFraction: 0.75), value: model.pair)
 
             pairStep(systemName: "chevron.right", delta: 1)
 
@@ -123,7 +171,7 @@ struct DeskScreen: View {
                     .frame(width: 32, height: 32)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(SpringPressButtonStyle())
             .accessibilityLabel("Quote source settings")
         }
     }
@@ -138,7 +186,7 @@ struct DeskScreen: View {
                 .frame(width: 36, height: 36)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(SpringPressButtonStyle())
         .accessibilityLabel(delta < 0 ? "Previous pair" : "Next pair")
     }
 
@@ -147,6 +195,7 @@ struct DeskScreen: View {
             Circle()
                 .fill(feedColor)
                 .frame(width: 6, height: 6)
+                .shadow(color: feedColor.opacity(0.8), radius: 3)
             Text(feedWord)
                 .font(.system(size: 11, weight: .semibold))
                 .tracking(1.0)
@@ -164,17 +213,32 @@ struct DeskScreen: View {
                 .font(.system(size: 56, weight: .semibold))
                 .foregroundStyle(DeskInk.ink)
                 .monospacedDigit()
+                .contentTransition(.numericText())
                 .frame(minHeight: 58, alignment: .leading)
-            Text(verbText)
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(verbColor)
-                .opacity(verbText == "WAIT" ? 0.62 : 1)
-                .frame(minHeight: 24, alignment: .leading)
+                .animation(.spring(response: 0.45, dampingFraction: 0.72), value: scoreText)
+
+            HStack(spacing: 8) {
+                if isArmed {
+                    Circle()
+                        .fill(verbColor)
+                        .frame(width: 8, height: 8)
+                        .shadow(color: verbColor.opacity(0.9), radius: 4)
+                }
+                Text(verbText)
+                    .font(.system(size: isArmed ? 22 : 20, weight: isArmed ? .bold : .semibold))
+                    .foregroundStyle(verbColor)
+                    .opacity(verbText == "WAIT" ? 0.62 : 1)
+            }
+            .frame(minHeight: 26, alignment: .leading)
+            .animation(.spring(response: 0.35, dampingFraction: 0.7), value: verbText)
+
             Text(whyText)
                 .font(.system(size: 15, weight: .regular))
                 .foregroundStyle(DeskInk.slate)
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, minHeight: 38, alignment: .topLeading)
+                .animation(.easeInOut(duration: 0.25), value: whyText)
+
             Text(strikeText)
                 .font(.system(size: 13, weight: .medium, design: .monospaced))
                 .foregroundStyle(DeskInk.slate.opacity(0.85))
@@ -202,8 +266,12 @@ struct DeskScreen: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 42)
                 .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(tint.opacity(0.3), lineWidth: 0.75)
+                )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(SpringPressButtonStyle())
         .accessibilityLabel(title)
     }
 
@@ -224,20 +292,50 @@ struct DeskScreen: View {
     private var rail: some View {
         VStack(alignment: .leading, spacing: 6) {
             GeometryReader { geo in
+                let fillWidth = max(0, min(geo.size.width, geo.size.width * railFraction))
                 ZStack(alignment: .leading) {
                     Capsule().fill(Color.white.opacity(0.08))
+
                     Capsule()
-                        .fill(DeskInk.violet)
-                        .frame(width: max(0, min(geo.size.width, geo.size.width * railFraction)))
+                        .fill(
+                            LinearGradient(
+                                colors: [DeskInk.violet, DeskInk.electric, verbColor],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(width: fillWidth)
+                        .shadow(color: verbColor.opacity(0.5), radius: 4, y: 0)
+
+                    if fillWidth > 8 {
+                        Circle()
+                            .fill(Color.white)
+                            .frame(width: 5, height: 5)
+                            .shadow(color: .white, radius: 3)
+                            .offset(x: fillWidth - 5)
+                    }
                 }
             }
-            .frame(height: 4)
+            .frame(height: 5)
             .animation(reduceMotion ? nil : .linear(duration: 0.1), value: railFraction)
-            Text(railLabel)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(DeskInk.slate)
-                .monospacedDigit()
-                .frame(minHeight: 14, alignment: .leading)
+
+            HStack {
+                Text(railLabel)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(railFraction < 0.25 ? DeskInk.coral : DeskInk.slate)
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+                    .frame(minHeight: 14, alignment: .leading)
+
+                Spacer()
+
+                if isArmed {
+                    Text("ACTIVE WINDOW")
+                        .font(.system(size: 9, weight: .bold))
+                        .tracking(1.0)
+                        .foregroundStyle(verbColor.opacity(0.8))
+                }
+            }
         }
     }
 
@@ -283,6 +381,15 @@ struct DeskScreen: View {
     private var blocked: String? {
         guard let veto = model.frame?.veto, !veto.isEmpty else { return nil }
         return veto
+    }
+
+    private func vetoExplanation(_ veto: String) -> String {
+        switch veto {
+        case "Slippage":
+            return "Slippage Brake · Price drifted adversely. Rescan for fresh entry."
+        default:
+            return veto
+        }
     }
 
     private var strikeText: String {

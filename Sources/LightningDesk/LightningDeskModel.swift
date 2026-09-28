@@ -281,6 +281,28 @@ public final class LightningDeskModel: ObservableObject {
         if EngineIdentity.loadedSHA1() != EngineIdentity.pinnedSHA1 {
             next.veto = "Engine pin"
         }
+        if (side == "HIGH" || side == "LOW"), next.veto == nil {
+            let batch = await OandaClient.fetchQuoteBatch(assets: [picked.asset], session: session)
+            if batch.transport == .ok, let fresh = batch.quotes.first(where: { $0.asset == picked.asset }) {
+                next = ScanCommit(
+                    asset: next.asset,
+                    engineCall: next.engineCall,
+                    score: next.score,
+                    evidence: next.evidence,
+                    strike: fresh.mid,
+                    fingerprint: next.fingerprint,
+                    candleCount: next.candleCount,
+                    candles: next.candles,
+                    scannedAt: next.scannedAt,
+                    veto: next.veto,
+                    driftPips: next.driftPips
+                )
+                quote = fresh
+                if QuoteFreshness.isFresh(fresh, now: Date()) {
+                    lastFreshPollAt = Date()
+                }
+            }
+        }
         pair = picked.asset
         commit = next
         cabinetSide = side
@@ -477,6 +499,9 @@ public final class LightningDeskModel: ObservableObject {
     }
 
     private func refreshQuote() async {
+        if notice == "Demo Desk (Offline)" {
+            return
+        }
         let clock = Date()
         guard FxSession.isOpen(clock) else {
             feed = .disconnected
@@ -520,6 +545,7 @@ public final class LightningDeskModel: ObservableObject {
     private func applyLiveVeto(quote: LiveQuote) {
         guard var commit, commit.veto == nil else { return }
         guard cabinetSide == "HIGH" || cabinetSide == "LOW" else { return }
+        guard armedAt != nil else { return }
         guard let gate = StrategyEngine.slippageGate(
             asset: commit.asset,
             side: cabinetSide,

@@ -24,7 +24,7 @@ struct BookStripView: View, Equatable {
                 } label: {
                     BookCell(row: row, isSelected: row.asset == selectedPair)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(SpringPressButtonStyle())
             }
         }
         .accessibilityElement(children: .combine)
@@ -36,24 +36,53 @@ struct BookCell: View {
     let row: BookRow
     let isSelected: Bool
 
+    private var hasActionableSignal: Bool {
+        row.side == "HIGH" || row.side == "LOW"
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(row.asset)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(isSelected ? DeskInk.ink : DeskInk.slate)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 4) {
+                Text(row.asset)
+                    .font(.system(size: 11, weight: isSelected ? .bold : .medium))
+                    .foregroundStyle(isSelected ? DeskInk.ink : DeskInk.slate.opacity(0.8))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+
+                if hasActionableSignal {
+                    Circle()
+                        .fill(bookInk(row.side))
+                        .frame(width: 4, height: 4)
+                        .shadow(color: bookInk(row.side).opacity(0.8), radius: 3)
+                }
+            }
+
             Text(row.side)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 12, weight: isSelected ? .bold : .semibold))
                 .foregroundStyle(bookInk(row.side))
                 .lineLimit(1)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 5)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            isSelected ? Color.white.opacity(0.08) : Color.clear,
-            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(
+                    isSelected
+                        ? DeskInk.indigo.opacity(0.32)
+                        : Color.white.opacity(0.03)
+                )
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(
+                    isSelected
+                        ? DeskInk.electric.opacity(0.55)
+                        : (hasActionableSignal ? bookInk(row.side).opacity(0.25) : Color.white.opacity(0.05)),
+                    lineWidth: isSelected ? 1.0 : 0.5
+                )
+        )
+        .scaleEffect(isSelected ? 1.02 : 1.0)
+        .animation(.spring(response: 0.28, dampingFraction: 0.72), value: isSelected)
     }
 }

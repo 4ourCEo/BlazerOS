@@ -115,7 +115,7 @@ struct MarketPairCard: View {
                     )
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(SpringPressButtonStyle())
         .accessibilityLabel("\(pair) \(side)")
     }
 

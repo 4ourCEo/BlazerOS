@@ -13,11 +13,16 @@ struct MiniCandleChart: View, Equatable {
     }
 
     var body: some View {
-        if bars.isEmpty {
-            loadingState
-        } else {
-            chartPlot(bars: bars)
+        Group {
+            if bars.isEmpty {
+                loadingState
+                    .transition(.opacity)
+            } else {
+                chartPlot(bars: bars)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            }
         }
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: bars.count)
     }
 
     private var loadingState: some View {
@@ -123,10 +128,14 @@ struct CandleCanvas: View {
             if let lastBar = bars.last {
                 let closeFrac = CGFloat((lastBar.close - minP) / span)
                 let lastY = height - (closeFrac * height)
+                let lastTint = lastBar.isUp ? DeskInk.emerald : DeskInk.coral
                 var refLine = Path()
                 refLine.move(to: CGPoint(x: 0, y: lastY))
                 refLine.addLine(to: CGPoint(x: size.width, y: lastY))
-                context.stroke(refLine, with: .color(Color.white.opacity(0.12)), style: StrokeStyle(lineWidth: 0.5, dash: [4, 4]))
+                context.stroke(refLine, with: .color(lastTint.opacity(0.35)), style: StrokeStyle(lineWidth: 0.75, dash: [4, 4]))
+
+                let beaconRect = CGRect(x: size.width - 5, y: lastY - 2.5, width: 5, height: 5)
+                context.fill(Path(ellipseIn: beaconRect), with: .color(lastTint))
             }
         }
     }
