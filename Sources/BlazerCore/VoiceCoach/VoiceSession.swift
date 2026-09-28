@@ -99,28 +99,52 @@ public final class VoiceSession: NSObject, ObservableObject {
         transcript = ""
         state = .listening
 
-        recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
-        recognizer?.defaultTaskHint = .search
+        #if os(iOS)
+        let audioSession = AVAudioSession.sharedInstance()
+        do {
+            try audioSession.setCategory(.playAndRecord, mode: .measurement, options: [.duckOthers, .defaultToSpeaker])
+            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+        } catch {
+            state = .error("Microphone setup failed.")
+            return
+        }
+        #endif
+
+        guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US")), recognizer.isAvailable else {
+            state = .error("Speech recognition unavailable.")
+            return
+        }
+        self.recognizer = recognizer
+        recognizer.defaultTaskHint = .search
 
         let request = SFSpeechAudioBufferRecognitionRequest()
-        request.requiresOnDeviceRecognition = true      // privacy first; falls back if needed
+        request.requiresOnDeviceRecognition = false
         request.shouldReportPartialResults = true
         recognitionRequest = request
 
         let inputNode = audioEngine.inputNode
+        inputNode.removeTap(onBus: 0)
+
         let format = inputNode.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else {
+            state = .error("Invalid audio format.")
+            return
+        }
+
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             self?.recognitionRequest?.append(buffer)
         }
 
+        audioEngine.prepare()
         do {
             try audioEngine.start()
         } catch {
+            inputNode.removeTap(onBus: 0)
             state = .error("Microphone unavailable.")
             return
         }
 
-        recognitionTask = recognizer?.recognitionTask(with: request) { [weak self] result, error in
+        recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
             if let result {
                 Task { @MainActor in
@@ -147,12 +171,18 @@ public final class VoiceSession: NSObject, ObservableObject {
     }
 
     private func stopListening() {
-        audioEngine.stop()
+        if audioEngine.isRunning {
+            audioEngine.stop()
+        }
         audioEngine.inputNode.removeTap(onBus: 0)
         recognitionRequest?.endAudio()
         recognitionRequest = nil
         recognitionTask?.cancel()
         recognitionTask = nil
+
+        #if os(iOS)
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        #endif
     }
 
     // MARK: - Thinking
@@ -179,6 +209,14 @@ public final class VoiceSession: NSObject, ObservableObject {
     // MARK: - Speaking
 
     private func speak(_ text: String) {
+        #if os(iOS)
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+            try session.setActive(true, options: .notifyOthersOnDeactivation)
+        } catch {}
+        #endif
+
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
         utterance.rate = 0.50
@@ -196,6 +234,9 @@ extension VoiceSession: AVSpeechSynthesizerDelegate {
         _ synthesizer: AVSpeechSynthesizer,
         didFinish utterance: AVSpeechUtterance
     ) {
+        #if os(iOS)
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        #endif
         Task { @MainActor in self.state = .idle }
     }
 
@@ -203,6 +244,9 @@ extension VoiceSession: AVSpeechSynthesizerDelegate {
         _ synthesizer: AVSpeechSynthesizer,
         didCancel utterance: AVSpeechUtterance
     ) {
+        #if os(iOS)
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        #endif
         Task { @MainActor in self.state = .idle }
     }
 }

@@ -22,8 +22,10 @@ public struct FoundationCoachService: TradingCoach, Sendable {
 
     public func explain(seal: ParitySeal, evidence: String, question: String) async throws -> String {
         let spoken = question.trimmingCharacters(in: .whitespacesAndNewlines)
-        let combined = spoken.isEmpty ? evidence : "\(evidence) \(spoken)"
-        let brief = CoachBrief(pair: "Sealed", score: seal.score, evidence: combined, hash: seal.fingerprint)
+        if !spoken.isEmpty {
+            return CoachIntelligence.synthesizeAnswer(seal: seal, evidence: evidence, question: spoken)
+        }
+        let brief = CoachBrief(pair: "Sealed", score: seal.score, evidence: evidence, hash: seal.fingerprint)
         return await card(for: brief).summary
     }
 
