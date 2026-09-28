@@ -34,12 +34,17 @@ public enum DeskCredentials {
         case .missing:
             break
         }
+        #endif
+        #if os(macOS) || DEBUG
         if let token = ProcessInfo.processInfo.environment["OANDA_API_TOKEN"],
             let accountId = ProcessInfo.processInfo.environment["OANDA_ACCOUNT_ID"],
             !token.isEmpty, !accountId.isEmpty
         {
             let env = ProcessInfo.processInfo.environment["OANDA_ENV"]?.lowercased()
             let environment: OandaEnvironment = env == "live" ? .live : .practice
+            #if os(iOS)
+            _ = store(token: token, accountId: accountId, environment: environment)
+            #endif
             return .ready(OandaSession(token: token, accountId: accountId, environment: environment))
         }
         #endif
