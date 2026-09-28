@@ -56,16 +56,26 @@ struct JournalScreen: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView(showsIndicators: false) {
-                    VStack(spacing: 12) {
-                        ForEach(model.journal) { entry in
-                            Button {
-                                DeskHaptics.tabSwitch()
-                                model.openReplay(entry.id)
-                            } label: {
-                                JournalRowCard(entry: entry)
+                    VStack(spacing: 14) {
+                        if model.outcomeStats.hits + model.outcomeStats.misses > 0 {
+                            PerformanceAnalyticsCard(
+                                hits: model.outcomeStats.hits,
+                                misses: model.outcomeStats.misses,
+                                journal: model.journal
+                            )
+                        }
+
+                        VStack(spacing: 10) {
+                            ForEach(model.journal) { entry in
+                                Button {
+                                    DeskHaptics.tabSwitch()
+                                    model.openReplay(entry.id)
+                                } label: {
+                                    JournalRowCard(entry: entry)
+                                }
+                                .buttonStyle(SpringPressButtonStyle())
+                                .accessibilityLabel("\(entry.pair) \(entry.outcome ?? entry.verb) \(entry.score)")
                             }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("\(entry.pair) \(entry.outcome ?? entry.verb) \(entry.score)")
                         }
                     }
                     .padding(.horizontal, 20)
@@ -142,6 +152,172 @@ struct JournalRowCard: View {
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.06), lineWidth: 0.5)
+        )
+    }
+}
+
+struct PerformanceAnalyticsCard: View {
+    let hits: Int
+    let misses: Int
+    let journal: [ReplayEntry]
+
+    private var totalSettled: Int { hits + misses }
+    private var winRate: Double {
+        totalSettled > 0 ? (Double(hits) / Double(totalSettled)) * 100.0 : 0
+    }
+    private var edgeVsBreakeven: Double {
+        winRate - 54.05
+    }
+
+    private var pairStats: [(pair: String, hits: Int, total: Int, rate: Int)] {
+        var dict: [String: (hits: Int, total: Int)] = [:]
+        for entry in journal {
+            guard let outcome = entry.outcome, outcome == "HIT" || outcome == "MISS" else { continue }
+            var current = dict[entry.pair] ?? (0, 0)
+            current.total += 1
+            if outcome == "HIT" { current.hits += 1 }
+            dict[entry.pair] = current
+        }
+        return dict.map { (pair, stat) in
+            let rate = stat.total > 0 ? Int(round(Double(stat.hits) / Double(stat.total) * 100)) : 0
+            return (pair: pair, hits: stat.hits, total: stat.total, rate: rate)
+        }.sorted { $0.total > $1.total }
+    }
+
+    private var recentOutcomes: [String] {
+        journal.compactMap(\.outcome)
+            .filter { $0 == "HIT" || $0 == "MISS" }
+            .suffix(10)
+            .reversed()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            // Header
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("EDGE ANALYTICS")
+                        .font(.system(size: 11, weight: .bold))
+                        .tracking(1.2)
+                        .foregroundStyle(DeskInk.slate.opacity(0.8))
+                    Text(String(format: "%.1f%% Win Rate", winRate))
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(DeskInk.ink)
+                        .monospacedDigit()
+                }
+
+                Spacer()
+
+                HStack(spacing: 4) {
+                    Image(systemName: edgeVsBreakeven >= 0 ? "arrow.up.right" : "arrow.down.right")
+                        .font(.system(size: 11, weight: .bold))
+                    Text(String(format: "%+.1f%% Edge", edgeVsBreakeven))
+                        .font(.system(size: 11, weight: .bold))
+                }
+                .foregroundStyle(edgeVsBreakeven >= 0 ? DeskInk.emerald : DeskInk.coral)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background((edgeVsBreakeven >= 0 ? DeskInk.emerald : DeskInk.coral).opacity(0.14), in: Capsule())
+            }
+
+            // Dual-tone Win/Loss Progress Meter
+            VStack(spacing: 6) {
+                GeometryReader { geo in
+                    let hitFraction = totalSettled > 0 ? CGFloat(hits) / CGFloat(totalSettled) : 0.5
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(DeskInk.coral.opacity(0.85))
+
+                        Capsule()
+                            .fill(DeskInk.emerald)
+                            .frame(width: max(0, min(geo.size.width, geo.size.width * hitFraction)))
+
+                        // 54.1% Breakeven Threshold Line
+                        Rectangle()
+                            .fill(Color.white.opacity(0.6))
+                            .frame(width: 1.5, height: 10)
+                            .offset(x: geo.size.width * 0.5405 - 0.75, y: -2)
+                    }
+                }
+                .frame(height: 6)
+
+                HStack {
+                    Text("\(hits) HIT")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(DeskInk.emerald)
+                    Spacer()
+                    Text("54% B/E")
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(DeskInk.slate.opacity(0.6))
+                    Spacer()
+                    Text("\(misses) MISS")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(DeskInk.coral)
+                }
+            }
+
+            // Recent Sequence
+            if !recentOutcomes.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("RECENT SEQUENCE (NEWEST FIRST)")
+                        .font(.system(size: 9, weight: .bold))
+                        .tracking(0.8)
+                        .foregroundStyle(DeskInk.slate.opacity(0.7))
+
+                    HStack(spacing: 5) {
+                        ForEach(recentOutcomes.indices, id: \.self) { idx in
+                            let outcome = recentOutcomes[idx]
+                            let isHit = outcome == "HIT"
+                            Circle()
+                                .fill(isHit ? DeskInk.emerald : DeskInk.coral)
+                                .frame(width: 8, height: 8)
+                                .shadow(color: (isHit ? DeskInk.emerald : DeskInk.coral).opacity(0.6), radius: 3)
+                        }
+                    }
+                }
+            }
+
+            // Pair Breakdown Chips
+            if !pairStats.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("WATCHLIST ACCURACY")
+                        .font(.system(size: 9, weight: .bold))
+                        .tracking(0.8)
+                        .foregroundStyle(DeskInk.slate.opacity(0.7))
+
+                    HStack(spacing: 8) {
+                        ForEach(pairStats, id: \.pair) { item in
+                            HStack(spacing: 4) {
+                                Text(item.pair)
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundStyle(DeskInk.slate)
+                                Text("\(item.rate)%")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(item.rate >= 54 ? DeskInk.emerald : DeskInk.coral)
+                            }
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        }
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(DeskInk.surface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [DeskInk.indigo.opacity(0.5), Color.white.opacity(0.05)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 0.75
+                        )
+                )
         )
     }
 }
