@@ -40,10 +40,10 @@ struct DeskScreen: View {
         let leader = model.radarLeader
 
         return HStack(spacing: 8) {
-            // Left: Session / Prime Intel (Tappable for Prime Schedule)
+            // Left: Session / Prime Intel (Tappable to jump to Intel tab)
             Button {
                 DeskHaptics.tabSwitch()
-                showingPrimeSchedule = true
+                model.activeTab = .intel
             } label: {
                 HStack(spacing: 5) {
                     Circle()
@@ -113,7 +113,7 @@ struct DeskScreen: View {
             } else {
                 Button {
                     DeskHaptics.tabSwitch()
-                    showingPrimeSchedule = true
+                    model.activeTab = .intel
                 } label: {
                     HStack(spacing: 4) {
                         Text(edgeWindow.detailText)
@@ -150,12 +150,9 @@ struct DeskScreen: View {
                 pair: model.pair
             )
             .equatable()
-            .frame(height: 136)
+            .frame(height: 160)
             .frame(maxWidth: .infinity)
             verdict
-            if !model.book.isEmpty {
-                bookStrip
-            }
             if isArmed {
                 rail
             }

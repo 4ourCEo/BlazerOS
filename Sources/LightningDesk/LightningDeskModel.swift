@@ -941,8 +941,8 @@ struct ReplayEntry: Identifiable, Equatable {
 
 public enum DeskTab: String, CaseIterable, Identifiable, Sendable {
     case desk = "Desk"
-    case markets = "Markets"
-    case replay = "Replay"
+    case radar = "Radar"
+    case intel = "Intel"
     case coach = "Coach"
     case journal = "Journal"
 
@@ -951,8 +951,8 @@ public enum DeskTab: String, CaseIterable, Identifiable, Sendable {
     public var icon: String {
         switch self {
         case .desk: return "bolt.fill"
-        case .markets: return "chart.line.uptrend.xyaxis"
-        case .replay: return "arrow.counterclockwise"
+        case .radar: return "scope"
+        case .intel: return "clock.badge.checkmark"
         case .coach: return "brain.head.profile"
         case .journal: return "book.closed.fill"
         }

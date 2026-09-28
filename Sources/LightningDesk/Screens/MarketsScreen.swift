@@ -16,18 +16,24 @@ struct MarketsScreen: View {
                 .padding(.top, 14)
 
             ScrollView(showsIndicators: false) {
-                LazyVGrid(columns: columns, spacing: 10) {
-                    ForEach(model.pairs, id: \.self) { pair in
-                        MarketTacticalTile(
-                            pair: pair,
-                            isSelected: pair == model.pair,
-                            score: model.score(for: pair),
-                            side: model.side(for: pair) ?? "WAIT",
-                            strike: model.strike(for: pair),
-                            candles: model.candles(for: pair)
-                        ) {
-                            DeskHaptics.tabSwitch()
-                            model.selectAndNavigate(pair: pair)
+                VStack(spacing: 12) {
+                    if let leader = model.radarLeader {
+                        radarLeaderBanner(leader)
+                    }
+
+                    LazyVGrid(columns: columns, spacing: 10) {
+                        ForEach(model.pairs, id: \.self) { pair in
+                            MarketTacticalTile(
+                                pair: pair,
+                                isSelected: pair == model.pair,
+                                score: model.score(for: pair),
+                                side: model.side(for: pair) ?? "WAIT",
+                                strike: model.strike(for: pair),
+                                candles: model.candles(for: pair)
+                            ) {
+                                DeskHaptics.tabSwitch()
+                                model.selectAndNavigate(pair: pair)
+                            }
                         }
                     }
                 }
@@ -40,10 +46,10 @@ struct MarketsScreen: View {
     private var header: some View {
         HStack {
             VStack(alignment: .leading, spacing: 3) {
-                Text("Markets")
+                Text("Radar")
                     .font(.system(size: 28, weight: .semibold))
                     .foregroundStyle(DeskInk.ink)
-                Text("Tactical Matrix · 6 Core Pairs")
+                Text("Opportunity Matrix · 6 Core Pairs")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(DeskInk.slate)
             }
@@ -73,6 +79,70 @@ struct MarketsScreen: View {
         case .stale, .error:            return DeskInk.coral
         case .connecting, .disconnected: return DeskInk.slate
         }
+    }
+
+    private func radarLeaderBanner(_ leader: (asset: String, score: Int, side: String)) -> some View {
+        Button {
+            DeskHaptics.tabSwitch()
+            model.selectAndNavigate(pair: leader.asset)
+        } label: {
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(DeskInk.electric.opacity(0.2))
+                        .frame(width: 36, height: 36)
+                    Image(systemName: "scope")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(DeskInk.electric)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text("RADAR LEADER")
+                            .font(.system(size: 10, weight: .heavy))
+                            .tracking(0.8)
+                            .foregroundStyle(DeskInk.electric)
+                        if leader.side == "HIGH" || leader.side == "LOW" {
+                            Text(leader.side == "HIGH" ? "CALL" : "PUT")
+                                .font(.system(size: 9, weight: .heavy))
+                                .foregroundStyle(leader.side == "HIGH" ? DeskInk.emerald : DeskInk.coral)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1.5)
+                                .background((leader.side == "HIGH" ? DeskInk.emerald : DeskInk.coral).opacity(0.18), in: RoundedRectangle(cornerRadius: 4))
+                        }
+                    }
+                    Text(leader.asset)
+                        .font(.system(size: 16, weight: .bold, design: .monospaced))
+                        .foregroundStyle(DeskInk.ink)
+                }
+
+                Spacer()
+
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("SCORE \(leader.score)")
+                        .font(.system(size: 15, weight: .heavy, design: .monospaced))
+                        .foregroundStyle(leader.score >= 70 ? DeskInk.emerald : DeskInk.electric)
+                    HStack(spacing: 3) {
+                        Text("Trade on Desk")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(DeskInk.slate)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(DeskInk.electric)
+                    }
+                }
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(DeskInk.surface)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(DeskInk.electric.opacity(0.4), lineWidth: 1.0)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
     }
 }
 

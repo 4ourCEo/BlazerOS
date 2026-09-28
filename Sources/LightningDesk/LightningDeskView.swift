@@ -27,11 +27,11 @@ public struct LightningDeskView: View {
                     case .desk:
                         DeskScreen(model: model, reduceMotion: reduceMotion)
                             .transition(.opacity)
-                    case .markets:
+                    case .radar:
                         MarketsScreen(model: model)
                             .transition(.opacity)
-                    case .replay:
-                        ReplayScreen(model: model)
+                    case .intel:
+                        IntelScreen(model: model)
                             .transition(.opacity)
                     case .coach:
                         CoachScreen(model: model)
