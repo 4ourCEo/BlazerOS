@@ -35,10 +35,11 @@ These stay off CloudKit and out of every document this layer writes:
 | M1.4 | Foundation Coach | Explain a sealed scan only |
 | M1.5 | CloudKit | Documents, never execution |
 | M2 | Ecosystem | Real iPhone target, widgets, Live Activity, intents |
+| M2.1 | Native iPhone Experience | 5-screen floating desk, modular cards, voice session, canvas fit |
 | M3 | Apple Intelligence surfaces | Voice, Siri, journal speech, Dynamic Island |
 | M4 | TestFlight RC | Polish, soak tests, release |
 
-M0 through M2 are complete and verified across both macOS and iOS (iPhone 16). CloudKit document sync is sealed in Persist. M3 (Apple Intelligence) is next.
+M0 through M2.1 are complete and verified across both macOS and iOS (iPhone 16). CloudKit document sync is sealed in Persist. M3 (Apple Intelligence) is next.
 
 ## M0 — Foundation
 
@@ -143,11 +144,11 @@ Verifies Debug build, Release build, and executes all `BlazerTests` (`DeskLayout
 
 A milestone is complete only when the report includes: files changed, debug build, release build, tests added, tests passing, manual verification, and remaining blockers.
 
-M1.2, M1.3, M1.4, M1.5, and M2 are sealed:
+M1.2, M1.3, M1.4, M1.5, M2, and M2.1 are sealed:
 
 - `swift run -c release Parity`: 43/43 PASS
 - `swift run -c release Persist`: 39/39 PASS (includes 12 CloudKit tests)
-- `iPhone/build-iphone16.sh`: Debug SUCCEEDED, Release SUCCEEDED, 5/5 iPhone 16 tests PASS
+- `iPhone/build-iphone16.sh`: Debug SUCCEEDED, Release SUCCEEDED, 6/6 iPhone 16 tests PASS
 
 ## Next implementation order
 

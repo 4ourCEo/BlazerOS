@@ -19,11 +19,13 @@ public final class LightningDeskModel: ObservableObject {
     @Published var notice: String?
     @Published public private(set) var frame: DeskFrame?
     /// Brand cover. Dismisses on a real LIVE feed, otherwise after a short beat. Never invents LIVE.
-    @Published var showingLaunch = true
+    @Published public var showingLaunch = true
     @Published var launchMarkLit = false
     @Published var launchWordLit = false
     /// Brief upward offset after a commit. Display only.
     @Published var heroLift: Double = 0
+    @Published public var activeTab: DeskTab = .desk
+    @Published var showingCredentials = false
     /// Frozen scans. Newest first. Display only; quotes never rewrite the score.
     @Published private(set) var journal: [ReplayEntry] = []
     @Published var showingJournal = false
@@ -40,6 +42,8 @@ public final class LightningDeskModel: ObservableObject {
     @Published var draftAccount = ""
     @Published var draftEnvironment = OandaEnvironment.practice
     @Published var credentialSaveFailed = false
+    /// Voice coach session for the open replay. One active session at a time.
+    @Published var voiceSession = VoiceSession()
 
     private let persistence: PersistenceCoordinator
     private var session: OandaSession?
@@ -100,6 +104,11 @@ public final class LightningDeskModel: ObservableObject {
         notice = nil
         awaitingOutcome = false
         armID = nil
+    }
+
+    public func selectAndNavigate(pair next: String) {
+        select(pair: next)
+        activeTab = .desk
     }
 
     public func side(for asset: String) -> String? {
@@ -519,8 +528,28 @@ public final class LightningDeskModel: ObservableObject {
     }
 
     func closeReplay() {
+        voiceSession.cancel()
         openReplayID = nil
         coachExplanation = nil
+    }
+
+    /// Start voice coaching for the currently open replay entry.
+    /// The session records the spoken question, sends it to the Coach, and reads the answer aloud.
+    /// No live quote is passed. The Coach sees only seal + evidence + question.
+    func askCoach(for entry: ReplayEntry) {
+        let seal = ParitySeal(
+            engineSHA1: EngineIdentity.pinnedSHA1,
+            fingerprint: entry.fingerprint,
+            score: entry.score,
+            side: entry.verb,
+            strike: entry.strike,
+            candleCount: entry.candles.count
+        )
+        voiceSession.start(seal: seal, evidence: entry.why, using: FoundationCoachService())
+    }
+
+    func stopVoice() {
+        voiceSession.cancel()
     }
 
     private func explainReplay(_ id: String) async {
@@ -535,6 +564,19 @@ public final class LightningDeskModel: ObservableObject {
         let card = await FoundationCoachService().card(for: brief)
         guard openReplayID == id else { return }
         coachExplanation = card
+    }
+
+    /// Sealed coach explanation for the latest recorded scan, or the currently open replay.
+    public var latestCoachExplanation: CoachExplanation? {
+        if let coachExplanation { return coachExplanation }
+        guard let latest = journal.first else { return nil }
+        let brief = CoachBrief(
+            pair: latest.pair,
+            score: latest.score,
+            evidence: latest.why,
+            hash: latest.fingerprint
+        )
+        return PromptBuilder.sealedCard(brief)
     }
 
     /// Writes the frozen scan to disk, then reloads the journal from that file.
@@ -684,4 +726,24 @@ struct ReplayEntry: Identifiable, Equatable {
     var candles: [Candle]
     var scannedAt: Date
     var outcome: String?
+}
+
+public enum DeskTab: String, CaseIterable, Identifiable, Sendable {
+    case desk = "Desk"
+    case markets = "Markets"
+    case replay = "Replay"
+    case coach = "Coach"
+    case journal = "Journal"
+
+    public var id: String { rawValue }
+
+    public var icon: String {
+        switch self {
+        case .desk: return "bolt.fill"
+        case .markets: return "chart.line.uptrend.xyaxis"
+        case .replay: return "arrow.counterclockwise"
+        case .coach: return "brain.head.profile"
+        case .journal: return "book.closed.fill"
+        }
+    }
 }

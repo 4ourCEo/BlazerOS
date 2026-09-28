@@ -65,5 +65,9 @@
 	</array>
 	<key>UIUserInterfaceStyle</key>
 	<string>Dark</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Blazer uses the microphone to hear your spoken question to the Coach.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Blazer transcribes your spoken question on-device so the Coach can answer it.</string>
 </dict>
 </plist>
