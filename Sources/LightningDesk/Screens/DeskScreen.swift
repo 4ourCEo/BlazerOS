@@ -8,18 +8,16 @@ struct DeskScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            sessionPill
+            topIntelligenceBar
                 .padding(.horizontal, 20)
                 .padding(.top, 4)
 
-            radarLeaderBar
-
             hero
                 .padding(.horizontal, 20)
-                .padding(.top, 6)
+                .padding(.top, 8)
                 .offset(y: reduceMotion ? 0 : model.heroLift)
 
-            Spacer(minLength: 12)
+            Spacer(minLength: 10)
 
             ScanControl(
                 scanning: model.scanning,
@@ -29,61 +27,116 @@ struct DeskScreen: View {
                 Task { await model.scan() }
             }
             .padding(.horizontal, 20)
-            .padding(.bottom, 12)
+            .padding(.bottom, 10)
         }
         .sheet(isPresented: $showingPrimeSchedule) {
             PrimeScheduleSheet()
         }
     }
 
-    private var sessionPill: some View {
+    private var topIntelligenceBar: some View {
         let edgeWindow = MarketEdgeWindow.current()
         let isOpen = FxSession.isOpen()
+        let leader = model.radarLeader
 
-        return Button {
-            DeskHaptics.tabSwitch()
-            showingPrimeSchedule = true
-        } label: {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(edgeWindow.isPrime ? DeskInk.emerald : (isOpen ? DeskInk.violet : DeskInk.coral))
-                    .frame(width: 6, height: 6)
-                    .shadow(color: (edgeWindow.isPrime ? DeskInk.emerald : DeskInk.violet).opacity(0.8), radius: 3)
+        return HStack(spacing: 8) {
+            // Left: Session / Prime Intel (Tappable for Prime Schedule)
+            Button {
+                DeskHaptics.tabSwitch()
+                showingPrimeSchedule = true
+            } label: {
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(edgeWindow.isPrime ? DeskInk.emerald : (isOpen ? DeskInk.violet : DeskInk.coral))
+                        .frame(width: 6, height: 6)
+                        .shadow(color: (edgeWindow.isPrime ? DeskInk.emerald : DeskInk.violet).opacity(0.8), radius: 3)
 
-                Text(edgeWindow.isPrime ? "⚡ \(edgeWindow.badgeTitle)" : "⚡ OFF-PEAK · \(FxSession.activeSessionName())")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(1.0)
-                    .foregroundStyle(edgeWindow.isPrime ? DeskInk.emerald : DeskInk.slate)
-
-                Spacer()
-
-                HStack(spacing: 4) {
-                    Text(edgeWindow.detailText)
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(edgeWindow.isPrime ? DeskInk.emerald : DeskInk.slate.opacity(0.85))
-
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(edgeWindow.isPrime ? DeskInk.emerald.opacity(0.8) : DeskInk.slate.opacity(0.5))
+                    Text(edgeWindow.isPrime ? "⚡ \(edgeWindow.badgeTitle)" : "⚡ OFF-PEAK · \(FxSession.activeSessionName())")
+                        .font(.system(size: 10, weight: .bold))
+                        .tracking(0.8)
+                        .foregroundStyle(edgeWindow.isPrime ? DeskInk.emerald : DeskInk.slate)
                 }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4.5)
+                .background(
+                    Capsule()
+                        .fill(edgeWindow.isPrime ? DeskInk.emerald.opacity(0.12) : Color.white.opacity(0.04))
+                )
+                .overlay(
+                    Capsule()
+                        .strokeBorder(
+                            edgeWindow.isPrime ? DeskInk.emerald.opacity(0.35) : Color.white.opacity(0.07),
+                            lineWidth: 0.8
+                        )
+                )
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(
-                Capsule()
-                    .fill(edgeWindow.isPrime ? DeskInk.emerald.opacity(0.12) : Color.white.opacity(0.04))
-            )
-            .overlay(
-                Capsule()
-                    .strokeBorder(
-                        edgeWindow.isPrime ? DeskInk.emerald.opacity(0.35) : Color.white.opacity(0.07),
-                        lineWidth: 0.8
+            .buttonStyle(.plain)
+            .accessibilityLabel(edgeWindow.isPrime ? "Prime window active" : "Off-peak session")
+            .accessibilityHint("Tap to view Pacific Time prime window schedule and alert settings")
+
+            Spacer(minLength: 4)
+
+            // Right: Either Hot Radar Switch OR Next Prime Countdown
+            if let leader, leader.asset != model.pair, leader.score >= 65 {
+                Button {
+                    DeskHaptics.tabSwitch()
+                    model.select(pair: leader.asset)
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "scope")
+                            .font(.system(size: 8, weight: .heavy))
+                            .foregroundStyle(DeskInk.electric)
+                        Text(leader.asset)
+                            .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                            .foregroundStyle(DeskInk.ink)
+                        Text("\(leader.score)")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundStyle(leader.score >= 70 ? DeskInk.emerald : DeskInk.electric)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 7, weight: .bold))
+                            .foregroundStyle(DeskInk.electric.opacity(0.7))
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4.5)
+                    .background(
+                        Capsule()
+                            .fill(DeskInk.electric.opacity(0.14))
                     )
-            )
+                    .overlay(
+                        Capsule()
+                            .strokeBorder(DeskInk.electric.opacity(0.4), lineWidth: 0.8)
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Radar Leader \(leader.asset), score \(leader.score)")
+                .accessibilityHint("Tap to switch desk to \(leader.asset)")
+            } else {
+                Button {
+                    DeskHaptics.tabSwitch()
+                    showingPrimeSchedule = true
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(edgeWindow.detailText)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(edgeWindow.isPrime ? DeskInk.emerald : DeskInk.slate.opacity(0.85))
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 7, weight: .bold))
+                            .foregroundStyle(edgeWindow.isPrime ? DeskInk.emerald.opacity(0.7) : DeskInk.slate.opacity(0.5))
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4.5)
+                    .background(
+                        Capsule()
+                            .fill(Color.white.opacity(0.04))
+                    )
+                    .overlay(
+                        Capsule()
+                            .strokeBorder(Color.white.opacity(0.07), lineWidth: 0.8)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(edgeWindow.isPrime ? "Prime window active" : "Off-peak session")
-        .accessibilityHint("Tap to view Pacific Time prime window schedule and alert settings")
     }
 
     private var hero: some View {
@@ -284,14 +337,24 @@ struct DeskScreen: View {
     }
 
     private var verdict: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(scoreText)
-                .font(.system(size: 56, weight: .semibold))
-                .foregroundStyle(DeskInk.ink)
-                .monospacedDigit()
-                .contentTransition(.numericText())
-                .frame(minHeight: 58, alignment: .leading)
-                .animation(.spring(response: 0.45, dampingFraction: 0.72), value: scoreText)
+        VStack(alignment: .leading, spacing: 6) {
+            // Header Row: Score + Live Strike
+            HStack(alignment: .firstTextBaseline) {
+                Text(scoreText)
+                    .font(.system(size: 54, weight: .semibold))
+                    .foregroundStyle(DeskInk.ink)
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+                    .frame(minHeight: 56, alignment: .leading)
+                    .animation(.spring(response: 0.45, dampingFraction: 0.72), value: scoreText)
+
+                Spacer()
+
+                Text(strikeText)
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundStyle(DeskInk.slate.opacity(0.85))
+                    .monospacedDigit()
+            }
 
             if let trade = model.activeTrade {
                 HStack(spacing: 8) {
@@ -301,7 +364,7 @@ struct DeskScreen: View {
                         .shadow(color: verbColor.opacity(0.9), radius: 4)
 
                     Text(trade.side == "HIGH" ? "CALL · HIGH" : "PUT · LOW")
-                        .font(.system(size: 22, weight: .bold))
+                        .font(.system(size: 20, weight: .bold))
                         .foregroundStyle(verbColor)
 
                     if let pip = trade.pipDiff {
@@ -318,13 +381,13 @@ struct DeskScreen: View {
                         .background((isITM ? DeskInk.emerald : DeskInk.coral).opacity(0.18), in: Capsule())
                     }
                 }
-                .frame(minHeight: 26, alignment: .leading)
+                .frame(minHeight: 24, alignment: .leading)
 
                 Text(whyText)
-                    .font(.system(size: 14, weight: .regular))
+                    .font(.system(size: 13, weight: .regular))
                     .foregroundStyle(DeskInk.slate)
                     .lineLimit(2)
-                    .frame(maxWidth: .infinity, minHeight: 34, alignment: .topLeading)
+                    .frame(maxWidth: .infinity, minHeight: 32, alignment: .topLeading)
             } else {
                 let telemetry = model.stalkingTelemetry
                 HStack(spacing: 8) {
@@ -334,7 +397,7 @@ struct DeskScreen: View {
                             .frame(width: 8, height: 8)
                             .shadow(color: verbColor.opacity(0.9), radius: 4)
                         Text(verbText)
-                            .font(.system(size: 22, weight: .bold))
+                            .font(.system(size: 20, weight: .bold))
                             .foregroundStyle(verbColor)
 
                         Text(telemetry.badgeLabel)
@@ -344,50 +407,39 @@ struct DeskScreen: View {
                             .padding(.vertical, 2.5)
                             .background(telemetryBadgeColor(telemetry.tier).opacity(0.16), in: Capsule())
                     } else {
-                        HStack(spacing: 6) {
+                        HStack(spacing: 5) {
                             Image(systemName: telemetryIcon(telemetry.tier))
-                                .font(.system(size: 10, weight: .bold))
+                                .font(.system(size: 9, weight: .bold))
                             Text(telemetry.badgeLabel)
                                 .font(.system(size: 10, weight: .heavy))
                         }
                         .foregroundStyle(telemetryBadgeColor(telemetry.tier))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3.5)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
                         .background(telemetryBadgeColor(telemetry.tier).opacity(0.14), in: Capsule())
                         .overlay(Capsule().strokeBorder(telemetryBadgeColor(telemetry.tier).opacity(0.35), lineWidth: 0.8))
                     }
+
+                    Spacer()
+
+                    HStack(spacing: 4) {
+                        Image(systemName: "shield.lefthalf.filled")
+                            .font(.system(size: 8, weight: .bold))
+                        Text(telemetry.stakeGuidance)
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    }
+                    .foregroundStyle(telemetryBadgeColor(telemetry.tier).opacity(0.85))
                 }
-                .frame(minHeight: 26, alignment: .leading)
+                .frame(minHeight: 24, alignment: .leading)
                 .animation(.spring(response: 0.35, dampingFraction: 0.7), value: verbText)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(telemetry.telemetryHeadline)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(DeskInk.ink)
-                        .lineLimit(1)
-                    Text(telemetry.telemetryDetail)
-                        .font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(DeskInk.slate)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: .infinity, minHeight: 38, alignment: .topLeading)
-                .padding(.top, 2)
-
-                HStack(spacing: 6) {
-                    Image(systemName: "shield.lefthalf.filled")
-                        .font(.system(size: 9, weight: .bold))
-                    Text(telemetry.stakeGuidance)
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                }
-                .foregroundStyle(telemetryBadgeColor(telemetry.tier).opacity(0.9))
-                .padding(.bottom, 2)
+                Text(telemetry.telemetryDetail)
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundStyle(DeskInk.slate)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, minHeight: 32, alignment: .topLeading)
             }
-
-            Text(strikeText)
-                .font(.system(size: 13, weight: .medium, design: .monospaced))
-                .foregroundStyle(DeskInk.slate.opacity(0.85))
-                .monospacedDigit()
 
             if model.activeTrade == nil && isArmed {
                 Button {
@@ -639,63 +691,7 @@ struct DeskScreen: View {
         }
     }
 
-    // MARK: - Multi-Pair Radar & Telemetry Helpers
-
-    @ViewBuilder
-    private var radarLeaderBar: some View {
-        if let leader = model.radarLeader, leader.asset != model.pair {
-            Button {
-                DeskHaptics.tabSwitch()
-                model.select(pair: leader.asset)
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "scope")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(DeskInk.electric)
-                    Text("RADAR LEADER:")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(DeskInk.slate)
-                    Text(leader.asset)
-                        .font(.system(size: 11, weight: .heavy, design: .monospaced))
-                        .foregroundStyle(DeskInk.ink)
-                    Text("Score \(leader.score)")
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
-                        .foregroundStyle(leader.score >= 70 ? DeskInk.emerald : DeskInk.electric)
-                    if leader.side == "HIGH" || leader.side == "LOW" {
-                        Text(leader.side == "HIGH" ? "CALL" : "PUT")
-                            .font(.system(size: 8, weight: .heavy))
-                            .foregroundStyle(leader.side == "HIGH" ? DeskInk.emerald : DeskInk.coral)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background((leader.side == "HIGH" ? DeskInk.emerald : DeskInk.coral).opacity(0.16), in: RoundedRectangle(cornerRadius: 3))
-                    }
-                    Spacer()
-                    HStack(spacing: 2) {
-                        Text("Switch")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(DeskInk.electric)
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 7, weight: .bold))
-                            .foregroundStyle(DeskInk.electric)
-                    }
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(DeskInk.surface)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .strokeBorder(DeskInk.electric.opacity(0.35), lineWidth: 0.8)
-                        )
-                )
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 20)
-            .padding(.top, 4)
-            .transition(.move(edge: .top).combined(with: .opacity))
-        }
-    }
+    // MARK: - Telemetry Helpers
 
     private func telemetryBadgeColor(_ tier: StalkingTelemetry.Tier) -> Color {
         switch tier {
