@@ -53,5 +53,13 @@ let package = Package(
                 .swiftLanguageMode(.v6),
             ]
         ),
+        .executableTarget(
+            name: "Soak",
+            dependencies: ["BlazerCore", "LightningDesk"],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+            ]
+        ),
     ]
 )
+
