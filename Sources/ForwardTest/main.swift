@@ -276,6 +276,32 @@ final class ForwardTestRunner {
         let pairs = Assets.watchlist
         print("Starting live forward testing across \(pairs.count) pairs with OANDA...")
 
+        // Preload historical settled rows so the calibration count reflects cumulative progress
+        let root = FileLocations.applicationSupport()
+        let ledger = LedgerStore(root: root)
+        if let existingRows = try? await ledger.rows(), !existingRows.isEmpty {
+            settledHistory = existingRows.compactMap { (row: LedgerRow) -> ForwardOutcome? in
+                guard let outcome = DeskOutcome(rawValue: row.outcome) else { return nil }
+                return ForwardOutcome(
+                    arm: ForwardArm(
+                        id: row.outcomeEventID,
+                        pair: row.pair,
+                        side: row.side,
+                        strike: 0,
+                        score: row.score,
+                        entryTime: row.timestamp,
+                        expiryTime: row.timestamp,
+                        fingerprint: row.hash,
+                        snapshotBars: []
+                    ),
+                    exitPrice: 0,
+                    outcome: outcome,
+                    driftPips: row.drift,
+                    settledAt: row.timestamp
+                )
+            }
+        }
+
         while isRunning {
             let now = Date()
 
