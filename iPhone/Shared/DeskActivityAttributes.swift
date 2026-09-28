@@ -6,12 +6,22 @@ public struct DeskActivityAttributes: ActivityAttributes {
     public struct ContentState: Codable, Hashable, Sendable {
         public var verb: String
         public var endsAt: Date
+        public var startedAt: Date
         public var veto: String?
+        public var currentPrice: Double?
 
-        public init(verb: String, endsAt: Date, veto: String?) {
+        public init(
+            verb: String,
+            endsAt: Date,
+            startedAt: Date = Date(),
+            veto: String? = nil,
+            currentPrice: Double? = nil
+        ) {
             self.verb = verb
             self.endsAt = endsAt
+            self.startedAt = startedAt
             self.veto = veto
+            self.currentPrice = currentPrice
         }
     }
 

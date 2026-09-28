@@ -25,7 +25,9 @@ final class LiveActivityController {
             let contentState = DeskActivityAttributes.ContentState(
                 verb: "\(trade.side) 60s",
                 endsAt: trade.expiresAt,
-                veto: nil
+                startedAt: trade.enteredAt,
+                veto: nil,
+                currentPrice: trade.currentPrice
             )
 
             if let activity = currentActivity, activity.attributes.fingerprint == trade.fingerprint {
@@ -54,10 +56,13 @@ final class LiveActivityController {
             }
         } else if isArmed {
             let endsAt = Date().addingTimeInterval(max(0, frame.remainingMs / 1000.0))
+            let startedAt = Date().addingTimeInterval(-max(0, (Timing.liveMs - frame.remainingMs) / 1000.0))
             let contentState = DeskActivityAttributes.ContentState(
                 verb: frame.verb,
                 endsAt: endsAt,
-                veto: frame.veto
+                startedAt: startedAt,
+                veto: frame.veto,
+                currentPrice: nil
             )
 
             if let activity = currentActivity, activity.attributes.fingerprint == frame.fingerprint {
