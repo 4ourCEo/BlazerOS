@@ -5,11 +5,13 @@ public struct RestoredDesk: Equatable, Sendable {
     public var entries: [JournalEntry]
     public var barsByHash: [String: [Candle]]
     public var stats: OutcomeStats
+    public var ledgerRows: [LedgerRow]
 
-    public init(entries: [JournalEntry], barsByHash: [String: [Candle]], stats: OutcomeStats) {
+    public init(entries: [JournalEntry], barsByHash: [String: [Candle]], stats: OutcomeStats, ledgerRows: [LedgerRow] = []) {
         self.entries = entries
         self.barsByHash = barsByHash
         self.stats = stats
+        self.ledgerRows = ledgerRows
     }
 
     public func bars(for hash: String) -> [Candle] {
@@ -40,13 +42,14 @@ public actor PersistenceCoordinator {
     public func restore() async -> RestoredDesk {
         let entries = (try? await journal.load()) ?? []
         let snapshots = (try? await snapshots.load()) ?? []
-        let stats = (try? await ledger.stats()) ?? .empty
+        let rows = (try? await ledger.rows()) ?? []
+        let stats = OutcomeStats.tally(rows)
         var bars: [String: [Candle]] = [:]
         for record in snapshots {
             bars[record.hash] = record.bars
         }
         let newestFirst = entries.sorted { $0.scannedAt > $1.scannedAt }
-        return RestoredDesk(entries: newestFirst, barsByHash: bars, stats: stats)
+        return RestoredDesk(entries: newestFirst, barsByHash: bars, stats: stats, ledgerRows: rows)
     }
 
     /// Archives the frozen bars, then the journal card. The same hash is not rewritten.

@@ -29,6 +29,7 @@ struct PersistCheck {
         slippageGateFailClosed(check)
         wilsonIntervalCheck(check)
         marketEdgeWindowCheck(check)
+        await ledgerV2AndStatsEngineCheck(check)
         await cloudSyncRoundTrip(check)
         await cloudLedgerIdempotency(check)
         await cloudOfflineGraceful(check)
@@ -479,6 +480,78 @@ struct PersistCheck {
         if let sat = cal.date(from: comps) {
             let win = MarketEdgeWindow.current(at: sat)
             check("saturday FX closed returns offPeak", !win.isPrime && !win.isTactical, win.badgeTitle)
+        }
+    }
+
+    @MainActor
+    private static func ledgerV2AndStatsEngineCheck(_ check: @MainActor (String, Bool, String) -> Void) async {
+        let root = makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = LedgerStore(root: root)
+
+        let rowV2 = LedgerRow(
+            timestamp: Date(timeIntervalSince1970: 1_700_000_000),
+            pair: "GBP/USD",
+            hash: "F9813E3C",
+            score: 76,
+            side: "HIGH",
+            veto: false,
+            drift: 0.3,
+            outcome: "HIT",
+            outcomeEventID: "arm-v2-1",
+            payout: 0.88,
+            stake: 10.0,
+            marketWindow: "SUPREME PRIME",
+            engineSHA: "1a1d264d44eec606ded991cb4814df953bc07b34",
+            fullFingerprint: "F9813E3C",
+            entryQuote: 1.27500,
+            expiryPrice: 1.27530
+        )
+
+        do {
+            let written = try await store.record(rowV2)
+            check("ledger v2 record written", written, "")
+
+            let loaded = try await store.rows()
+            check("ledger v2 loads row", loaded.count == 1, "\(loaded.count)")
+            if let first = loaded.first {
+                check(
+                    "ledger v2 preserves metadata",
+                    first.payout == 0.88
+                        && first.stake == 10.0
+                        && first.marketWindow == "SUPREME PRIME"
+                        && first.entryQuote == 1.27500
+                        && first.expiryPrice == 1.27530,
+                    first.marketWindow ?? "nil"
+                )
+            }
+
+            let statsEmpty = LedgerStatsEngine.evaluate(pair: "EUR/USD", rows: loaded)
+            check("stats engine fallback to prior calibration on 0 local trades", statsEmpty.statusBadge == "PRIOR (n=372)" && statsEmpty.sampleSize == 0, statsEmpty.statusBadge)
+
+            let statsGBP = LedgerStatsEngine.evaluate(pair: "GBP/USD", rows: loaded)
+            check("stats engine measures local GBP/USD trade", statsGBP.sampleSize == 1 && statsGBP.wins == 1 && statsGBP.winRate == 1.0, statsGBP.statusBadge)
+
+            var syntheticRows: [LedgerRow] = []
+            for i in 0..<50 {
+                syntheticRows.append(
+                    LedgerRow(
+                        timestamp: Date(),
+                        pair: "USD/JPY",
+                        hash: "HASH\(i)",
+                        score: 70,
+                        side: "HIGH",
+                        veto: false,
+                        drift: 0.1,
+                        outcome: i < 35 ? "HIT" : "MISS",
+                        outcomeEventID: "arm-synth-\(i)"
+                    )
+                )
+            }
+            let statsJPY = LedgerStatsEngine.evaluate(pair: "USD/JPY", rows: syntheticRows)
+            check("stats engine confirms proven edge on statistically significant sample", statsJPY.isProvenEdge && statsJPY.statusBadge == "PROVEN EDGE", statsJPY.statusBadge)
+        } catch {
+            check("ledger v2 and stats engine check", false, error.localizedDescription)
         }
     }
 

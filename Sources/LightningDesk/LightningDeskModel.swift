@@ -43,6 +43,7 @@ public final class LightningDeskModel: ObservableObject {
     /// HIT and MISS are offered only after the beam expires.
     @Published private(set) var awaitingOutcome = false
     @Published private(set) var outcomeStats = OutcomeStats.empty
+    @Published public private(set) var ledgerRows: [LedgerRow] = []
     /// Keychain presence only. A saved token is not kept here.
     @Published private(set) var keychainState: KeychainState = .unknown
     /// Form drafts. Cleared when the Keychain write succeeds. Never synced.
@@ -400,9 +401,14 @@ public final class LightningDeskModel: ObservableObject {
     }
 
     /// Records the expired arm once, then leaves the hero. A second call does not append.
-    public func settle(_ outcome: DeskOutcome) async {
-        guard awaitingOutcome, let commit, let armID else { return }
+    public func settle(
+        _ outcome: DeskOutcome,
+        expiryPrice: Double? = nil,
+        entryQuote: Double? = nil
+    ) async {
+        guard let commit, let armID else { return }
         awaitingOutcome = false
+        let windowName = MarketEdgeWindow.current().badgeTitle
         let row = LedgerRow(
             timestamp: Date(),
             pair: commit.asset,
@@ -412,7 +418,14 @@ public final class LightningDeskModel: ObservableObject {
             veto: commit.veto != nil,
             drift: commit.driftPips ?? 0,
             outcome: outcome.rawValue,
-            outcomeEventID: armID
+            outcomeEventID: armID,
+            payout: 0.88,
+            stake: 10.0,
+            marketWindow: windowName,
+            engineSHA: EngineIdentity.pinnedSHA1,
+            fullFingerprint: commit.fingerprint,
+            entryQuote: entryQuote ?? commit.strike,
+            expiryPrice: expiryPrice
         )
         let snapshot = SnapshotRecord(
             hash: commit.fingerprint,
@@ -437,6 +450,11 @@ public final class LightningDeskModel: ObservableObject {
         predictedOutcome = nil
         candles = []
         publishFrame()
+    }
+
+    /// Empirical statistics computed directly from the local ledger for any pair.
+    public func edgeStats(for asset: String) -> PairEdgeStats {
+        LedgerStatsEngine.evaluate(pair: asset, rows: ledgerRows, payoutRatio: 0.88)
     }
 
     /// Engine pick. If the desk pick is unavailable, stay on WAIT. Never invent HIGH or LOW.
@@ -607,10 +625,12 @@ public final class LightningDeskModel: ObservableObject {
 
     private func handleTradeExpiry(_ trade: ActiveTrade) {
         let isWin = trade.isInTheMoney ?? false
-        predictedOutcome = isWin ? .hit : .miss
+        let outcome: DeskOutcome = isWin ? .hit : .miss
+        predictedOutcome = outcome
         expired = true
+        let finalExitPrice = trade.currentPrice
         activeTrade = nil
-        awaitingOutcome = true
+        awaitingOutcome = false
         DeskHaptics.settleAlert()
 
         if voiceDebriefEnabled {
@@ -621,6 +641,11 @@ public final class LightningDeskModel: ObservableObject {
         }
 
         publishFrame()
+
+        // Phase 2 Auto-Settle: verified binary expiry logged directly to Ledger v2
+        Task {
+            await settle(outcome, expiryPrice: finalExitPrice, entryQuote: trade.strike)
+        }
     }
 
     private func refreshQuote() async {
@@ -840,6 +865,7 @@ public final class LightningDeskModel: ObservableObject {
     private func reloadFromDisk() async {
         let restored = await persistence.restore()
         outcomeStats = restored.stats
+        ledgerRows = restored.ledgerRows
         journal = restored.entries.map { replay($0, bars: restored.bars(for: $0.fingerprint)) }
         for entry in journal {
             if candlesByAsset[entry.pair] == nil && !entry.candles.isEmpty {

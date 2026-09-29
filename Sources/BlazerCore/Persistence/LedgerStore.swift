@@ -37,6 +37,15 @@ public struct LedgerRow: Equatable, Sendable {
     public var outcome: String
     public var outcomeEventID: String
 
+    // V2 Measurement-First Metadata
+    public var payout: Double?
+    public var stake: Double?
+    public var marketWindow: String?
+    public var engineSHA: String?
+    public var fullFingerprint: String?
+    public var entryQuote: Double?
+    public var expiryPrice: Double?
+
     public init(
         timestamp: Date,
         pair: String,
@@ -46,7 +55,14 @@ public struct LedgerRow: Equatable, Sendable {
         veto: Bool,
         drift: Double,
         outcome: String,
-        outcomeEventID: String
+        outcomeEventID: String,
+        payout: Double? = nil,
+        stake: Double? = nil,
+        marketWindow: String? = nil,
+        engineSHA: String? = nil,
+        fullFingerprint: String? = nil,
+        entryQuote: Double? = nil,
+        expiryPrice: Double? = nil
     ) {
         self.timestamp = timestamp
         self.pair = pair
@@ -57,6 +73,13 @@ public struct LedgerRow: Equatable, Sendable {
         self.drift = drift
         self.outcome = outcome
         self.outcomeEventID = outcomeEventID
+        self.payout = payout
+        self.stake = stake
+        self.marketWindow = marketWindow
+        self.engineSHA = engineSHA
+        self.fullFingerprint = fullFingerprint
+        self.entryQuote = entryQuote
+        self.expiryPrice = expiryPrice
     }
 }
 
@@ -129,13 +152,22 @@ public actor LedgerStore {
             let line = String(raw)
             if line.isEmpty { continue }
             if index == 0, line == Self.csvHeader { continue }
-            guard let fields = Self.fields(in: line), fields.count == 8 || fields.count == 9 else { continue }
+            guard let fields = Self.fields(in: line), fields.count >= 8 else { continue }
             guard let timestamp = Self.iso8601.date(from: fields[0]),
                 let score = Int(fields[3]),
                 fields[5] == "true" || fields[5] == "false",
                 let drift = Double(fields[6]),
                 !fields[2].isEmpty
             else { continue }
+
+            let payout = fields.count > 8 ? Double(fields[8]) : nil
+            let stake = fields.count > 9 ? Double(fields[9]) : nil
+            let marketWindow = fields.count > 10 && !fields[10].isEmpty ? fields[10] : nil
+            let engineSHA = fields.count > 11 && !fields[11].isEmpty ? fields[11] : nil
+            let fullFingerprint = fields.count > 12 && !fields[12].isEmpty ? fields[12] : nil
+            let entryQuote = fields.count > 13 ? Double(fields[13]) : nil
+            let expiryPrice = fields.count > 14 ? Double(fields[14]) : nil
+
             parsed.append(
                 LedgerRow(
                     timestamp: timestamp,
@@ -146,7 +178,14 @@ public actor LedgerStore {
                     veto: fields[5] == "true",
                     drift: drift,
                     outcome: fields[7],
-                    outcomeEventID: fields[2]
+                    outcomeEventID: fields[2],
+                    payout: payout,
+                    stake: stake,
+                    marketWindow: marketWindow,
+                    engineSHA: engineSHA,
+                    fullFingerprint: fullFingerprint,
+                    entryQuote: entryQuote,
+                    expiryPrice: expiryPrice
                 )
             )
         }
@@ -154,7 +193,7 @@ public actor LedgerStore {
     }
 
     private func line(for row: LedgerRow) -> String {
-        [
+        var parts = [
             csv(Self.iso8601.string(from: row.timestamp)),
             csv(row.pair),
             csv(row.hash),
@@ -163,7 +202,17 @@ public actor LedgerStore {
             csv(row.veto ? "true" : "false"),
             csv(String(format: "%.4f", row.drift)),
             csv(row.outcome),
-        ].joined(separator: ",") + "\n"
+        ]
+        if row.payout != nil || row.stake != nil || row.marketWindow != nil || row.engineSHA != nil || row.fullFingerprint != nil || row.entryQuote != nil || row.expiryPrice != nil {
+            parts.append(csv(row.payout.map { String($0) } ?? ""))
+            parts.append(csv(row.stake.map { String($0) } ?? ""))
+            parts.append(csv(row.marketWindow ?? ""))
+            parts.append(csv(row.engineSHA ?? ""))
+            parts.append(csv(row.fullFingerprint ?? ""))
+            parts.append(csv(row.entryQuote.map { String($0) } ?? ""))
+            parts.append(csv(row.expiryPrice.map { String($0) } ?? ""))
+        }
+        return parts.joined(separator: ",") + "\n"
     }
 
     private func csv(_ field: String) -> String {

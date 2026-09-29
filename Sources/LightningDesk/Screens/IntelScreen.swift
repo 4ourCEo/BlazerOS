@@ -431,11 +431,11 @@ public struct IntelScreen: View {
                 .padding(.leading, 4)
 
             VStack(spacing: 8) {
-                convictionRow(pair: "GBP/USD", tag: "EDGE PRIME", winRate: "57.8%", drift: "+0.3p", isEdge: true)
-                convictionRow(pair: "USD/JPY", tag: "EDGE PRIME", winRate: "54.2%", drift: "+0.3p", isEdge: true)
-                convictionRow(pair: "EUR/USD", tag: "BALANCED", winRate: "50.0%", drift: "0.0p", isEdge: false)
-                convictionRow(pair: "AUD/USD", tag: "BALANCED", winRate: "52.7%", drift: "0.0p", isEdge: false)
-                convictionRow(pair: "USD/CAD", tag: "CHOP RISK", winRate: "36.4%", drift: "-0.4p", isEdge: false, isWarning: true)
+                dynamicConvictionRow(pair: "GBP/USD", drift: "+0.3p")
+                dynamicConvictionRow(pair: "USD/JPY", drift: "+0.3p")
+                dynamicConvictionRow(pair: "EUR/USD", drift: "0.0p")
+                dynamicConvictionRow(pair: "AUD/USD", drift: "0.0p")
+                dynamicConvictionRow(pair: "USD/CAD", drift: "-0.4p")
 
                 Divider()
                     .background(Color.white.opacity(0.08))
@@ -466,6 +466,21 @@ public struct IntelScreen: View {
                     )
             )
         }
+    }
+
+    private func dynamicConvictionRow(pair: String, drift: String) -> some View {
+        let stats = model.edgeStats(for: pair)
+        let ratePct = String(format: "%.1f%%", stats.winRate * 100)
+        let isEdge = stats.isProvenEdge
+        let isWarning = stats.statusBadge.contains("CHOP")
+        return convictionRow(
+            pair: pair,
+            tag: stats.statusBadge,
+            winRate: ratePct,
+            drift: drift,
+            isEdge: isEdge,
+            isWarning: isWarning
+        )
     }
 
     private func convictionRow(pair: String, tag: String, winRate: String, drift: String, isEdge: Bool, isWarning: Bool = false) -> some View {
