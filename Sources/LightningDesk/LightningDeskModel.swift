@@ -248,13 +248,13 @@ public final class LightningDeskModel: ObservableObject {
     /// Illuminates the mark, then the word. Leaves as soon as the feed is actually live.
     public func settleLaunch() async {
         launchMarkLit = true
-        try? await Task.sleep(nanoseconds: 280_000_000)
+        try? await Task.sleep(nanoseconds: 350_000_000)
         launchWordLit = true
         let start = Date()
         while !Task.isCancelled && showingLaunch {
             try? await Task.sleep(nanoseconds: 100_000_000)
             let elapsed = Date().timeIntervalSince(start)
-            if elapsed >= 1.6 || (elapsed >= 0.7 && feed == .live) {
+            if elapsed >= 2.0 || (elapsed >= 1.6 && feed == .live) {
                 showingLaunch = false
             }
         }

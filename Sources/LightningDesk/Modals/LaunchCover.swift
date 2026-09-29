@@ -16,26 +16,48 @@ struct LaunchCover: View {
         ZStack {
             DeskInk.background.ignoresSafeArea()
 
-            // 1. Center Emblem - pixel-aligned with iOS UILaunchScreen
+            // Ambient background radial aura
+            RadialGradient(
+                colors: [
+                    DeskInk.emerald.opacity(markLit ? 0.16 : 0.0),
+                    DeskInk.electric.opacity(markLit ? 0.08 : 0.0),
+                    Color.clear
+                ],
+                center: .center,
+                startRadius: 20,
+                endRadius: 180
+            )
+            .ignoresSafeArea()
+            .animation(.easeOut(duration: 0.6), value: markLit)
+
+            // 1. Center Crystal Emblem - pixel-aligned with iOS UILaunchScreen
             markImage
-                .frame(width: 104, height: 104)
-                .scaleEffect(markLit ? 1 : 0.94)
+                .frame(width: 120, height: 120)
+                .scaleEffect(markLit ? 1 : 0.88)
                 .opacity(markLit ? 1 : 0)
-                .animation(.easeOut(duration: 0.45), value: markLit)
+                .shadow(color: DeskInk.emerald.opacity(markLit ? 0.4 : 0), radius: 24, x: -8, y: -8)
+                .shadow(color: DeskInk.coral.opacity(markLit ? 0.4 : 0), radius: 24, x: 8, y: 8)
+                .animation(.spring(response: 0.5, dampingFraction: 0.72), value: markLit)
 
             // 2. Brand Typography - revealed beneath the centered emblem
             VStack(spacing: 8) {
                 Text("BLAZER")
-                    .font(.system(size: 20, weight: .semibold, design: .rounded))
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
                     .tracking(8)
                     .foregroundStyle(DeskInk.ink)
 
                 Text(status)
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    .tracking(2.4)
-                    .foregroundStyle(DeskInk.slate)
+                    .tracking(2.6)
+                    .foregroundStyle(status == "LIVE" ? DeskInk.emerald : DeskInk.slate)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 3)
+                    .background(
+                        Capsule()
+                            .fill((status == "LIVE" ? DeskInk.emerald : DeskInk.slate).opacity(0.15))
+                    )
             }
-            .offset(y: (104 / 2) + 38)
+            .offset(y: (120 / 2) + 44)
             .opacity(wordLit ? 1 : 0)
             .animation(.easeOut(duration: 0.35), value: wordLit)
         }
