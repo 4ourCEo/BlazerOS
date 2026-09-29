@@ -113,6 +113,8 @@ public enum OandaClient {
         "AUD/USD": "AUD_USD",
         "USD/CAD": "USD_CAD",
         "EUR/JPY": "EUR_JPY",
+        "GBP/JPY": "GBP_JPY",
+        "XAU/USD": "XAU_USD",
     ]
 
     public static func instrument(for asset: String) -> String? {

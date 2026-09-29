@@ -391,10 +391,11 @@ final class ForwardTestRunner {
                             // 1. Strict conviction threshold (>= 70)
                             guard conviction >= 70 else { continue }
 
-                            // 2. Spread gate: max 0.4 pips
-                            let pipScale = pair.contains("JPY") ? 0.01 : 0.0001
+                            // 2. Spread gate: max 0.4 pips for FX, max 3.5 pips ($0.35) for Gold
+                            let pipScale = Assets.pipScale(for: pair)
                             let spreadPips = bundle.spread / pipScale
-                            guard spreadPips <= 0.4 else { continue }
+                            let maxSpread = pair.contains("XAU") ? 3.5 : 0.4
+                            guard spreadPips <= maxSpread else { continue }
 
                             // 3. Anti-exhaustion filter: reject over-extended wicks lacking a fresh break or sweep
                             let evidence = result.signal.evidence ?? ""
@@ -513,7 +514,7 @@ final class ForwardTestRunner {
         }
 
         let exitPrice = exitQuote.mid
-        let pipScale = arm.pair.contains("JPY") ? 0.01 : 0.0001
+        let pipScale = Assets.pipScale(for: arm.pair)
         let driftPips = (exitPrice - arm.strike) / pipScale
 
         let outcome: DeskOutcome

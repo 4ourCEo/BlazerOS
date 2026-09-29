@@ -295,7 +295,7 @@ struct CandleCanvas: View {
                 let currentY = max(4, min(height - 4, height - (currentFrac * height)))
                 let beaconX = size.width - 8
 
-                let pipScale = (pair?.contains("JPY") == true || current > 50) ? 0.01 : 0.0001
+                let pipScale = Assets.pipScale(for: pair ?? "")
                 let pipDiff = strike != nil ? (current - strike!) / pipScale : 0.0
 
                 let isITM: Bool

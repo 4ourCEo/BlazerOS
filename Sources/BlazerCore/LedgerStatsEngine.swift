@@ -83,6 +83,8 @@ public enum LedgerStatsEngine {
         "AUD/USD": 0.527,
         "USD/CAD": 0.364,
         "EUR/GBP": 0.455,
+        "GBP/JPY": 0.500,
+        "XAU/USD": 0.500,
     ]
 
     /// Tallies all ledger rows for a specific pair and returns empirical stats.

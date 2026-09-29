@@ -112,6 +112,10 @@ public enum MarketEdgeWindow: Sendable, Equatable {
             return .edgeConfirmed(winRate: "57.8%", drift: "+0.3p")
         case "USD/JPY":
             return .edgeConfirmed(winRate: "54.2%", drift: "+0.3p")
+        case "GBP/JPY":
+            return .neutral(winRate: "Calibrating (High ATR)")
+        case "XAU/USD":
+            return .neutral(winRate: "Calibrating (Gold)")
         case "USD/CAD":
             return .chopRisk(winRate: "36.4%", warning: "Sub-pip consolidations")
         case "AUD/USD":

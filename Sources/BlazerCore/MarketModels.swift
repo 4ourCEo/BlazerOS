@@ -213,20 +213,26 @@ public enum DeskURL {
 
 public enum Assets {
     public static let watchlist = [
-        "EUR/USD", "GBP/USD", "USD/JPY", "EUR/GBP", "AUD/USD", "USD/CAD",
+        "EUR/USD", "GBP/USD", "USD/JPY", "GBP/JPY", "XAU/USD", "AUD/USD",
     ]
+
+    public static func pipScale(for asset: String) -> Double {
+        if asset.contains("XAU") { return 0.10 } // $0.10 = 1 pip for Gold
+        if asset.contains("JPY") { return 0.01 }  // 0.01 = 1 pip for JPY pairs
+        return 0.0001                            // 0.0001 = 1 pip for standard FX
+    }
 
     public static func symbolName(for asset: String) -> String {
         switch asset {
         case "EUR/USD", "EUR/GBP":
             return "eurosign"
-        case "GBP/USD":
+        case "GBP/USD", "GBP/JPY":
             return "sterlingsign"
         case "USD/JPY":
             return "yensign"
-        case "AUD/USD":
-            return "dollarsign"
-        case "USD/CAD":
+        case "XAU/USD":
+            return "sparkles"
+        case "AUD/USD", "USD/CAD":
             return "dollarsign"
         default:
             return "coloncurrencysign"
