@@ -35,7 +35,7 @@ public enum DeskCredentials {
             break
         }
         #endif
-        #if DEBUG
+        #if DEBUG || os(macOS)
         if let token = ProcessInfo.processInfo.environment["OANDA_API_TOKEN"],
             let accountId = ProcessInfo.processInfo.environment["OANDA_ACCOUNT_ID"],
             !token.isEmpty, !accountId.isEmpty

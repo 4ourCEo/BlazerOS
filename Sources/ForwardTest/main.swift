@@ -270,11 +270,26 @@ final class ForwardTestRunner {
         printFinalReport()
     }
 
+    private var lastDormantLoggedAt: Date?
+    private var wasDormant = false
+
+    private func logDaemon(_ tag: String, _ text: String) {
+        let formatter = ISO8601DateFormatter()
+        let time = formatter.string(from: Date())
+        print("[\(time)] [\(tag)] \(text)")
+        fflush(stdout)
+    }
+
     // MARK: - Live Forward-Testing Loop (OANDA Feed)
 
-    func runLive(session: OandaSession, smartSchedule: Bool = false) async {
+    func runLive(session: OandaSession, smartSchedule: Bool = false, isDaemon: Bool = false) async {
         let pairs = Assets.watchlist
-        print("Starting live forward testing across \(pairs.count) pairs with OANDA...")
+        if isDaemon {
+            logDaemon("STARTUP", "BlazerOS Prime Auto-Settler daemon started across \(pairs.count) pairs.")
+            logDaemon("CONFIG", "Smart-Schedule: \(smartSchedule) | Expiry: 60s Binary Horizon | Engine: scan-engine.js")
+        } else {
+            print("Starting live forward testing across \(pairs.count) pairs with OANDA...")
+        }
 
         // Preload historical settled rows so the calibration count reflects cumulative progress
         let root = FileLocations.applicationSupport()
@@ -287,18 +302,24 @@ final class ForwardTestRunner {
                         id: row.outcomeEventID,
                         pair: row.pair,
                         side: row.side,
-                        strike: 0,
+                        strike: row.entryQuote ?? 0,
                         score: row.score,
                         entryTime: row.timestamp,
                         expiryTime: row.timestamp,
                         fingerprint: row.hash,
                         snapshotBars: []
                     ),
-                    exitPrice: 0,
+                    exitPrice: row.expiryPrice ?? 0,
                     outcome: outcome,
                     driftPips: row.drift,
                     settledAt: row.timestamp
                 )
+            }
+            if isDaemon {
+                let hits = settledHistory.filter { $0.outcome == .hit }.count
+                let total = settledHistory.count
+                let wr = total > 0 ? (Double(hits) / Double(total)) * 100 : 0.0
+                logDaemon("LEDGER", "Preloaded \(total) historical trades (Win Rate: \(String(format: "%.1f%%", wr))).")
             }
         }
 
@@ -309,7 +330,7 @@ final class ForwardTestRunner {
             var remainingArms: [ForwardArm] = []
             for arm in activeArms {
                 if now >= arm.expiryTime {
-                    await settleLiveArm(arm, session: session)
+                    await settleLiveArm(arm, session: session, isDaemon: isDaemon)
                 } else {
                     remainingArms.append(arm)
                 }
@@ -319,14 +340,31 @@ final class ForwardTestRunner {
             // 2. Smart-schedule check: pause arming during off-peak chop
             let edgeWindow = MarketEdgeWindow.current(at: now)
             if smartSchedule && !edgeWindow.isPrime {
-                Dashboard.render(
-                    mode: "LIVE OANDA STREAM (\(session.environment.rawValue.uppercased())) [DORMANT]",
-                    sessionText: "Off-peak lull · \(edgeWindow.detailText) · Sleeping...",
-                    activeArms: activeArms,
-                    settled: settledHistory
-                )
-                try? await Task.sleep(nanoseconds: 10_000_000_000) // Sleep 10s between checks
-                continue
+                if isDaemon {
+                    if !wasDormant || Date().timeIntervalSince(lastDormantLoggedAt ?? .distantPast) >= 1800 {
+                        logDaemon("DORMANT", "Off-peak lull (\(edgeWindow.badgeTitle)). Sleeping until next prime window: \(edgeWindow.detailText)")
+                        lastDormantLoggedAt = Date()
+                    }
+                    wasDormant = true
+                    try? await Task.sleep(nanoseconds: 30_000_000_000) // Sleep 30s during off-peak
+                    continue
+                } else {
+                    Dashboard.render(
+                        mode: "LIVE OANDA STREAM (\(session.environment.rawValue.uppercased())) [DORMANT]",
+                        sessionText: "Off-peak lull · \(edgeWindow.detailText) · Sleeping...",
+                        activeArms: activeArms,
+                        settled: settledHistory
+                    )
+                    try? await Task.sleep(nanoseconds: 10_000_000_000) // Sleep 10s between checks
+                    continue
+                }
+            }
+
+            if wasDormant {
+                wasDormant = false
+                if isDaemon {
+                    logDaemon("PRIME_ACTIVE", "⚡ Prime window active (\(edgeWindow.badgeTitle)). Resuming live signal evaluation across \(pairs.count) pairs...")
+                }
             }
 
             // 3. Scan pairs for newly completed candles
@@ -348,7 +386,7 @@ final class ForwardTestRunner {
                         if side == "HIGH" || side == "LOW" {
                             let score = Int((result.signal.opportunity ?? result.signal.confidence ?? 60).rounded())
                             if score >= 60 {
-                                armNewTrade(pair: pair, side: side, strike: bundle.lastPrice, score: score, why: result.signal.why, input: bundle)
+                                armNewTrade(pair: pair, side: side, strike: bundle.lastPrice, score: score, why: result.signal.why, input: bundle, isDaemon: isDaemon)
                             }
                         }
                     }
@@ -365,15 +403,17 @@ final class ForwardTestRunner {
                 ? "⚡ \(edgeWindow.badgeTitle) (\(edgeWindow.detailText))"
                 : "Account: \(session.accountId.prefix(7))..."
 
-            Dashboard.render(
-                mode: modeTitle,
-                sessionText: sessionInfo,
-                activeArms: activeArms,
-                settled: settledHistory
-            )
+            if !isDaemon {
+                Dashboard.render(
+                    mode: modeTitle,
+                    sessionText: sessionInfo,
+                    activeArms: activeArms,
+                    settled: settledHistory
+                )
+            }
 
             // Auto-stop once 100-trade calibration benchmark is satisfied
-            if settledHistory.count >= 100 && activeArms.isEmpty && !CommandLine.arguments.contains("--continuous") {
+            if settledHistory.count >= 100 && activeArms.isEmpty && !CommandLine.arguments.contains("--continuous") && !isDaemon {
                 printFinalReport()
                 break
             }
@@ -388,7 +428,8 @@ final class ForwardTestRunner {
         strike: Double,
         score: Int,
         why: String,
-        input: StrategyEngine.MarketInput
+        input: StrategyEngine.MarketInput,
+        isDaemon: Bool = false
     ) {
         let armID = UUID().uuidString
         let now = Date()
@@ -433,9 +474,14 @@ final class ForwardTestRunner {
         Task {
             try? await coordinator.recordScan(entry, snapshot: snapshot)
         }
+
+        if isDaemon {
+            let strikeStr = String(format: "%.5f", strike)
+            logDaemon("ARMED", "\(pair) \(side) @ \(strikeStr) (Score: \(score), ID: \(armID.prefix(8))) | Expiry: 60s")
+        }
     }
 
-    private func settleLiveArm(_ arm: ForwardArm, session: OandaSession) async {
+    private func settleLiveArm(_ arm: ForwardArm, session: OandaSession, isDaemon: Bool = false) async {
         let quotes = await OandaClient.fetchQuotes(assets: [arm.pair], session: session)
         guard let exitQuote = quotes.first else {
             // Retry next cycle if quote fetch fails
@@ -480,10 +526,29 @@ final class ForwardTestRunner {
             veto: false,
             drift: driftPips,
             outcome: outcome.rawValue,
-            outcomeEventID: arm.id
+            outcomeEventID: arm.id,
+            payout: 0.88,
+            stake: 10.0,
+            marketWindow: MarketEdgeWindow.current().badgeTitle,
+            engineSHA: EngineIdentity.pinnedSHA1,
+            fullFingerprint: arm.fingerprint,
+            entryQuote: arm.strike,
+            expiryPrice: exitPrice
         )
 
         _ = try? await coordinator.settle(armID: arm.id, row: row, snapshot: snapshot)
+
+        if isDaemon {
+            let total = settledHistory.count
+            let hits = settledHistory.filter { $0.outcome == .hit }.count
+            let wr = total > 0 ? (Double(hits) / Double(total)) * 100 : 0.0
+            let mark = outcome == .hit ? "HIT" : "MISS"
+            let sign = driftPips >= 0 ? "+" : ""
+            let driftStr = "\(sign)\(String(format: "%.1f", driftPips))"
+            let exitStr = String(format: "%.5f", exitPrice)
+            let strikeStr = String(format: "%.5f", arm.strike)
+            logDaemon("SETTLED", "\(arm.pair) \(arm.side) Strike: \(strikeStr) Exit: \(exitStr) (\(driftStr)p) -> \(mark) | Settled Total: \(total) | Win Rate: \(String(format: "%.1f%%", wr))")
+        }
     }
 
     func stop() {
@@ -552,24 +617,36 @@ struct ForwardTestApp {
             return
         }
 
-        // Check for Keychain OANDA credentials
-        let gate = DeskCredentials.session(allowPrompt: true)
+        let isDaemon = args.contains("--daemon") || args.contains("-d")
+        let smartSchedule = isDaemon || args.contains("--smart-schedule") || args.contains("--prime-only")
+        let allowPrompt = !isDaemon
+
+        let gate = DeskCredentials.session(allowPrompt: allowPrompt)
         switch gate {
         case .ready(let session):
-            let smartSchedule = args.contains("--smart-schedule") || args.contains("--prime-only")
             if args.contains("--replay") {
                 await runner.runBenchmark(targetSignals: 100)
             } else {
-                await runner.runLive(session: session, smartSchedule: smartSchedule)
+                await runner.runLive(session: session, smartSchedule: smartSchedule, isDaemon: isDaemon)
             }
         case .locked:
-            print("\(Dashboard.red)Keychain item exists but is locked. Unlock keychain and retry.\(Dashboard.reset)")
-            print("\(Dashboard.yellow)Falling back to 100-signal automated benchmark...\(Dashboard.reset)")
-            await runner.runBenchmark(targetSignals: 100)
+            if isDaemon {
+                let formatter = ISO8601DateFormatter()
+                print("[\(formatter.string(from: Date()))] [ERROR] Keychain item exists but requires interactive unlock. Run 'swift run ForwardTest' interactively once or provide OANDA_API_TOKEN / OANDA_ACCOUNT_ID.")
+            } else {
+                print("\(Dashboard.red)Keychain item exists but is locked. Unlock keychain and retry.\(Dashboard.reset)")
+                print("\(Dashboard.yellow)Falling back to 100-signal automated benchmark...\(Dashboard.reset)")
+                await runner.runBenchmark(targetSignals: 100)
+            }
         case .missing:
-            print("\(Dashboard.yellow)No OANDA credentials found in Keychain.\(Dashboard.reset)")
-            print("\(Dashboard.bold)Running 100-signal forward-testing validation benchmark...\(Dashboard.reset)")
-            await runner.runBenchmark(targetSignals: 100)
+            if isDaemon {
+                let formatter = ISO8601DateFormatter()
+                print("[\(formatter.string(from: Date()))] [ERROR] No OANDA credentials found in Keychain or environment.")
+            } else {
+                print("\(Dashboard.yellow)No OANDA credentials found in Keychain.\(Dashboard.reset)")
+                print("\(Dashboard.bold)Running 100-signal forward-testing validation benchmark...\(Dashboard.reset)")
+                await runner.runBenchmark(targetSignals: 100)
+            }
         }
     }
 }

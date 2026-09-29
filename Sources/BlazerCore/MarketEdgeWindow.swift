@@ -18,7 +18,7 @@ public enum MarketEdgeWindow: Sendable, Equatable {
     }
 
     public var isPrime: Bool {
-        return isSupremePrime
+        return isSupremePrime || isTactical
     }
 
     public var badgeTitle: String {
