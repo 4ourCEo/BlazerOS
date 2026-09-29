@@ -155,15 +155,23 @@ final class ForwardTestRunner {
 
     func runBenchmark(targetSignals: Int = 100) async {
         print("\(Dashboard.bold)Running Automated 100-Signal Forward-Testing Benchmark...\(Dashboard.reset)")
-        let pairs = ["EUR/USD", "GBP/USD", "USD/JPY", "EUR/GBP", "AUD/USD"]
+        let pairs = Assets.watchlist
         var evaluatedSignals = 0
 
         // Build continuous realistic random-walk candle sequences with varying market regimes
         for pairIndex in 0..<pairs.count {
             if evaluatedSignals >= targetSignals { break }
             let pair = pairs[pairIndex]
-            var basePrice = pair == "USD/JPY" ? 150.00 : (pair == "EUR/GBP" ? 0.85 : 1.08)
-            let pipSize = pair == "USD/JPY" ? 0.01 : 0.0001
+            let basePriceForPair: Double = {
+                if pair.contains("XAU") { return 2650.00 }
+                if pair == "GBP/JPY" { return 195.00 }
+                if pair == "USD/JPY" { return 150.00 }
+                if pair == "GBP/USD" { return 1.3000 }
+                if pair == "AUD/USD" { return 0.6500 }
+                return 1.0800
+            }()
+            var basePrice = basePriceForPair
+            let pipSize = Assets.pipScale(for: pair)
             var currentTimeMs = Date().timeIntervalSince1970 * 1000 - Double(targetSignals * 2) * 60_000
 
             // Generate sequence of 150 candles

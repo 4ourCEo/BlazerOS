@@ -105,7 +105,7 @@ public enum LedgerStatsEngine {
     /// Evaluates all known pairs against the ledger.
     public static func evaluateAll(rows: [LedgerRow], payoutRatio: Double = 0.88) -> [String: PairEdgeStats] {
         var result: [String: PairEdgeStats] = [:]
-        let allPairs = ["GBP/USD", "USD/JPY", "EUR/USD", "AUD/USD", "USD/CAD", "EUR/GBP"]
+        let allPairs = Assets.watchlist + ["USD/CAD", "EUR/GBP"]
         for pair in allPairs {
             result[pair] = evaluate(pair: pair, rows: rows, payoutRatio: payoutRatio)
         }

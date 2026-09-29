@@ -464,6 +464,14 @@ public final class LightningDeskModel: ObservableObject {
         LedgerStatsEngine.evaluate(pair: asset, rows: ledgerRows, payoutRatio: 0.88)
     }
 
+    /// Empirical average drift in pips computed from local settled trades.
+    public func averageDrift(for asset: String) -> Double? {
+        let settled = ledgerRows.filter { $0.pair == asset && ($0.outcome == "HIT" || $0.outcome == "MISS") }
+        guard !settled.isEmpty else { return nil }
+        let sum = settled.reduce(0.0) { $0 + $1.drift }
+        return sum / Double(settled.count)
+    }
+
     /// Engine pick. If the desk pick is unavailable, stay on WAIT. Never invent HIGH or LOW.
     private func pickedSignal(from bag: [EngineSignal]) async -> EngineSignal {
         do {

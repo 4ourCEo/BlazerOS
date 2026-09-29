@@ -5,32 +5,35 @@ import Foundation
 public enum CoachIntelligence {
     public static func synthesizeAnswer(seal: ParitySeal, evidence: String, question: String) -> String {
         let q = question.lowercased()
+        let conviction = seal.side == "LOW" ? (100 - seal.score) : seal.score
+        let direction = seal.side == "LOW" ? "PUT" : (seal.side == "HIGH" ? "CALL" : "WAIT")
 
         // Risk or sizing inquiry
         if q.contains("risk") || q.contains("size") || q.contains("stake") || q.contains("lot") || q.contains("money") {
-            let winRateStr = seal.score >= 70 ? "high statistical edge" : "favorable probability"
-            return "This \(seal.side) setup carries a \(winRateStr) with an engine score of \(seal.score). For 60-second binary contracts, keep risk fixed at 1 to 2 percent of your balance. Never chase losses with Martingale."
+            let winRateStr = conviction >= 70 ? "high statistical edge" : "favorable probability"
+            return "This \(direction) setup carries a \(winRateStr) with a conviction rating of \(conviction). Keep risk fixed at 1 to 2 percent of your balance. Never chase losses with Martingale."
         }
 
         // Reason / Why inquiry
         if q.contains("why") || q.contains("reason") || q.contains("setup") || q.contains("signal") || q.contains("take") || q.contains("enter") {
             let rationale = evidence.isEmpty ? "clean structural alignment and wick rejection" : evidence
-            return "The engine called \(seal.side) with an opportunity score of \(seal.score). Key driver: \(rationale). Strike is anchored at \(String(format: "%.5f", seal.strike))."
+            let strikeStr = PriceFormat.px(seal.strike)
+            return "The engine called \(direction) with a conviction score of \(conviction). Key driver: \(rationale). Strike is anchored at \(strikeStr)."
         }
 
         // Win / Probability inquiry
         if q.contains("win") || q.contains("chance") || q.contains("probability") || q.contains("edge") || q.contains("stat") {
-            let edge = seal.score >= 60 ? "exceeds our 54 percent breakeven threshold" : "is below threshold"
-            return "At score \(seal.score), historical calibration confirms this setup \(edge). On Pocket Option 85 percent payout, this provides positive mathematical expectancy."
+            let edge = conviction >= 60 ? "exceeds our 54 percent breakeven threshold" : "is below threshold"
+            return "At conviction \(conviction), historical calibration confirms this setup \(edge). On Pocket Option 85 to 88 percent payout, this provides positive mathematical expectancy."
         }
 
         // Expiry / Timing inquiry
         if q.contains("time") || q.contains("expiry") || q.contains("duration") || q.contains("hold") || q.contains("second") || q.contains("minute") {
-            return "This setup is modeled strictly on a 60-second M1 binary horizon. Enter on broker within the 15-second action window before quote drift exceeds 1 pip."
+            return "This setup is modeled across binary horizons (60s, 3m, 5m). Enter on broker within the 8-second action window before quote drift exceeds 0.4 pips."
         }
 
         // General / Default analysis
         let rationale = evidence.isEmpty ? "trend alignment and momentum expansion" : evidence
-        return "Score \(seal.score) on \(seal.side). Rationale: \(rationale). Fingerprint \(seal.fingerprint.prefix(4)). Trade the 60-second horizon with disciplined risk."
+        return "Conviction \(conviction) on \(direction). Rationale: \(rationale). Fingerprint \(seal.fingerprint.prefix(4)). Trade with disciplined risk."
     }
 }

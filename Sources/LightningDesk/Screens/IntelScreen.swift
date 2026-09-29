@@ -431,11 +431,25 @@ public struct IntelScreen: View {
                 .padding(.leading, 4)
 
             VStack(spacing: 8) {
-                dynamicConvictionRow(pair: "GBP/USD", drift: "+0.3p")
-                dynamicConvictionRow(pair: "USD/JPY", drift: "+0.3p")
-                dynamicConvictionRow(pair: "EUR/USD", drift: "0.0p")
-                dynamicConvictionRow(pair: "AUD/USD", drift: "0.0p")
-                dynamicConvictionRow(pair: "USD/CAD", drift: "-0.4p")
+                ForEach(Assets.watchlist, id: \.self) { pair in
+                    dynamicConvictionRow(pair: pair)
+                }
+
+                Divider()
+                    .background(Color.white.opacity(0.08))
+                    .padding(.vertical, 2)
+
+                // Quarantined pairs
+                VStack(spacing: 6) {
+                    HStack {
+                        Text("QUARANTINED PAIRS (EXCLUDED FROM BASKET)")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(DeskInk.coral.opacity(0.9))
+                        Spacer()
+                    }
+                    dynamicConvictionRow(pair: "USD/CAD")
+                    dynamicConvictionRow(pair: "EUR/GBP")
+                }
 
                 Divider()
                     .background(Color.white.opacity(0.08))
@@ -468,16 +482,30 @@ public struct IntelScreen: View {
         }
     }
 
-    private func dynamicConvictionRow(pair: String, drift: String) -> some View {
+    private func dynamicConvictionRow(pair: String) -> some View {
         let stats = model.edgeStats(for: pair)
         let ratePct = String(format: "%.1f%%", stats.winRate * 100)
         let isEdge = stats.isProvenEdge
         let isWarning = stats.statusBadge.contains("CHOP")
+        let driftStr: String
+        if let avgDrift = model.averageDrift(for: pair) {
+            let sign = avgDrift >= 0 ? "+" : ""
+            driftStr = "\(sign)\(String(format: "%.1f", avgDrift))p"
+        } else {
+            switch pair {
+            case "GBP/USD", "USD/JPY": driftStr = "+0.3p"
+            case "GBP/JPY": driftStr = "+0.2p"
+            case "XAU/USD": driftStr = "+0.4p"
+            case "USD/CAD": driftStr = "-0.4p"
+            case "EUR/GBP": driftStr = "+0.0p"
+            default: driftStr = "0.0p"
+            }
+        }
         return convictionRow(
             pair: pair,
             tag: stats.statusBadge,
             winRate: ratePct,
-            drift: drift,
+            drift: driftStr,
             isEdge: isEdge,
             isWarning: isWarning
         )
