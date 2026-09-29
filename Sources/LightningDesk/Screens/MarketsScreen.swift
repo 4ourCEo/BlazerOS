@@ -309,19 +309,57 @@ struct MarketTacticalTile: View {
                 let minC = closes.min() ?? 0
                 let maxC = closes.max() ?? 1
                 let span = max(maxC - minC, 0.00001)
+                let w = geo.size.width
+                let h = geo.size.height
 
-                Path { path in
-                    for (index, val) in closes.enumerated() {
-                        let x = CGFloat(index) / CGFloat(closes.count - 1) * geo.size.width
-                        let y = geo.size.height - (CGFloat((val - minC) / span) * (geo.size.height - 4) + 2)
-                        if index == 0 {
-                            path.move(to: CGPoint(x: x, y: y))
-                        } else {
-                            path.addLine(to: CGPoint(x: x, y: y))
+                ZStack {
+                    // Subtle Area Gradient Fill
+                    Path { path in
+                        for (index, val) in closes.enumerated() {
+                            let x = CGFloat(index) / CGFloat(closes.count - 1) * w
+                            let y = h - (CGFloat((val - minC) / span) * (h - 8) + 4)
+                            if index == 0 {
+                                path.move(to: CGPoint(x: x, y: h))
+                                path.addLine(to: CGPoint(x: x, y: y))
+                            } else {
+                                path.addLine(to: CGPoint(x: x, y: y))
+                            }
+                        }
+                        path.addLine(to: CGPoint(x: w, y: h))
+                        path.closeSubpath()
+                    }
+                    .fill(
+                        LinearGradient(
+                            colors: [tint.opacity(0.20), tint.opacity(0.0)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+
+                    // Trend Line
+                    Path { path in
+                        for (index, val) in closes.enumerated() {
+                            let x = CGFloat(index) / CGFloat(closes.count - 1) * w
+                            let y = h - (CGFloat((val - minC) / span) * (h - 8) + 4)
+                            if index == 0 {
+                                path.move(to: CGPoint(x: x, y: y))
+                            } else {
+                                path.addLine(to: CGPoint(x: x, y: y))
+                            }
                         }
                     }
+                    .stroke(tint.opacity(0.85), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+
+                    // Live Beacon Node on Last Bar
+                    if let lastVal = closes.last {
+                        let lastY = h - (CGFloat((lastVal - minC) / span) * (h - 8) + 4)
+                        Circle()
+                            .fill(tint)
+                            .frame(width: 4.5, height: 4.5)
+                            .position(x: w, y: lastY)
+                            .shadow(color: tint.opacity(0.8), radius: 3)
+                    }
                 }
-                .stroke(tint.opacity(0.7), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
             } else {
                 HStack {
                     Spacer()

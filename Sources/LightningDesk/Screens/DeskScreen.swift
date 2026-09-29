@@ -165,25 +165,41 @@ struct DeskScreen: View {
                 Button {
                     Task { await model.scan() }
                 } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.shield.fill")
-                            .font(.system(size: 13, weight: .semibold))
-                        Text(vetoExplanation(blocked))
-                            .font(.system(size: 12, weight: .medium))
-                            .lineLimit(2)
+                    HStack(spacing: 9) {
+                        Image(systemName: "shield.checkered")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(DeskInk.coral)
+
+                        VStack(alignment: .leading, spacing: 1.5) {
+                            Text("CAPITAL PRESERVED")
+                                .font(.system(size: 10, weight: .heavy))
+                                .tracking(0.8)
+                                .foregroundStyle(DeskInk.coral)
+                            Text(vetoExplanation(blocked))
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(DeskInk.slate)
+                                .lineLimit(2)
+                        }
+
                         Spacer(minLength: 4)
+
                         Text("Rescan")
                             .font(.system(size: 11, weight: .bold))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(DeskInk.coral.opacity(0.18), in: Capsule())
+                            .foregroundStyle(DeskInk.ink)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(DeskInk.coral.opacity(0.25), in: Capsule())
+                            .overlay(Capsule().strokeBorder(DeskInk.coral.opacity(0.5), lineWidth: 0.8))
                     }
-                    .foregroundStyle(DeskInk.coral)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, 14)
                     .padding(.vertical, 10)
                     .background(DeskInk.surface.opacity(0.96))
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(DeskInk.coral.opacity(0.35), lineWidth: 0.8)
+                    )
+                    .shadow(color: Color.black.opacity(0.4), radius: 8, y: 3)
                     .padding(8)
                 }
                 .buttonStyle(.plain)
@@ -274,13 +290,33 @@ struct DeskScreen: View {
         HStack(alignment: .center, spacing: 0) {
             pairStep(systemName: "chevron.left", delta: -1)
 
-            Text(model.pair)
-                .font(.system(size: 26, weight: .semibold))
-                .foregroundStyle(DeskInk.ink)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+            Menu {
+                ForEach(model.pairs, id: \.self) { p in
+                    Button {
+                        DeskHaptics.tabSwitch()
+                        model.select(pair: p)
+                    } label: {
+                        HStack {
+                            Text(p)
+                            if let s = model.score(for: p) {
+                                Text("· \(s)")
+                            }
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Text(model.pair)
+                        .font(.system(size: 26, weight: .bold))
+                        .foregroundStyle(DeskInk.ink)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(DeskInk.slate.opacity(0.6))
+                }
                 .frame(maxWidth: .infinity)
-                .animation(.spring(response: 0.3, dampingFraction: 0.75), value: model.pair)
+            }
+            .buttonStyle(.plain)
 
             pairStep(systemName: "chevron.right", delta: 1)
 
@@ -543,53 +579,118 @@ struct DeskScreen: View {
     }
 
     private var rail: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            GeometryReader { geo in
-                let fillWidth = max(0, min(geo.size.width, geo.size.width * railFraction))
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.white.opacity(0.08))
+        VStack(alignment: .leading, spacing: 8) {
+            if let trade = model.activeTrade {
+                let isITM = trade.isInTheMoney ?? false
+                let pip = trade.pipDiff ?? 0.0
+                let statusTint = isITM ? DeskInk.emerald : DeskInk.coral
 
-                    Capsule()
-                        .fill(
-                            LinearGradient(
-                                colors: [DeskInk.violet, DeskInk.electric, verbColor],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .frame(width: fillWidth)
-                        .shadow(color: verbColor.opacity(0.6), radius: 6, y: 0)
-
-                    if fillWidth > 8 {
+                HStack {
+                    HStack(spacing: 5) {
                         Circle()
-                            .fill(Color.white)
-                            .frame(width: 6, height: 6)
-                            .shadow(color: .white, radius: 4)
-                            .shadow(color: verbColor, radius: 6)
-                            .offset(x: fillWidth - 6)
+                            .fill(statusTint)
+                            .frame(width: 7, height: 7)
+                            .shadow(color: statusTint.opacity(0.9), radius: 4)
+
+                        Text(railLabel)
+                            .font(.system(size: 13, weight: .heavy, design: .monospaced))
+                            .foregroundStyle(DeskInk.ink)
+                            .monospacedDigit()
+                    }
+
+                    Spacer()
+
+                    // Dynamic Live Pip Cushion Pill
+                    HStack(spacing: 4) {
+                        Text(String(format: "%@%.1f pips", pip >= 0 ? "+" : "", pip))
+                            .font(.system(size: 11, weight: .heavy, design: .monospaced))
+                        Text(isITM ? "ITM" : "OTM")
+                            .font(.system(size: 10, weight: .heavy))
+                    }
+                    .foregroundStyle(statusTint)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3.5)
+                    .background(statusTint.opacity(0.16), in: Capsule())
+                    .overlay(
+                        Capsule().strokeBorder(statusTint.opacity(0.4), lineWidth: 0.8)
+                    )
+                }
+
+                GeometryReader { geo in
+                    let fillWidth = max(0, min(geo.size.width, geo.size.width * railFraction))
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color.white.opacity(0.08))
+
+                        Capsule()
+                            .fill(
+                                LinearGradient(
+                                    colors: [statusTint.opacity(0.7), statusTint],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                            .frame(width: fillWidth)
+                            .shadow(color: statusTint.opacity(0.8), radius: 6, y: 0)
+
+                        if fillWidth > 8 {
+                            Circle()
+                                .fill(Color.white)
+                                .frame(width: 7, height: 7)
+                                .shadow(color: .white, radius: 4)
+                                .shadow(color: statusTint, radius: 6)
+                                .offset(x: fillWidth - 7)
+                        }
                     }
                 }
-            }
-            .frame(height: 6)
-            .animation(reduceMotion ? nil : .linear(duration: 0.1), value: railFraction)
+                .frame(height: 7)
+                .animation(reduceMotion ? nil : .linear(duration: 0.1), value: railFraction)
+            } else {
+                // 8s Action Window (Pre-trade)
+                GeometryReader { geo in
+                    let fillWidth = max(0, min(geo.size.width, geo.size.width * railFraction))
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color.white.opacity(0.08))
 
-            HStack {
-                HStack(spacing: 5) {
-                    Circle()
-                        .fill(railFraction < 0.25 ? DeskInk.coral : verbColor)
-                        .frame(width: 5, height: 5)
-                    Text(railLabel)
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(railFraction < 0.25 ? DeskInk.coral : DeskInk.ink)
-                        .monospacedDigit()
-                        .contentTransition(.numericText())
+                        Capsule()
+                            .fill(
+                                LinearGradient(
+                                    colors: [DeskInk.violet, DeskInk.electric, verbColor],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                            .frame(width: fillWidth)
+                            .shadow(color: verbColor.opacity(0.6), radius: 6, y: 0)
+
+                        if fillWidth > 8 {
+                            Circle()
+                                .fill(Color.white)
+                                .frame(width: 6, height: 6)
+                                .shadow(color: .white, radius: 4)
+                                .shadow(color: verbColor, radius: 6)
+                                .offset(x: fillWidth - 6)
+                        }
+                    }
                 }
-                .frame(minHeight: 14, alignment: .leading)
+                .frame(height: 6)
+                .animation(reduceMotion ? nil : .linear(duration: 0.1), value: railFraction)
 
-                Spacer()
+                HStack {
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(railFraction < 0.25 ? DeskInk.coral : verbColor)
+                            .frame(width: 5, height: 5)
+                        Text(railLabel)
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(railFraction < 0.25 ? DeskInk.coral : DeskInk.ink)
+                            .monospacedDigit()
+                            .contentTransition(.numericText())
+                    }
+                    .frame(minHeight: 14, alignment: .leading)
 
-                if isArmed {
-                    Text(model.activeTrade != nil ? "60s BINARY HORIZON" : "ACTION WINDOW")
+                    Spacer()
+
+                    Text("ACTION WINDOW")
                         .font(.system(size: 9, weight: .heavy))
                         .tracking(1.2)
                         .foregroundStyle(verbColor)

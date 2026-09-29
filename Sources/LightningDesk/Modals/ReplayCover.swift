@@ -9,6 +9,13 @@ struct ReplayCover: View {
     var onStopVoice: () -> Void
     var close: () -> Void
 
+    @State private var candleStep: Int? = nil
+
+    private var visibleBars: [Candle] {
+        let count = candleStep ?? entry.candles.count
+        return Array(entry.candles.prefix(count))
+    }
+
     var body: some View {
         ZStack {
             DeskInk.background.ignoresSafeArea()
@@ -29,10 +36,48 @@ struct ReplayCover: View {
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(DeskInk.slate)
 
-                    MiniCandleChart(candles: entry.candles)
+                    MiniCandleChart(candles: visibleBars)
                         .equatable()
                         .frame(height: 150)
                         .frame(maxWidth: .infinity)
+
+                    if entry.candles.count > 4 {
+                        HStack(spacing: 12) {
+                            Button {
+                                DeskHaptics.scrubTick()
+                                candleStep = max(4, (candleStep ?? entry.candles.count) - 1)
+                            } label: {
+                                Image(systemName: "backward.frame.fill")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundStyle(DeskInk.slate)
+                                    .frame(width: 34, height: 32)
+                                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                            .disabled((candleStep ?? entry.candles.count) <= 4)
+
+                            Spacer()
+
+                            Text("CANDLE \(candleStep ?? entry.candles.count) OF \(entry.candles.count)")
+                                .font(.system(size: 11, weight: .heavy, design: .monospaced))
+                                .foregroundStyle(DeskInk.electric)
+
+                            Spacer()
+
+                            Button {
+                                DeskHaptics.scrubTick()
+                                candleStep = min(entry.candles.count, (candleStep ?? entry.candles.count) + 1)
+                            } label: {
+                                Image(systemName: "forward.frame.fill")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundStyle(DeskInk.slate)
+                                    .frame(width: 34, height: 32)
+                                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                            .disabled((candleStep ?? entry.candles.count) >= entry.candles.count)
+                        }
+                    }
 
                     Text("\(entry.score)")
                         .font(.system(size: 56, weight: .semibold))

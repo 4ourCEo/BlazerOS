@@ -23,15 +23,35 @@ struct JournalScreen: View {
                     }
                 }
                 Spacer()
-                if model.outcomeStats.hits + model.outcomeStats.misses > 0 {
-                    let total = model.outcomeStats.hits + model.outcomeStats.misses
-                    let rate = Int(round(Double(model.outcomeStats.hits) / Double(total) * 100))
-                    Text("\(rate)% WIN")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(rate >= 50 ? DeskInk.emerald : DeskInk.coral)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background((rate >= 50 ? DeskInk.emerald : DeskInk.coral).opacity(0.12), in: Capsule())
+                HStack(spacing: 8) {
+                    if model.outcomeStats.hits + model.outcomeStats.misses > 0 {
+                        let total = model.outcomeStats.hits + model.outcomeStats.misses
+                        let rate = Int(round(Double(model.outcomeStats.hits) / Double(total) * 100))
+                        Text("\(rate)% WIN")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(rate >= 50 ? DeskInk.emerald : DeskInk.coral)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background((rate >= 50 ? DeskInk.emerald : DeskInk.coral).opacity(0.12), in: Capsule())
+                    }
+
+                    if !model.journal.isEmpty {
+                        ShareLink(
+                            item: csvLedgerData,
+                            subject: Text("BlazerOS Trade Ledger"),
+                            message: Text("Exported \(model.journal.count) entries from BlazerOS Ledger"),
+                            preview: SharePreview("BlazerOS_Ledger.csv", icon: Image(systemName: "tablecells"))
+                        ) {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(DeskInk.electric)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(DeskInk.electric.opacity(0.14), in: Capsule())
+                                .overlay(Capsule().strokeBorder(DeskInk.electric.opacity(0.35), lineWidth: 0.8))
+                        }
+                        .accessibilityLabel("Export Ledger CSV")
+                    }
                 }
             }
             .padding(.horizontal, 20)
@@ -83,6 +103,17 @@ struct JournalScreen: View {
                 }
             }
         }
+    }
+
+    private var csvLedgerData: String {
+        var rows = ["Timestamp,Pair,Score,Outcome,Strike,EdgeVerdict,Evidence"]
+        for entry in model.journal {
+            let outcome = entry.outcome ?? entry.verb
+            let sanitizedWhy = entry.why.replacingOccurrences(of: "\"", with: "\"\"")
+            let row = "\"\(entry.scannedAt)\",\"\(entry.pair)\",\(entry.score),\"\(outcome)\",\(entry.strike),\"\(entry.verb)\",\"\(sanitizedWhy)\""
+            rows.append(row)
+        }
+        return rows.joined(separator: "\n")
     }
 }
 

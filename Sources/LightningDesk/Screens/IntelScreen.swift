@@ -8,6 +8,7 @@ public struct IntelScreen: View {
     @State private var notificationsEnabled = MarketNotificationService.shared.isNotificationsEnabled
     @State private var testAlertSent = false
     @State private var isScheduling = false
+    @State private var now = Date()
 
     public init(model: LightningDeskModel) {
         self.model = model
@@ -33,6 +34,11 @@ public struct IntelScreen: View {
         .task {
             let authorized = await MarketNotificationService.shared.checkAuthorizationStatus()
             notificationsEnabled = authorized && MarketNotificationService.shared.isNotificationsEnabled
+
+            while !Task.isCancelled {
+                now = Date()
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
         }
     }
 
@@ -69,7 +75,7 @@ public struct IntelScreen: View {
     // MARK: - Current Live Status Card
 
     private var currentStatusCard: some View {
-        let currentWindow = MarketEdgeWindow.current()
+        let currentWindow = MarketEdgeWindow.current(at: now)
         let isPrime = currentWindow.isPrime
 
         return VStack(alignment: .leading, spacing: 12) {
@@ -103,6 +109,23 @@ public struct IntelScreen: View {
                     .background((isPrime ? DeskInk.emerald : DeskInk.coral).opacity(0.16), in: Capsule())
             }
 
+            // Live Second-by-Second Countdown Ticker HUD
+            HStack(spacing: 6) {
+                Image(systemName: "timer")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(isPrime ? DeskInk.emerald : DeskInk.electric)
+                Text(liveCountdownText())
+                    .font(.system(size: 11, weight: .heavy, design: .monospaced))
+                    .foregroundStyle(isPrime ? DeskInk.emerald : DeskInk.electric)
+                Spacer()
+                Text("PACIFIC CLOCK")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(DeskInk.slate.opacity(0.6))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
             Text(statusExplanation(isPrime))
                 .font(.system(size: 12, weight: .regular))
                 .foregroundStyle(DeskInk.slate)
@@ -134,6 +157,51 @@ public struct IntelScreen: View {
                         )
                 )
         )
+    }
+
+    private func liveCountdownText() -> String {
+        let currentWindow = MarketEdgeWindow.current(at: now)
+        guard let ptZone = TimeZone(identifier: "America/Los_Angeles") else { return "" }
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = ptZone
+
+        let hour = cal.component(.hour, from: now)
+        let min = cal.component(.minute, from: now)
+        let sec = cal.component(.second, from: now)
+        let totalMin = hour * 60 + min
+
+        if currentWindow.isPrime {
+            if totalMin >= 300 && totalMin < 600 {
+                let remSec = max(0, (600 * 60) - (totalMin * 60 + sec))
+                let h = remSec / 3600
+                let m = (remSec % 3600) / 60
+                let s = remSec % 60
+                return String(format: "PRIME ENDS IN: %02dh %02dm %02ds", h, m, s)
+            } else {
+                let targetSec = 1470 * 60 // 12:30 AM
+                let curSec = (totalMin >= 1380 ? totalMin : totalMin + 1440) * 60 + sec
+                let remSec = max(0, targetSec - curSec)
+                let h = remSec / 3600
+                let m = (remSec % 3600) / 60
+                let s = remSec % 60
+                return String(format: "PRIME ENDS IN: %02dh %02dm %02ds", h, m, s)
+            }
+        } else {
+            let nextTargetTotalSec: Int
+            let nowSec = totalMin * 60 + sec
+            if totalMin < 300 {
+                nextTargetTotalSec = 300 * 60
+            } else if totalMin < 1380 {
+                nextTargetTotalSec = 1380 * 60
+            } else {
+                nextTargetTotalSec = (1440 + 300) * 60
+            }
+            let diff = max(0, nextTargetTotalSec - nowSec)
+            let h = diff / 3600
+            let m = (diff % 3600) / 60
+            let s = diff % 60
+            return String(format: "NEXT PRIME IN: %02dh %02dm %02ds", h, m, s)
+        }
     }
 
     private func statusExplanation(_ isPrime: Bool) -> String {
