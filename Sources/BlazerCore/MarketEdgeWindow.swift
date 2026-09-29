@@ -119,7 +119,7 @@ public enum MarketEdgeWindow: Sendable, Equatable {
         case "EUR/USD":
             return .neutral(winRate: "50.0%")
         case "EUR/GBP":
-            return .neutral(winRate: "45.5%")
+            return .chopRisk(winRate: "45.5%", warning: "Micro-pip spread trap (+0.01p avg drift)")
         default:
             return .neutral(winRate: "50.0%")
         }

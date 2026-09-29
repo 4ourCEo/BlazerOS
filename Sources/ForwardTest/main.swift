@@ -180,8 +180,9 @@ final class ForwardTestRunner {
                 let side = result.signal.cabinetSide
                 guard side == "HIGH" || side == "LOW" else { continue }
 
-                let score = Int((result.signal.opportunity ?? result.signal.confidence ?? 65).rounded())
-                guard score >= 55 else { continue }
+                let rawScore = Int((result.signal.opportunity ?? result.signal.confidence ?? 50).rounded())
+                let score = side == "LOW" ? (100 - rawScore) : rawScore
+                guard score >= 68 else { continue }
 
                 let strike = currentQuote
                 let exitPrice = nextCandle.close
@@ -384,10 +385,32 @@ final class ForwardTestRunner {
                         let result = try await StrategyEngine.evaluate(input: bundle)
                         let side = result.signal.cabinetSide
                         if side == "HIGH" || side == "LOW" {
-                            let score = Int((result.signal.opportunity ?? result.signal.confidence ?? 60).rounded())
-                            if score >= 60 {
-                                armNewTrade(pair: pair, side: side, strike: bundle.lastPrice, score: score, why: result.signal.why, input: bundle, isDaemon: isDaemon)
+                            let rawScore = Int((result.signal.opportunity ?? result.signal.confidence ?? 50).rounded())
+                            let conviction = side == "LOW" ? (100 - rawScore) : rawScore
+
+                            // 1. Strict conviction threshold (>= 70)
+                            guard conviction >= 70 else { continue }
+
+                            // 2. Spread gate: max 0.4 pips
+                            let pipScale = pair.contains("JPY") ? 0.01 : 0.0001
+                            let spreadPips = bundle.spread / pipScale
+                            guard spreadPips <= 0.4 else { continue }
+
+                            // 3. Anti-exhaustion filter: reject over-extended wicks lacking a fresh break or sweep
+                            let evidence = result.signal.evidence ?? ""
+                            if evidence.contains("extended") && !evidence.contains("Broke") && !evidence.contains("Swept") {
+                                continue
                             }
+
+                            armNewTrade(
+                                pair: pair,
+                                side: side,
+                                strike: bundle.lastPrice,
+                                score: conviction,
+                                why: result.signal.why,
+                                input: bundle,
+                                isDaemon: isDaemon
+                            )
                         }
                     }
                 } catch {
