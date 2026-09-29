@@ -41,9 +41,13 @@ case "$action" in
         echo "=========================================================="
         echo "      BLAZEROS PRIME AUTO-SETTLER BACKGROUND DAEMON       "
         echo "=========================================================="
-        if launchctl list | grep -q "com.blazeros.primesettler"; then
+        if launchctl list | grep "com.blazeros.primesettler" >/dev/null 2>&1; then
             pid=$(launchctl list | grep "com.blazeros.primesettler" | awk '{print $1}')
-            echo " Status: RUNNING (PID: ${pid:-launchd})"
+            if [[ "$pid" == "-" || -z "$pid" ]]; then
+                echo " Status: RUNNING (Managed by launchd)"
+            else
+                echo " Status: RUNNING (PID: ${pid})"
+            fi
         else
             echo " Status: STOPPED"
         fi
