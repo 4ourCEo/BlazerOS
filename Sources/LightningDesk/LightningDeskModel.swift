@@ -62,27 +62,34 @@ public final class LightningDeskModel: ObservableObject {
     /// Count of low-edge/chop traps actively avoided during session.
     @Published public private(set) var trapsAvoidedCount: Int = 0
 
-    /// The current leader across all scanned pairs based on conviction and score.
-    public var radarLeader: (asset: String, score: Int, side: String)? {
+    /// Currently selected binary expiry duration (60s, 180s = 3m, 300s = 5m). Default is 60s.
+    @Published public var selectedHorizonSec: Double = 60.0
+
+    /// The current leader across all scanned pairs based on two-way conviction and score.
+    public var radarLeader: (asset: String, score: Int, conviction: Int, side: String)? {
         var topAsset: String?
         var topScore: Int = -1
+        var topConviction: Int = -1
         var topSide: String = "WAIT"
 
         for p in pairs {
             if let commit = commitsByAsset[p] {
                 let score = commit.score
                 let side = cabinetSideByAsset[p] ?? "WAIT"
+                let conviction = side == "LOW" ? (100 - score) : score
                 let isActionable = side == "HIGH" || side == "LOW"
                 let currentIsActionable = topSide == "HIGH" || topSide == "LOW"
-                if (isActionable && !currentIsActionable) || (isActionable == currentIsActionable && score > topScore) {
+
+                if (isActionable && !currentIsActionable) || (isActionable == currentIsActionable && conviction > topConviction) {
+                    topConviction = conviction
                     topScore = score
                     topAsset = p
                     topSide = side
                 }
             }
         }
-        guard let topAsset, topScore >= 0 else { return nil }
-        return (topAsset, topScore, topSide)
+        guard let topAsset, topConviction >= 0 else { return nil }
+        return (topAsset, topScore, topConviction, topSide)
     }
 
     /// Evaluates rich stalking telemetry for the currently selected pair.
@@ -597,8 +604,8 @@ public final class LightningDeskModel: ObservableObject {
         }
     }
 
-    /// Locks in an active 60-second binary trade horizon on the armed setup.
-    public func lockInTrade() {
+    /// Locks in an active binary trade horizon on the armed setup (60s, 3m, or 5m).
+    public func lockInTrade(duration: Double? = nil) {
         guard let commit, armedAt != nil || (frame?.verb == "TAP HIGH" || frame?.verb == "TAP LOW") else {
             return
         }
@@ -606,6 +613,7 @@ public final class LightningDeskModel: ObservableObject {
         let tradeID = armID ?? "\(commit.fingerprint)-\(Int(Date().timeIntervalSince1970 * 1000))"
         armID = tradeID
         let liveStrike = commit.strike
+        let durationSec = duration ?? selectedHorizonSec
         let trade = ActiveTrade(
             id: tradeID,
             pair: commit.asset,
@@ -613,7 +621,7 @@ public final class LightningDeskModel: ObservableObject {
             strike: liveStrike,
             score: commit.score,
             enteredAt: Date(),
-            durationSec: 60.0,
+            durationSec: durationSec,
             currentPrice: quote?.mid ?? liveStrike,
             fingerprint: commit.fingerprint
         )

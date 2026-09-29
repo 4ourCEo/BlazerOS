@@ -165,7 +165,7 @@ public struct ActiveTrade: Sendable, Equatable, Identifiable {
 
     public var pipDiff: Double? {
         guard let currentPrice else { return nil }
-        let pip = pair.uppercased().contains("JPY") ? 0.01 : 0.0001
+        let pip = Assets.pipScale(for: pair)
         if side == "HIGH" {
             return (currentPrice - strike) / pip
         } else {

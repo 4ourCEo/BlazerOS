@@ -80,38 +80,39 @@ struct DeskScreen: View {
             Spacer(minLength: 4)
 
             // Right: Either Hot Radar Switch OR Next Prime Countdown
-            if let leader, leader.asset != model.pair, leader.score >= 65 {
+            if let leader, leader.asset != model.pair, leader.conviction >= 65 {
                 Button {
                     DeskHaptics.tabSwitch()
                     model.select(pair: leader.asset)
                 } label: {
+                    let badgeTint = leader.conviction >= 70 ? (leader.side == "LOW" ? DeskInk.coral : DeskInk.emerald) : DeskInk.electric
                     HStack(spacing: 4) {
                         Image(systemName: "scope")
                             .font(.system(size: 8, weight: .heavy))
-                            .foregroundStyle(DeskInk.electric)
+                            .foregroundStyle(badgeTint)
                         Text(leader.asset)
                             .font(.system(size: 10, weight: .heavy, design: .monospaced))
                             .foregroundStyle(DeskInk.ink)
-                        Text("\(leader.score)")
+                        Text(leader.side == "LOW" ? "PUT \(leader.conviction)" : "CALL \(leader.conviction)")
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundStyle(leader.score >= 70 ? DeskInk.emerald : DeskInk.electric)
+                            .foregroundStyle(badgeTint)
                         Image(systemName: "chevron.right")
                             .font(.system(size: 7, weight: .bold))
-                            .foregroundStyle(DeskInk.electric.opacity(0.7))
+                            .foregroundStyle(badgeTint.opacity(0.7))
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4.5)
                     .background(
                         Capsule()
-                            .fill(DeskInk.electric.opacity(0.14))
+                            .fill(badgeTint.opacity(0.14))
                     )
                     .overlay(
                         Capsule()
-                            .strokeBorder(DeskInk.electric.opacity(0.4), lineWidth: 0.8)
+                            .strokeBorder(badgeTint.opacity(0.4), lineWidth: 0.8)
                     )
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Radar Leader \(leader.asset), score \(leader.score)")
+                .accessibilityLabel("Radar Leader \(leader.asset), \(leader.side == "LOW" ? "PUT" : "CALL") conviction \(leader.conviction)")
                 .accessibilityHint("Tap to switch desk to \(leader.asset)")
             } else {
                 Button {
@@ -478,6 +479,14 @@ struct DeskScreen: View {
             }
 
             if model.activeTrade == nil && isArmed {
+                // Multi-Horizon Expiry Selector (60s | 3m | 5m)
+                HStack(spacing: 8) {
+                    horizonPill(seconds: 60, title: "60s")
+                    horizonPill(seconds: 180, title: "3m")
+                    horizonPill(seconds: 300, title: "5m")
+                }
+                .padding(.top, 2)
+
                 Button {
                     model.lockInTrade()
                 } label: {
@@ -491,7 +500,7 @@ struct DeskScreen: View {
                                 .foregroundStyle(verbColor)
                         }
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("LOCK IN 60s POSITION")
+                            Text("LOCK IN \(horizonLabel(model.selectedHorizonSec)) POSITION")
                                 .font(.system(size: 13, weight: .bold))
                                 .tracking(0.6)
                                 .foregroundStyle(DeskInk.ink)
@@ -773,9 +782,40 @@ struct DeskScreen: View {
         return CGFloat(min(1, max(0, frame.remainingMs / Timing.liveMs)))
     }
 
+    private func horizonPill(seconds: Double, title: String) -> some View {
+        let isSelected = model.selectedHorizonSec == seconds
+        return Button {
+            DeskHaptics.tabSwitch()
+            model.selectedHorizonSec = seconds
+        } label: {
+            Text(title)
+                .font(.system(size: 11, weight: isSelected ? .bold : .medium, design: .monospaced))
+                .foregroundStyle(isSelected ? DeskInk.ink : DeskInk.slate)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 5)
+                .background(isSelected ? DeskInk.electric.opacity(0.28) : Color.white.opacity(0.04), in: Capsule())
+                .overlay(Capsule().strokeBorder(isSelected ? DeskInk.electric.opacity(0.8) : Color.white.opacity(0.08), lineWidth: 0.8))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func horizonLabel(_ seconds: Double) -> String {
+        if seconds >= 60 {
+            let m = Int(seconds) / 60
+            return "\(m)m"
+        }
+        return "\(Int(seconds))s"
+    }
+
     private var railLabel: String {
         if let trade = model.activeTrade {
-            return String(format: "%.1fs REMAINING", trade.remainingMs / 1000)
+            let remSec = trade.remainingMs / 1000
+            if remSec >= 60 {
+                let m = Int(remSec) / 60
+                let s = Int(remSec) % 60
+                return String(format: "%dm %02ds REMAINING", m, s)
+            }
+            return String(format: "%.1fs REMAINING", remSec)
         }
         guard let frame = model.frame, frame.remainingMs > 0 else { return " " }
         return String(format: "%.1fs TO ENTER", frame.remainingMs / 1000)

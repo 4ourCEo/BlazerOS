@@ -400,26 +400,30 @@ struct PerformanceAnalyticsCard: View {
                 }
             }
 
-            // Pair Breakdown Chips
+            // Pair Breakdown Grid
             if !pairStats.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("WATCHLIST ACCURACY")
+                    Text("PER-PAIR ATTRIBUTION & ACCURACY")
                         .font(.system(size: 9, weight: .bold))
                         .tracking(0.8)
                         .foregroundStyle(DeskInk.slate.opacity(0.7))
 
-                    HStack(spacing: 8) {
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
                         ForEach(pairStats, id: \.pair) { item in
                             HStack(spacing: 4) {
                                 Text(item.pair)
-                                    .font(.system(size: 10, weight: .medium))
+                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                    .foregroundStyle(DeskInk.ink)
+                                Spacer()
+                                Text("\(item.hits)/\(item.total)")
+                                    .font(.system(size: 9.5, weight: .medium, design: .monospaced))
                                     .foregroundStyle(DeskInk.slate)
                                 Text("\(item.rate)%")
-                                    .font(.system(size: 10, weight: .bold))
-                                    .foregroundStyle(item.rate >= 54 ? DeskInk.emerald : DeskInk.coral)
+                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                    .foregroundStyle(item.rate >= 54 ? DeskInk.emerald : (item.total >= 5 ? DeskInk.coral : DeskInk.slate))
                             }
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
                             .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                         }
                     }

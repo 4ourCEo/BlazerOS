@@ -81,7 +81,7 @@ struct MarketsScreen: View {
         }
     }
 
-    private func radarLeaderBanner(_ leader: (asset: String, score: Int, side: String)) -> some View {
+    private func radarLeaderBanner(_ leader: (asset: String, score: Int, conviction: Int, side: String)) -> some View {
         Button {
             DeskHaptics.tabSwitch()
             model.selectAndNavigate(pair: leader.asset)
@@ -119,9 +119,9 @@ struct MarketsScreen: View {
                 Spacer()
 
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text("SCORE \(leader.score)")
+                    Text("\(leader.side == "LOW" ? "PUT" : "CALL") \(leader.conviction)%")
                         .font(.system(size: 15, weight: .heavy, design: .monospaced))
-                        .foregroundStyle(leader.score >= 70 ? DeskInk.emerald : DeskInk.electric)
+                        .foregroundStyle(leader.conviction >= 70 ? (leader.side == "LOW" ? DeskInk.coral : DeskInk.emerald) : DeskInk.electric)
                     HStack(spacing: 3) {
                         Text("Trade on Desk")
                             .font(.system(size: 10, weight: .semibold))
