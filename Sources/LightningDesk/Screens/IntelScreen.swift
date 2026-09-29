@@ -436,6 +436,25 @@ public struct IntelScreen: View {
                 convictionRow(pair: "EUR/USD", tag: "BALANCED", winRate: "50.0%", drift: "0.0p", isEdge: false)
                 convictionRow(pair: "AUD/USD", tag: "BALANCED", winRate: "52.7%", drift: "0.0p", isEdge: false)
                 convictionRow(pair: "USD/CAD", tag: "CHOP RISK", winRate: "36.4%", drift: "-0.4p", isEdge: false, isWarning: true)
+
+                Divider()
+                    .background(Color.white.opacity(0.08))
+                    .padding(.vertical, 2)
+
+                HStack {
+                    Text("Break-even: 53.2% (at 88% payout)")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundStyle(DeskInk.slate)
+                    Spacer()
+                    Text("95% CI: ±10–13%")
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(DeskInk.slate.opacity(0.8))
+                }
+
+                Text(EdgeEvidence.standardCaveat)
+                    .font(.system(size: 10, weight: .regular))
+                    .foregroundStyle(DeskInk.slate.opacity(0.75))
+                    .lineSpacing(2)
             }
             .padding(14)
             .background(

@@ -17,8 +17,16 @@ xcodebuild archive \
   -scheme BlazerOS \
   -destination "generic/platform=iOS" \
   -configuration Release \
-  -archivePath "$archive_path" \
-  CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=YES
+  -archivePath "$archive_path"
 
 echo "==> Archive created successfully at: $archive_path"
 ls -ld "$archive_path"
+
+if [[ -f "$root/iPhone/exportOptions.plist" ]]; then
+  echo "==> Exporting IPA using exportOptions.plist..."
+  xcodebuild -exportArchive \
+    -archivePath "$archive_path" \
+    -exportOptionsPlist "$root/iPhone/exportOptions.plist" \
+    -exportPath "$archive_dir/Export"
+  echo "==> Export complete. IPA available at: $archive_dir/Export"
+fi

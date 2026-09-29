@@ -124,7 +124,9 @@ public final class VoiceSession: NSObject, ObservableObject {
         recognizer.defaultTaskHint = .search
 
         let request = SFSpeechAudioBufferRecognitionRequest()
-        request.requiresOnDeviceRecognition = false
+        if recognizer.supportsOnDeviceRecognition {
+            request.requiresOnDeviceRecognition = true
+        }
         request.shouldReportPartialResults = true
         recognitionRequest = request
 

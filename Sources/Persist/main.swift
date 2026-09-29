@@ -26,6 +26,9 @@ struct PersistCheck {
         await malformedJournal(check)
         await voiceNoteAndJournalAnnotation(check)
         await cloudSecurityGate(check)
+        slippageGateFailClosed(check)
+        wilsonIntervalCheck(check)
+        marketEdgeWindowCheck(check)
         await cloudSyncRoundTrip(check)
         await cloudLedgerIdempotency(check)
         await cloudOfflineGraceful(check)
@@ -435,6 +438,47 @@ struct PersistCheck {
             check("local restore works offline", restored.stats == OutcomeStats(hits: 0, misses: 1), "")
         } catch {
             check("cloud offline graceful", false, error.localizedDescription)
+        }
+    }
+
+    @MainActor
+    private static func slippageGateFailClosed(_ check: @MainActor (String, Bool, String) -> Void) {
+        let nanResult = StrategyEngine.slippageGate(asset: "EUR/USD", side: "HIGH", strike: Double.nan, bid: 1.0850, ask: 1.0852)
+        check("slippage gate vetoes NaN strike", nanResult?.veto == true, "")
+
+        let nanQuote = StrategyEngine.slippageGate(asset: "EUR/USD", side: "HIGH", strike: 1.0850, bid: Double.nan, ask: 1.0852)
+        check("slippage gate vetoes NaN quote", nanQuote?.veto == true, "")
+
+        let crossed = StrategyEngine.slippageGate(asset: "EUR/USD", side: "HIGH", strike: 1.0850, bid: 1.0855, ask: 1.0850)
+        check("slippage gate vetoes crossed quote", crossed?.veto == true, "")
+
+        let zeroBid = StrategyEngine.slippageGate(asset: "EUR/USD", side: "HIGH", strike: 1.0850, bid: 0.0, ask: 1.0852)
+        check("slippage gate vetoes zero bid", zeroBid?.veto == true, "")
+    }
+
+    @MainActor
+    private static func wilsonIntervalCheck(_ check: @MainActor (String, Bool, String) -> Void) {
+        let zero = EdgeEvidence.wilsonScoreInterval(wins: 0, total: 0)
+        check("wilson interval 0/0 is 0", zero.lower == 0 && zero.upper == 0, "")
+
+        let w50 = EdgeEvidence.wilsonScoreInterval(wins: 50, total: 100)
+        let w50Correct = abs(w50.lower - 0.4038) < 0.01 && abs(w50.upper - 0.5962) < 0.01
+        check("wilson interval 50/100 bounds match", w50Correct, "\(w50.lower)...\(w50.upper)")
+
+        let ev = EdgeEvidence(wins: 35, sampleSize: 60)
+        check("edge evidence win rate and confidence", abs(ev.winRate - (35.0 / 60.0)) < 0.001 && ev.lower95 > 0.45 && ev.upper95 < 0.72, "")
+        check("edge evidence has standard caveat", ev.caveat == EdgeEvidence.standardCaveat, "")
+    }
+
+    @MainActor
+    private static func marketEdgeWindowCheck(_ check: @MainActor (String, Bool, String) -> Void) {
+        var cal = Calendar(identifier: .gregorian)
+        guard let utc = TimeZone(identifier: "UTC") else { return }
+        cal.timeZone = utc
+        let comps = DateComponents(year: 2026, month: 10, day: 3, hour: 14, minute: 0)
+        if let sat = cal.date(from: comps) {
+            let win = MarketEdgeWindow.current(at: sat)
+            check("saturday FX closed returns offPeak", !win.isPrime && !win.isTactical, win.badgeTitle)
         }
     }
 

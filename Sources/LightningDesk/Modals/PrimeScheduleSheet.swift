@@ -169,6 +169,24 @@ public struct PrimeScheduleSheet: View {
                 topPairs: "GBP/USD (Confirm Breakouts)",
                 note: "Pre-market London positioning. Liquidity is thin between moves. Trade confirmed momentum bursts only; avoid range chop on other pairs."
             )
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Break-even: 53.2% (at 88% payout)")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundStyle(DeskInk.slate)
+                    Spacer()
+                    Text("95% CI: ±10–13%")
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(DeskInk.slate.opacity(0.8))
+                }
+                Text(EdgeEvidence.standardCaveat)
+                    .font(.system(size: 10, weight: .regular))
+                    .foregroundStyle(DeskInk.slate.opacity(0.75))
+                    .lineSpacing(2)
+            }
+            .padding(.horizontal, 4)
+            .padding(.top, 4)
         }
     }
 

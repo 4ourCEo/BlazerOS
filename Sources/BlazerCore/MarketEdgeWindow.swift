@@ -72,7 +72,6 @@ public enum MarketEdgeWindow: Sendable, Equatable {
         // 3. Off-Peak: calculate next window
         let nextTargetMinutes: Int
         let nextLabel: String
-        var targetDate = date
 
         if totalMinutes < 5 * 60 {
             nextTargetMinutes = 5 * 60
@@ -83,7 +82,6 @@ public enum MarketEdgeWindow: Sendable, Equatable {
         } else {
             nextTargetMinutes = 5 * 60
             nextLabel = "5:00 AM PT"
-            targetDate = targetDate.addingTimeInterval(86400)
         }
 
         let diffMinutes = nextTargetMinutes >= totalMinutes ? nextTargetMinutes - totalMinutes : (1440 - totalMinutes + nextTargetMinutes)
