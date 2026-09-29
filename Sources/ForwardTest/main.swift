@@ -12,8 +12,13 @@ struct ForwardArm: Sendable {
     let score: Int
     let entryTime: Date
     let expiryTime: Date
+    let expiry180s: Date
+    let expiry300s: Date
     let fingerprint: String
     let snapshotBars: [Candle]
+    var settled60s: Bool = false
+    var settled180s: Bool = false
+    var settled300s: Bool = false
 }
 
 struct ForwardOutcome: Sendable {
@@ -41,6 +46,8 @@ enum Dashboard {
         sessionText: String,
         activeArms: [ForwardArm],
         settled: [ForwardOutcome],
+        settled180s: [ForwardOutcome] = [],
+        settled300s: [ForwardOutcome] = [],
         targetWinRate: Double = 0.60
     ) {
         let total = settled.count
@@ -58,32 +65,53 @@ enum Dashboard {
         print("\(bold)\(cyan)    BLAZER OS // AUTOMATED FORWARD-TESTING VALIDATION HARNESS           \(reset)")
         print("\(bold)\(cyan)========================================================================\(reset)")
         print(" \(gray)Mode:\(reset) \(mode)   \(gray)Session:\(reset) \(sessionText)")
-        print(" \(gray)Engine:\(reset) scan-engine.js (Parity Sealed)   \(gray)Expiry:\(reset) 60s M1 Binary Horizon")
+        print(" \(gray)Engine:\(reset) scan-engine.js (Parity Sealed)   \(gray)Horizons:\(reset) 60s, 180s (3m), 300s (5m)")
         print("\(gray)------------------------------------------------------------------------\(reset)")
-        print("\(bold) PERFORMANCE METRICS\(reset)")
+        print("\(bold) PERFORMANCE METRICS (60s HORIZON)\(reset)")
         print("  Total Signals Tested:  \(bold)\(total)\(reset)")
         print("  Hits (Wins):           \(green)\(bold)\(hits)\(reset)")
         print("  Misses (Losses):       \(red)\(bold)\(misses)\(reset)")
         let pct = String(format: "%.1f%%", winRate * 100)
-        print("  Live Win Rate:         \(rateColor)\(bold)\(pct)\(reset) (Benchmark: ≥\(Int(targetWinRate * 100))%)")
+        print("  Live Win Rate (60s):   \(rateColor)\(bold)\(pct)\(reset) (Benchmark: ≥\(Int(targetWinRate * 100))%)")
         print("  Edge Status:           \(edgeStatus)")
+
+        if !settled180s.isEmpty || !settled300s.isEmpty {
+            print("\(gray)------------------------------------------------------------------------\(reset)")
+            print("\(bold) MULTI-HORIZON COMPARISON\(reset)")
+            print("  • 60s Horizon:         \(pct) (\(hits)/\(total))")
+
+            let t180 = settled180s.count
+            let h180 = settled180s.filter { $0.outcome == .hit }.count
+            let wr180 = t180 > 0 ? (Double(h180) / Double(t180)) * 100 : 0.0
+            print("  • 180s (3m) Horizon:   \(String(format: "%.1f%%", wr180)) (\(h180)/\(t180))")
+
+            let t300 = settled300s.count
+            let h300 = settled300s.filter { $0.outcome == .hit }.count
+            let wr300 = t300 > 0 ? (Double(h300) / Double(t300)) * 100 : 0.0
+            print("  • 300s (5m) Horizon:   \(String(format: "%.1f%%", wr300)) (\(h300)/\(t300))")
+        }
         print("\(gray)------------------------------------------------------------------------\(reset)")
 
-        print("\(bold) ACTIVE 60-SECOND POSITIONS (\(activeArms.count))\(reset)")
+        print("\(bold) ACTIVE MULTI-HORIZON POSITIONS (\(activeArms.count))\(reset)")
         if activeArms.isEmpty {
             print("  \(gray)No active forward positions. Scanning completed M1 candles...\(reset)")
         } else {
             let now = Date()
             for arm in activeArms {
-                let remaining = max(0, Int(arm.expiryTime.timeIntervalSince(now)))
+                let rem60 = max(0, Int(arm.expiryTime.timeIntervalSince(now)))
+                let rem180 = max(0, Int(arm.expiry180s.timeIntervalSince(now)))
+                let rem300 = max(0, Int(arm.expiry300s.timeIntervalSince(now)))
                 let sideBadge = arm.side == "HIGH" ? "\(green)\(bold)HIGH\(reset)" : "\(red)\(bold)LOW \(reset)"
                 let strikeStr = String(format: "%.5f", arm.strike)
-                print("  [\(remaining)s] \(arm.pair) \(sideBadge) Strike: \(strikeStr) Score: \(arm.score) ID: \(arm.id.prefix(8))")
+                let s60 = arm.settled60s ? "✓" : "\(rem60)s"
+                let s180 = arm.settled180s ? "✓" : "\(rem180)s"
+                let s300 = arm.settled300s ? "✓" : "\(rem300)s"
+                print("  [60s:\(s60) 3m:\(s180) 5m:\(s300)] \(arm.pair) \(sideBadge) Strike: \(strikeStr) Score: \(arm.score) ID: \(arm.id.prefix(8))")
             }
         }
         print("\(gray)------------------------------------------------------------------------\(reset)")
 
-        print("\(bold) RECENT SETTLED OUTCOMES (Last 10)\(reset)")
+        print("\(bold) RECENT SETTLED OUTCOMES (60s Horizon - Last 10)\(reset)")
         if settled.isEmpty {
             print("  \(gray)Awaiting first trade expiration...\(reset)")
         } else {
@@ -113,6 +141,8 @@ final class ForwardTestRunner {
     private let coordinator: PersistenceCoordinator
     private var activeArms: [ForwardArm] = []
     private var settledHistory: [ForwardOutcome] = []
+    private var settledHistory180s: [ForwardOutcome] = []
+    private var settledHistory300s: [ForwardOutcome] = []
     private var lastScannedCandleTimes: [String: Double] = [:]
     private var isRunning = true
 
@@ -206,6 +236,8 @@ final class ForwardTestRunner {
                     score: score,
                     entryTime: Date(timeIntervalSince1970: window.last!.time / 1000),
                     expiryTime: Date(timeIntervalSince1970: nextCandle.time / 1000),
+                    expiry180s: Date(timeIntervalSince1970: (nextCandle.time + 120_000) / 1000),
+                    expiry300s: Date(timeIntervalSince1970: (nextCandle.time + 240_000) / 1000),
                     fingerprint: hash,
                     snapshotBars: frozenBars
                 )
@@ -307,8 +339,13 @@ final class ForwardTestRunner {
                         score: row.score,
                         entryTime: row.timestamp,
                         expiryTime: row.timestamp,
+                        expiry180s: row.timestamp,
+                        expiry300s: row.timestamp,
                         fingerprint: row.hash,
-                        snapshotBars: []
+                        snapshotBars: [],
+                        settled60s: true,
+                        settled180s: true,
+                        settled300s: true
                     ),
                     exitPrice: row.expiryPrice ?? 0,
                     outcome: outcome,
@@ -327,12 +364,23 @@ final class ForwardTestRunner {
         while isRunning {
             let now = Date()
 
-            // 1. Settle any expired arms
+            // 1. Settle expired arms across horizons (60s, 180s, 300s)
             var remainingArms: [ForwardArm] = []
-            for arm in activeArms {
-                if now >= arm.expiryTime {
-                    await settleLiveArm(arm, session: session, isDaemon: isDaemon)
-                } else {
+            for var arm in activeArms {
+                if !arm.settled60s && now >= arm.expiryTime {
+                    let ok = await settleLiveHorizon(arm: arm, horizonSeconds: 60, session: session, isDaemon: isDaemon)
+                    if ok { arm.settled60s = true }
+                }
+                if !arm.settled180s && now >= arm.expiry180s {
+                    let ok = await settleLiveHorizon(arm: arm, horizonSeconds: 180, session: session, isDaemon: isDaemon)
+                    if ok { arm.settled180s = true }
+                }
+                if !arm.settled300s && now >= arm.expiry300s {
+                    let ok = await settleLiveHorizon(arm: arm, horizonSeconds: 300, session: session, isDaemon: isDaemon)
+                    if ok { arm.settled300s = true }
+                }
+
+                if !arm.settled300s && now.timeIntervalSince(arm.expiry300s) < 600 {
                     remainingArms.append(arm)
                 }
             }
@@ -341,35 +389,38 @@ final class ForwardTestRunner {
             // 2. Smart-schedule check: pause arming during off-peak chop
             let edgeWindow = MarketEdgeWindow.current(at: now)
             if smartSchedule && !edgeWindow.isPrime {
-                if isDaemon {
-                    if !wasDormant || Date().timeIntervalSince(lastDormantLoggedAt ?? .distantPast) >= 1800 {
-                        logDaemon("DORMANT", "Off-peak lull (\(edgeWindow.badgeTitle)). Sleeping until next prime window: \(edgeWindow.detailText)")
-                        lastDormantLoggedAt = Date()
+                if activeArms.isEmpty {
+                    if isDaemon {
+                        if !wasDormant || Date().timeIntervalSince(lastDormantLoggedAt ?? .distantPast) >= 1800 {
+                            logDaemon("DORMANT", "Off-peak lull (\(edgeWindow.badgeTitle)). Sleeping until next prime window: \(edgeWindow.detailText)")
+                            lastDormantLoggedAt = Date()
+                        }
+                        wasDormant = true
+                        try? await Task.sleep(nanoseconds: 30_000_000_000) // Sleep 30s during off-peak
+                        continue
+                    } else {
+                        Dashboard.render(
+                            mode: "LIVE OANDA STREAM (\(session.environment.rawValue.uppercased())) [DORMANT]",
+                            sessionText: "Off-peak lull · \(edgeWindow.detailText) · Sleeping...",
+                            activeArms: activeArms,
+                            settled: settledHistory,
+                            settled180s: settledHistory180s,
+                            settled300s: settledHistory300s
+                        )
+                        try? await Task.sleep(nanoseconds: 10_000_000_000) // Sleep 10s between checks
+                        continue
                     }
-                    wasDormant = true
-                    try? await Task.sleep(nanoseconds: 30_000_000_000) // Sleep 30s during off-peak
-                    continue
-                } else {
-                    Dashboard.render(
-                        mode: "LIVE OANDA STREAM (\(session.environment.rawValue.uppercased())) [DORMANT]",
-                        sessionText: "Off-peak lull · \(edgeWindow.detailText) · Sleeping...",
-                        activeArms: activeArms,
-                        settled: settledHistory
-                    )
-                    try? await Task.sleep(nanoseconds: 10_000_000_000) // Sleep 10s between checks
-                    continue
                 }
-            }
-
-            if wasDormant {
+            } else if wasDormant {
                 wasDormant = false
                 if isDaemon {
                     logDaemon("PRIME_ACTIVE", "⚡ Prime window active (\(edgeWindow.badgeTitle)). Resuming live signal evaluation across \(pairs.count) pairs...")
                 }
             }
 
-            // 3. Scan pairs for newly completed candles
-            for pair in pairs {
+            // 3. Scan pairs for newly completed candles (only during prime)
+            if !smartSchedule || edgeWindow.isPrime {
+                for pair in pairs {
                 if smartSchedule, case .chopRisk = MarketEdgeWindow.conviction(for: pair) {
                     continue // Skip known chop-drag pairs in smart-schedule mode
                 }
@@ -418,6 +469,7 @@ final class ForwardTestRunner {
                     // Suppress transient network hiccups in live loop
                 }
             }
+            }
 
             // 4. Render dashboard
             let modeTitle = smartSchedule
@@ -432,7 +484,9 @@ final class ForwardTestRunner {
                     mode: modeTitle,
                     sessionText: sessionInfo,
                     activeArms: activeArms,
-                    settled: settledHistory
+                    settled: settledHistory,
+                    settled180s: settledHistory180s,
+                    settled300s: settledHistory300s
                 )
             }
 
@@ -469,6 +523,8 @@ final class ForwardTestRunner {
             score: score,
             entryTime: now,
             expiryTime: expiry,
+            expiry180s: now.addingTimeInterval(180.0),
+            expiry300s: now.addingTimeInterval(300.0),
             fingerprint: hash,
             snapshotBars: frozenBars
         )
@@ -501,16 +557,15 @@ final class ForwardTestRunner {
 
         if isDaemon {
             let strikeStr = String(format: "%.5f", strike)
-            logDaemon("ARMED", "\(pair) \(side) @ \(strikeStr) (Score: \(score), ID: \(armID.prefix(8))) | Expiry: 60s")
+            logDaemon("ARMED", "\(pair) \(side) @ \(strikeStr) (Score: \(score), ID: \(armID.prefix(8))) | Expiries: 60s, 3m, 5m")
         }
     }
 
-    private func settleLiveArm(_ arm: ForwardArm, session: OandaSession, isDaemon: Bool = false) async {
+    @discardableResult
+    private func settleLiveHorizon(arm: ForwardArm, horizonSeconds: Int, session: OandaSession, isDaemon: Bool = false) async -> Bool {
         let quotes = await OandaClient.fetchQuotes(assets: [arm.pair], session: session)
         guard let exitQuote = quotes.first else {
-            // Retry next cycle if quote fetch fails
-            activeArms.append(arm)
-            return
+            return false
         }
 
         let exitPrice = exitQuote.mid
@@ -531,48 +586,70 @@ final class ForwardTestRunner {
             driftPips: driftPips,
             settledAt: Date()
         )
-        settledHistory.append(forwardOutcome)
 
-        let snapshot = SnapshotRecord(
-            hash: arm.fingerprint,
-            pair: arm.pair,
-            bars: arm.snapshotBars,
-            strike: arm.strike,
-            score: arm.score,
-            side: arm.side
-        )
-        let row = LedgerRow(
-            timestamp: forwardOutcome.settledAt,
-            pair: arm.pair,
-            hash: arm.fingerprint,
-            score: arm.score,
-            side: arm.side,
-            veto: false,
-            drift: driftPips,
-            outcome: outcome.rawValue,
-            outcomeEventID: arm.id,
-            payout: 0.88,
-            stake: 10.0,
-            marketWindow: MarketEdgeWindow.current().badgeTitle,
-            engineSHA: EngineIdentity.pinnedSHA1,
-            fullFingerprint: arm.fingerprint,
-            entryQuote: arm.strike,
-            expiryPrice: exitPrice
-        )
+        let mark = outcome == .hit ? "HIT" : "MISS"
+        let sign = driftPips >= 0 ? "+" : ""
+        let driftStr = "\(sign)\(String(format: "%.1f", driftPips))"
+        let exitStr = String(format: "%.5f", exitPrice)
+        let strikeStr = String(format: "%.5f", arm.strike)
 
-        _ = try? await coordinator.settle(armID: arm.id, row: row, snapshot: snapshot)
+        if horizonSeconds == 60 {
+            settledHistory.append(forwardOutcome)
 
-        if isDaemon {
-            let total = settledHistory.count
-            let hits = settledHistory.filter { $0.outcome == .hit }.count
-            let wr = total > 0 ? (Double(hits) / Double(total)) * 100 : 0.0
-            let mark = outcome == .hit ? "HIT" : "MISS"
-            let sign = driftPips >= 0 ? "+" : ""
-            let driftStr = "\(sign)\(String(format: "%.1f", driftPips))"
-            let exitStr = String(format: "%.5f", exitPrice)
-            let strikeStr = String(format: "%.5f", arm.strike)
-            logDaemon("SETTLED", "\(arm.pair) \(arm.side) Strike: \(strikeStr) Exit: \(exitStr) (\(driftStr)p) -> \(mark) | Settled Total: \(total) | Win Rate: \(String(format: "%.1f%%", wr))")
+            let snapshot = SnapshotRecord(
+                hash: arm.fingerprint,
+                pair: arm.pair,
+                bars: arm.snapshotBars,
+                strike: arm.strike,
+                score: arm.score,
+                side: arm.side
+            )
+            let row = LedgerRow(
+                timestamp: forwardOutcome.settledAt,
+                pair: arm.pair,
+                hash: arm.fingerprint,
+                score: arm.score,
+                side: arm.side,
+                veto: false,
+                drift: driftPips,
+                outcome: outcome.rawValue,
+                outcomeEventID: arm.id,
+                payout: 0.88,
+                stake: 10.0,
+                marketWindow: MarketEdgeWindow.current().badgeTitle,
+                engineSHA: EngineIdentity.pinnedSHA1,
+                fullFingerprint: arm.fingerprint,
+                entryQuote: arm.strike,
+                expiryPrice: exitPrice
+            )
+
+            _ = try? await coordinator.settle(armID: arm.id, row: row, snapshot: snapshot)
+
+            if isDaemon {
+                let total = settledHistory.count
+                let hits = settledHistory.filter { $0.outcome == .hit }.count
+                let wr = total > 0 ? (Double(hits) / Double(total)) * 100 : 0.0
+                logDaemon("SETTLED-60s", "\(arm.pair) \(arm.side) Strike: \(strikeStr) Exit: \(exitStr) (\(driftStr)p) -> \(mark) | 60s Total: \(total) | Win Rate: \(String(format: "%.1f%%", wr))")
+            }
+        } else if horizonSeconds == 180 {
+            settledHistory180s.append(forwardOutcome)
+            if isDaemon {
+                let total = settledHistory180s.count
+                let hits = settledHistory180s.filter { $0.outcome == .hit }.count
+                let wr = total > 0 ? (Double(hits) / Double(total)) * 100 : 0.0
+                logDaemon("SETTLED-3m", "\(arm.pair) \(arm.side) Strike: \(strikeStr) Exit: \(exitStr) (\(driftStr)p) -> \(mark) | 3m Total: \(total) | Win Rate: \(String(format: "%.1f%%", wr))")
+            }
+        } else if horizonSeconds == 300 {
+            settledHistory300s.append(forwardOutcome)
+            if isDaemon {
+                let total = settledHistory300s.count
+                let hits = settledHistory300s.filter { $0.outcome == .hit }.count
+                let wr = total > 0 ? (Double(hits) / Double(total)) * 100 : 0.0
+                logDaemon("SETTLED-5m", "\(arm.pair) \(arm.side) Strike: \(strikeStr) Exit: \(exitStr) (\(driftStr)p) -> \(mark) | 5m Total: \(total) | Win Rate: \(String(format: "%.1f%%", wr))")
+            }
         }
+
+        return true
     }
 
     func stop() {
@@ -584,8 +661,23 @@ final class ForwardTestRunner {
         let hits = settledHistory.filter { $0.outcome == .hit }.count
         let winRate = total > 0 ? (Double(hits) / Double(total)) * 100 : 0.0
         print("\n\(Dashboard.bold)Validation Summary:\(Dashboard.reset)")
-        print("  Total Signals: \(total)")
-        print("  Win Rate:      \(String(format: "%.1f%%", winRate))")
+        print("  Total Signals (60s): \(total)")
+        print("  Win Rate (60s):      \(String(format: "%.1f%%", winRate))")
+
+        if !settledHistory180s.isEmpty {
+            let total180 = settledHistory180s.count
+            let hits180 = settledHistory180s.filter { $0.outcome == .hit }.count
+            let wr180 = total180 > 0 ? (Double(hits180) / Double(total180)) * 100 : 0.0
+            print("  Win Rate (180s / 3m): \(String(format: "%.1f%%", wr180)) (\(hits180)/\(total180))")
+        }
+
+        if !settledHistory300s.isEmpty {
+            let total300 = settledHistory300s.count
+            let hits300 = settledHistory300s.filter { $0.outcome == .hit }.count
+            let wr300 = total300 > 0 ? (Double(hits300) / Double(total300)) * 100 : 0.0
+            print("  Win Rate (300s / 5m): \(String(format: "%.1f%%", wr300)) (\(hits300)/\(total300))")
+        }
+
         if winRate >= 60.0 {
             print("  \(Dashboard.green)\(Dashboard.bold)RESULT: PASS (Trading edge validated >= 60%)\(Dashboard.reset)")
         } else {
@@ -609,6 +701,21 @@ final class ForwardTestRunner {
         let color = winRate >= 60.0 ? Dashboard.green : (rows.count >= 5 ? Dashboard.red : Dashboard.yellow)
 
         print("  Hits: \(Dashboard.green)\(hits)\(Dashboard.reset)   Misses: \(Dashboard.red)\(misses)\(Dashboard.reset)   Win Rate: \(color)\(Dashboard.bold)\(String(format: "%.1f%%", winRate))\(Dashboard.reset)")
+
+        let pairs = Set(rows.map { $0.pair }).sorted()
+        if !pairs.isEmpty {
+            print("\(Dashboard.gray)------------------------------------------------------------------------\(Dashboard.reset)")
+            print("\(Dashboard.bold) PER-PAIR ATTRIBUTION:\(Dashboard.reset)")
+            for pair in pairs {
+                let pRows = rows.filter { $0.pair == pair }
+                let pHits = pRows.filter { $0.outcome == "HIT" }.count
+                let pTotal = pRows.count
+                let pWR = pTotal > 0 ? (Double(pHits) / Double(pTotal)) * 100 : 0.0
+                let pColor = pWR >= 60.0 ? Dashboard.green : (pTotal >= 5 ? Dashboard.red : Dashboard.yellow)
+                print("  \(pair.padding(toLength: 10, withPad: " ", startingAt: 0)): \(pHits)/\(pTotal) (\(pColor)\(String(format: "%.1f%%", pWR))\(Dashboard.reset))")
+            }
+        }
+
         print("\(Dashboard.gray)------------------------------------------------------------------------\(Dashboard.reset)")
         print("\(Dashboard.bold) RECENT TRADES:\(Dashboard.reset)")
         let formatter = ISO8601DateFormatter()
