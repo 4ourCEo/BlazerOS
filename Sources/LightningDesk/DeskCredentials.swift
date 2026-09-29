@@ -115,18 +115,32 @@ public enum DeskCredentials {
     }
 
     private static func write(service: String, account: String, value: String) -> Bool {
-        let delete: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
-        SecItemDelete(delete as CFDictionary)
-        var add = delete
-        add[kSecValueData as String] = Data(value.utf8)
         #if os(iOS)
-        add[kSecUseDataProtectionKeychain as String] = true
-        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        query[kSecUseDataProtectionKeychain as String] = true
         #endif
-        return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
+
+        let updateAttributes: [String: Any] = [
+            kSecValueData as String: Data(value.utf8)
+        ]
+        let updateStatus = SecItemUpdate(query as CFDictionary, updateAttributes as CFDictionary)
+        if updateStatus == errSecSuccess {
+            return true
+        }
+
+        if updateStatus == errSecItemNotFound {
+            var add = query
+            add[kSecValueData as String] = Data(value.utf8)
+            #if os(iOS)
+            add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            #endif
+            return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
+        }
+
+        return false
     }
 }

@@ -323,6 +323,15 @@ struct PersistCheck {
         badQuoteRecord["liveQuote"] = "1.0850" as CKRecordValue
         check("security gate catches liveQuote key", !CloudSecurityGate.validate(record: badQuoteRecord), "")
 
+        let safeWordsRecord = CKRecord(recordType: CloudRecordType.journal)
+        safeWordsRecord["task"] = "Review London session" as CKRecordValue
+        safeWordsRecord["midnightNote"] = "Consolidation observed" as CKRecordValue
+        check("security gate allows task and midnightNote keys", CloudSecurityGate.validate(record: safeWordsRecord), "")
+
+        let leakedTokenRecord = CKRecord(recordType: CloudRecordType.journal)
+        leakedTokenRecord["why"] = "Setup note with token 4a9f1234567890abcdef1234567890abcdef4a9f1234567890abcdef1234567890abcdef" as CKRecordValue
+        check("security gate catches token-shaped string in free-text", !CloudSecurityGate.validate(record: leakedTokenRecord), "")
+
         let transport = MockCloudSyncTransport()
         var refused = false
         do {

@@ -12,8 +12,9 @@ This repository starts with **BlazerCore**, the shared Swift package. The iPhone
 - OANDA client that takes a Keychain session and never stores the token
 - Completed-bar ring, ledger CSV, and snapshot JSONL
 - Parity seal, desk frame, journal note, and voice command types
+- Headless `FoundationCoach` intelligence and prompt synthesis (`Sources/BlazerCore/FoundationCoach/`) to explain a `ParitySeal` without scoring
 
-Foundation Models, Dynamic Island, Live Activities, and SwiftUI stay out of this package. They render a `DeskFrame` or explain a `ParitySeal`. They do not score.
+SwiftUI rendering views (such as `CoachCard` and `CoachScreen` in `LightningDesk`), Dynamic Island, and Live Activities stay out of this core package. They render a `DeskFrame` or visual cards; they do not score.
 
 BlazerMac links this package. `BlazerMac/build.sh` builds BlazerCore, then compiles the desk against it. The OANDA token still comes from the Mac Keychain adapter. The script in the app bundle is the same bytes as `Sources/BlazerCore/scan-engine.js`.
 

@@ -681,13 +681,30 @@ public final class LightningDeskModel: ObservableObject {
         guard var commit, commit.veto == nil else { return }
         guard cabinetSide == "HIGH" || cabinetSide == "LOW" else { return }
         guard armedAt != nil else { return }
+
+        guard quote.bid.isFinite, quote.ask.isFinite, quote.bid > 0, quote.ask >= quote.bid else {
+            commit.veto = "Bad quote"
+            armedAt = nil
+            noteVeto("Bad quote")
+            self.commit = commit
+            publishFrame()
+            return
+        }
+
         guard let gate = StrategyEngine.slippageGate(
             asset: commit.asset,
             side: cabinetSide,
             strike: commit.strike,
             bid: quote.bid,
             ask: quote.ask
-        ) else { return }
+        ) else {
+            commit.veto = "Gate offline"
+            armedAt = nil
+            noteVeto("Gate offline")
+            self.commit = commit
+            publishFrame()
+            return
+        }
         commit.driftPips = gate.adverseDriftPips
         if gate.veto {
             commit.veto = "Slippage"

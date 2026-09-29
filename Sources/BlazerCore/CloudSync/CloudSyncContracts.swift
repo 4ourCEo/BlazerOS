@@ -17,15 +17,57 @@ public enum CloudSecurityGate {
         "activescan", "beam",
     ]
 
+    private static let tokenRegex: NSRegularExpression? = {
+        try? NSRegularExpression(pattern: #"(?i)\b[0-9a-f]{32,}\b"#)
+    }()
+
+    private static func words(in identifier: String) -> Set<String> {
+        var result = Set<String>()
+        let clean = identifier.lowercased().filter { $0.isLetter || $0.isNumber }
+        if !clean.isEmpty {
+            result.insert(clean)
+        }
+        var current = ""
+        for char in identifier {
+            if char.isLetter || char.isNumber {
+                if char.isUppercase {
+                    if !current.isEmpty {
+                        result.insert(current.lowercased())
+                        current = ""
+                    }
+                }
+                current.append(char)
+            } else {
+                if !current.isEmpty {
+                    result.insert(current.lowercased())
+                    current = ""
+                }
+            }
+        }
+        if !current.isEmpty {
+            result.insert(current.lowercased())
+        }
+        return result
+    }
+
+    private static func containsTokenShape(_ text: String) -> Bool {
+        guard let tokenRegex else { return false }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        return tokenRegex.firstMatch(in: text, options: [], range: range) != nil
+    }
+
     public static func validate(record: CKRecord) -> Bool {
         for key in record.allKeys() {
-            let lower = key.lowercased()
-            for forbidden in forbiddenKeys {
-                if lower.contains(forbidden) { return false }
+            let keyWords = words(in: key)
+            if !forbiddenKeys.isDisjoint(with: keyWords) {
+                return false
             }
             if let strVal = record[key] as? String {
                 let valLower = strVal.lowercased()
                 if valLower.contains("bearer ") || valLower.contains("oanda_token") {
+                    return false
+                }
+                if key != "barsJSON" && containsTokenShape(strVal) {
                     return false
                 }
             }
@@ -34,11 +76,13 @@ public enum CloudSecurityGate {
     }
 
     public static func validate(row: LedgerRow) -> Bool {
-        let side = row.side.lowercased()
-        let pair = row.pair.lowercased()
-        let outcome = row.outcome.lowercased()
-        for forbidden in forbiddenKeys {
-            if side.contains(forbidden) || pair.contains(forbidden) || outcome.contains(forbidden) {
+        let fields = [row.side, row.pair, row.outcome]
+        for field in fields {
+            let fieldWords = words(in: field)
+            if !forbiddenKeys.isDisjoint(with: fieldWords) {
+                return false
+            }
+            if containsTokenShape(field) {
                 return false
             }
         }

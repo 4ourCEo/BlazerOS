@@ -127,3 +127,47 @@ public enum MarketEdgeWindow: Sendable, Equatable {
         }
     }
 }
+
+/// Statistical context and confidence bounds for empirical edge win rates.
+public struct EdgeEvidence: Sendable, Equatable {
+    public let sampleSize: Int
+    public let wins: Int
+    public let winRate: Double
+    public let lower95: Double
+    public let upper95: Double
+    public let caveat: String
+
+    public static let standardCaveat = "Forward-tested on 372 binary contracts across 6 pairs. Sample sizes per pair (~60) yield wide 95% confidence intervals (±10-13%). Numbers reflect past forward-test sample, not guaranteed future edge."
+
+    public init(wins: Int, sampleSize: Int, caveat: String = standardCaveat) {
+        self.wins = wins
+        self.sampleSize = sampleSize
+        self.caveat = caveat
+        if sampleSize > 0 {
+            self.winRate = Double(wins) / Double(sampleSize)
+            let (lower, upper) = Self.wilsonScoreInterval(wins: wins, total: sampleSize)
+            self.lower95 = lower
+            self.upper95 = upper
+        } else {
+            self.winRate = 0
+            self.lower95 = 0
+            self.upper95 = 0
+        }
+    }
+
+    /// Calculates a 95% Wilson score confidence interval (z ≈ 1.95996).
+    public static func wilsonScoreInterval(wins: Int, total: Int, z: Double = 1.95996) -> (lower: Double, upper: Double) {
+        guard total > 0 else { return (0, 0) }
+        let n = Double(total)
+        let p = Double(wins) / n
+        let z2 = z * z
+        let denom = 1.0 + z2 / n
+        let center = (p + z2 / (2.0 * n)) / denom
+        let radicand = (p * (1.0 - p) / n) + (z2 / (4.0 * n * n))
+        let half = (z * sqrt(max(0.0, radicand))) / denom
+        let lower = max(0.0, center - half)
+        let upper = min(1.0, center + half)
+        return (lower, upper)
+    }
+}
+

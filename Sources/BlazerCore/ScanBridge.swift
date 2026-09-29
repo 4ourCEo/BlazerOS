@@ -222,9 +222,23 @@ public enum StrategyEngine {
         public var veto: Bool
         public var adverseDriftPips: Double
         public var thresholdPips: Double
+
+        public init(veto: Bool, adverseDriftPips: Double, thresholdPips: Double) {
+            self.veto = veto
+            self.adverseDriftPips = adverseDriftPips
+            self.thresholdPips = thresholdPips
+        }
     }
 
-    /// Calls the bundled JS gate. Nil when the engine is offline — no Swift copy of the formula.
+    private struct SlippageGateInput: Encodable {
+        let asset: String
+        let side: String
+        let strike: Double
+        let bid: Double
+        let ask: Double
+    }
+
+    /// Calls the bundled JS gate. Fails closed (veto: true) if input numbers are invalid or gate is offline.
     public static func slippageGate(
         asset: String,
         side: String,
@@ -232,7 +246,14 @@ public enum StrategyEngine {
         bid: Double,
         ask: Double
     ) -> SlippageGateResult? {
-        let raw = "{\"asset\":\"\(asset)\",\"side\":\"\(side)\",\"strike\":\(strike),\"bid\":\(bid),\"ask\":\(ask)}"
+        guard strike.isFinite, bid.isFinite, ask.isFinite, bid > 0, ask >= bid else {
+            return SlippageGateResult(veto: true, adverseDriftPips: 0, thresholdPips: 0)
+        }
+        let input = SlippageGateInput(asset: asset, side: side, strike: strike, bid: bid, ask: ask)
+        guard let rawData = try? JSONEncoder().encode(input),
+              let raw = String(data: rawData, encoding: .utf8) else {
+            return SlippageGateResult(veto: true, adverseDriftPips: 0, thresholdPips: 0)
+        }
         lock.lock()
         defer { lock.unlock() }
         ensureLoadedLocked()

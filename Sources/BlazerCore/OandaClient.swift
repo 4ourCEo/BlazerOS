@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+private let oandaLogger = Logger(subsystem: "com.blazer.os", category: "OandaClient")
 
 /// Practice vs live host. The token never leaves the device that holds it.
 public enum OandaEnvironment: String, Sendable, Equatable {
@@ -86,9 +89,21 @@ public actor OandaRateLimit {
     }
 }
 
-/// Native OANDA REST v20 pricing. Token + account come from the caller. Never print the token.
 public enum OandaClient {
-    nonisolated(unsafe) private static var loggedProof = false
+    private static let proofLock = NSLock()
+    nonisolated(unsafe) private static var _loggedProof = false
+    private static var loggedProof: Bool {
+        get {
+            proofLock.lock()
+            defer { proofLock.unlock() }
+            return _loggedProof
+        }
+        set {
+            proofLock.lock()
+            defer { proofLock.unlock() }
+            _loggedProof = newValue
+        }
+    }
     private static let decoder = JSONDecoder()
     private static let instrumentMap: [String: String] = [
         "EUR/USD": "EUR_USD",
@@ -210,7 +225,7 @@ public enum OandaClient {
             }
             if !loggedProof, let first = out.first {
                 loggedProof = true
-                NSLog("BlazerCore feed source=%@ asset=%@", first.source, first.asset)
+                oandaLogger.debug("BlazerCore feed source=\(first.source, privacy: .public) asset=\(first.asset, privacy: .public)")
             }
             return OandaQuoteBatch(quotes: out, transport: .ok)
         } catch let error as URLError where error.code == .timedOut {
@@ -323,19 +338,19 @@ public enum OandaClient {
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse else {
-                NSLog("BlazerCore fetchCandles response not HTTP for %@", asset)
+                oandaLogger.error("BlazerCore fetchCandles response not HTTP for \(asset, privacy: .public)")
                 return CandleFetch(candles: [], transport: .network)
             }
             if http.statusCode == 429 {
-                NSLog("BlazerCore fetchCandles 429 rate limited for %@", asset)
+                oandaLogger.warning("BlazerCore fetchCandles 429 rate limited for \(asset, privacy: .public)")
                 return CandleFetch(candles: [], transport: .rateLimited)
             }
             if http.statusCode == 401 || http.statusCode == 403 {
-                NSLog("BlazerCore fetchCandles 401/403 unauthorized for %@", asset)
+                oandaLogger.warning("BlazerCore fetchCandles 401/403 unauthorized for \(asset, privacy: .public)")
                 return CandleFetch(candles: [], transport: .unauthorized)
             }
             guard http.statusCode < 400 else {
-                NSLog("BlazerCore fetchCandles HTTP %d for %@: %@", http.statusCode, asset, String(data: data, encoding: .utf8) ?? "")
+                oandaLogger.error("BlazerCore fetchCandles HTTP \(http.statusCode) for \(asset, privacy: .public)")
                 return CandleFetch(candles: [], transport: .network)
             }
             let decoded = try decoder.decode(CandlesResponse.self, from: data)
@@ -359,13 +374,13 @@ public enum OandaClient {
                 seenTimes.insert(timeMs)
                 out.append(Candle(time: timeMs, open: open, high: high, low: low, close: close))
             }
-            NSLog("BlazerCore fetchCandles parsed %d completed bars for %@", out.count, asset)
+            oandaLogger.debug("BlazerCore fetchCandles parsed \(out.count) completed bars for \(asset, privacy: .public)")
             return CandleFetch(candles: out, transport: .ok)
         } catch let error as URLError where error.code == .timedOut {
-            NSLog("BlazerCore fetchCandles timed out for %@", asset)
+            oandaLogger.warning("BlazerCore fetchCandles timed out for \(asset, privacy: .public)")
             return CandleFetch(candles: [], transport: .timeout)
         } catch {
-            NSLog("BlazerCore fetchCandles error for %@: %@", asset, error.localizedDescription)
+            oandaLogger.error("BlazerCore fetchCandles error for \(asset, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return CandleFetch(candles: [], transport: .network)
         }
     }
