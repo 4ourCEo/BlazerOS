@@ -45,27 +45,30 @@ struct DeskScreen: View {
                 DeskHaptics.tabSwitch()
                 model.activeTab = .intel
             } label: {
+                let sessionColor: Color = edgeWindow.isSupremePrime ? DeskInk.emerald : (edgeWindow.isTactical ? DeskInk.electric : (isOpen ? DeskInk.violet : DeskInk.coral))
+                let sessionLabel: String = edgeWindow.isSupremePrime ? "⚡ SUPREME PRIME" : (edgeWindow.isTactical ? "🌙 TACTICAL (BURSTS)" : "⚡ OFF-PEAK · \(FxSession.activeSessionName())")
+
                 HStack(spacing: 5) {
                     Circle()
-                        .fill(edgeWindow.isPrime ? DeskInk.emerald : (isOpen ? DeskInk.violet : DeskInk.coral))
+                        .fill(sessionColor)
                         .frame(width: 6, height: 6)
-                        .shadow(color: (edgeWindow.isPrime ? DeskInk.emerald : DeskInk.violet).opacity(0.8), radius: 3)
+                        .shadow(color: sessionColor.opacity(0.8), radius: 3)
 
-                    Text(edgeWindow.isPrime ? "⚡ \(edgeWindow.badgeTitle)" : "⚡ OFF-PEAK · \(FxSession.activeSessionName())")
+                    Text(sessionLabel)
                         .font(.system(size: 10, weight: .bold))
                         .tracking(0.8)
-                        .foregroundStyle(edgeWindow.isPrime ? DeskInk.emerald : DeskInk.slate)
+                        .foregroundStyle(sessionColor)
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4.5)
                 .background(
                     Capsule()
-                        .fill(edgeWindow.isPrime ? DeskInk.emerald.opacity(0.12) : Color.white.opacity(0.04))
+                        .fill(sessionColor.opacity(0.12))
                 )
                 .overlay(
                     Capsule()
                         .strokeBorder(
-                            edgeWindow.isPrime ? DeskInk.emerald.opacity(0.35) : Color.white.opacity(0.07),
+                            sessionColor.opacity(0.35),
                             lineWidth: 0.8
                         )
                 )

@@ -72,24 +72,30 @@ public struct PrimeScheduleSheet: View {
 
     private var currentStatusCard: some View {
         let currentWindow = MarketEdgeWindow.current()
-        let isPrime = currentWindow.isPrime
+        let isSupreme = currentWindow.isSupremePrime
+        let isTactical = currentWindow.isTactical
+        let cardColor: Color = isSupreme ? DeskInk.emerald : (isTactical ? DeskInk.electric : DeskInk.violet)
+
+        let statusTitle: String = isSupreme ? "👑 SUPREME PRIME ACTIVE" : (isTactical ? "🌙 TACTICAL LATE-NIGHT (BURSTS ONLY)" : "⚠️ OFF-PEAK CONSOLIDATION")
+        let statBadge: String = isSupreme ? "61.2% WR · NY OVERLAP" : (isTactical ? "BURSTS ONLY · THIN LIQUIDITY" : "42.1% WR · PRESERVE CAPITAL")
+        let statColor: Color = isSupreme ? DeskInk.emerald : (isTactical ? DeskInk.electric : DeskInk.coral)
 
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 ZStack {
                     Circle()
-                        .fill((isPrime ? DeskInk.emerald : DeskInk.violet).opacity(0.2))
+                        .fill(cardColor.opacity(0.2))
                         .frame(width: 32, height: 32)
-                    Image(systemName: isPrime ? "bolt.fill" : "moon.stars.fill")
+                    Image(systemName: isSupreme ? "bolt.fill" : (isTactical ? "bolt.horizontal.fill" : "moon.stars.fill"))
                         .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(isPrime ? DeskInk.emerald : DeskInk.violet)
+                        .foregroundStyle(cardColor)
                 }
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(isPrime ? "HIGH-EDGE PRIME ACTIVE" : "OFF-PEAK CONSOLIDATION")
+                    Text(statusTitle)
                         .font(.system(size: 13, weight: .bold))
                         .tracking(0.8)
-                        .foregroundStyle(isPrime ? DeskInk.emerald : DeskInk.slate)
+                        .foregroundStyle(cardColor)
                     Text(currentWindow.detailText)
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(DeskInk.ink.opacity(0.85))
@@ -97,15 +103,15 @@ public struct PrimeScheduleSheet: View {
 
                 Spacer()
 
-                Text(isPrime ? "61.2% WR" : "42.1% WR")
-                    .font(.system(size: 11, weight: .heavy, design: .monospaced))
-                    .foregroundStyle(isPrime ? DeskInk.emerald : DeskInk.coral)
+                Text(statBadge)
+                    .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                    .foregroundStyle(statColor)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background((isPrime ? DeskInk.emerald : DeskInk.coral).opacity(0.16), in: Capsule())
+                    .background(statColor.opacity(0.16), in: Capsule())
             }
 
-            Text(statusExplanation(isPrime))
+            Text(statusExplanation(currentWindow))
                 .font(.system(size: 12, weight: .regular))
                 .foregroundStyle(DeskInk.slate)
                 .lineSpacing(2)
@@ -117,18 +123,20 @@ public struct PrimeScheduleSheet: View {
                 .overlay(
                     RoundedRectangle(cornerRadius: 18, style: .continuous)
                         .strokeBorder(
-                            (isPrime ? DeskInk.emerald : DeskInk.violet).opacity(0.35),
+                            cardColor.opacity(0.35),
                             lineWidth: 1
                         )
                 )
         )
     }
 
-    private func statusExplanation(_ isPrime: Bool) -> String {
-        if isPrime {
-            return "Active Pacific Time window with verified institutional volume. Directional momentum filters are operating at peak statistical conviction."
+    private func statusExplanation(_ window: MarketEdgeWindow) -> String {
+        if window.isSupremePrime {
+            return "Active London / New York Overlap. Over 70% of daily global FX volume trades during this window. Directional expansion creates maximum 60s binary continuation."
+        } else if window.isTactical {
+            return "Pre-London institutional positioning. Liquidity is thin and bursty between moves. Focus exclusively on confirmed GBP/USD breakout momentum. Avoid slow range pairs."
         } else {
-            return "The morning window closed at 10:00 AM PT. Midday markets experience choppy consolidations and low hit rates. Smart schedule pauses forward testing to preserve edge until 11:00 PM PT."
+            return "Market is in consolidation or Asian lull. Low follow-through and high wick risk. Smart schedule preserves capital until the next verified window."
         }
     }
 
@@ -144,22 +152,22 @@ public struct PrimeScheduleSheet: View {
 
             // Morning Window Card
             windowCard(
-                title: "Morning Prime (NY Overlap)",
-                time: "5:00 AM – 10:00 AM PT",
-                utcTime: "12:00 – 17:00 UTC",
-                winRate: "61.2% WR",
-                topPairs: "GBP/USD, USD/JPY",
-                note: "Peak institutional volume during London / NY overlap. Directional expansion creates reliable 60s binary continuation."
+                title: "👑 Morning Supreme Prime (NY Overlap)",
+                time: "5:00 AM – 9:00 AM PT",
+                utcTime: "12:00 – 16:00 UTC",
+                winRate: "61.2% WR · KING",
+                topPairs: "GBP/USD, USD/JPY, EUR/USD",
+                note: "Peak institutional volume during London / NY overlap. Directional expansion creates deepest liquidity and cleanest 60s binary continuation."
             )
 
             // Late Night Window Card
             windowCard(
-                title: "Late Night London Surge",
+                title: "🌙 Late Night Tactical Scalp",
                 time: "11:00 PM – 12:30 AM PT",
                 utcTime: "06:00 – 07:30 UTC",
-                winRate: "69.2% WR",
-                topPairs: "GBP/USD (+0.3p drift)",
-                note: "Pre-market London positioning surge. Highest statistical hit rate across 372 live-tested forward contracts."
+                winRate: "Bursts Only",
+                topPairs: "GBP/USD (Confirm Breakouts)",
+                note: "Pre-market London positioning. Liquidity is thin between moves. Trade confirmed momentum bursts only; avoid range chop on other pairs."
             )
         }
     }

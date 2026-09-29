@@ -55,15 +55,21 @@ public struct IntelScreen: View {
                     .foregroundStyle(DeskInk.slate)
             }
             Spacer()
+            let currentWindow = MarketEdgeWindow.current(at: now)
+            let isSupreme = currentWindow.isSupremePrime
+            let isTactical = currentWindow.isTactical
+            let headerColor: Color = isSupreme ? DeskInk.emerald : (isTactical ? DeskInk.electric : DeskInk.violet)
+            let headerText: String = isSupreme ? "SUPREME PRIME" : (isTactical ? "TACTICAL" : "OFF-PEAK")
+
             HStack(spacing: 6) {
                 Circle()
-                    .fill(MarketEdgeWindow.current().isPrime ? DeskInk.emerald : DeskInk.violet)
+                    .fill(headerColor)
                     .frame(width: 6, height: 6)
-                    .shadow(color: (MarketEdgeWindow.current().isPrime ? DeskInk.emerald : DeskInk.violet).opacity(0.8), radius: 3)
-                Text(MarketEdgeWindow.current().isPrime ? "PRIME" : "OFF-PEAK")
+                    .shadow(color: headerColor.opacity(0.8), radius: 3)
+                Text(headerText)
                     .font(.system(size: 11, weight: .bold))
                     .tracking(0.8)
-                    .foregroundStyle(MarketEdgeWindow.current().isPrime ? DeskInk.emerald : DeskInk.violet)
+                    .foregroundStyle(headerColor)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
@@ -76,47 +82,53 @@ public struct IntelScreen: View {
 
     private var currentStatusCard: some View {
         let currentWindow = MarketEdgeWindow.current(at: now)
-        let isPrime = currentWindow.isPrime
+        let isSupreme = currentWindow.isSupremePrime
+        let isTactical = currentWindow.isTactical
+        let cardColor: Color = isSupreme ? DeskInk.emerald : (isTactical ? DeskInk.electric : DeskInk.violet)
+
+        let statusTitle: String = isSupreme ? "👑 SUPREME PRIME ACTIVE" : (isTactical ? "🌙 TACTICAL LATE-NIGHT (BURSTS ONLY)" : "⚠️ OFF-PEAK CONSOLIDATION")
+        let statBadge: String = isSupreme ? "61.2% WR · NY OVERLAP" : (isTactical ? "BURSTS ONLY · THIN LIQUIDITY" : "42.1% WR · PRESERVE CAPITAL")
+        let statColor: Color = isSupreme ? DeskInk.emerald : (isTactical ? DeskInk.electric : DeskInk.coral)
 
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
                 ZStack {
                     Circle()
-                        .fill((isPrime ? DeskInk.emerald : DeskInk.violet).opacity(0.2))
+                        .fill(cardColor.opacity(0.2))
                         .frame(width: 36, height: 36)
-                    Image(systemName: isPrime ? "bolt.fill" : "moon.stars.fill")
+                    Image(systemName: isSupreme ? "bolt.fill" : (isTactical ? "bolt.horizontal.fill" : "moon.stars.fill"))
                         .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(isPrime ? DeskInk.emerald : DeskInk.violet)
+                        .foregroundStyle(cardColor)
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(isPrime ? "HIGH-EDGE PRIME ACTIVE" : "OFF-PEAK CONSOLIDATION")
-                        .font(.system(size: 14, weight: .bold))
+                    Text(statusTitle)
+                        .font(.system(size: 13, weight: .bold))
                         .tracking(0.6)
-                        .foregroundStyle(isPrime ? DeskInk.emerald : DeskInk.ink)
+                        .foregroundStyle(cardColor)
                     Text(currentWindow.detailText)
-                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
                         .foregroundStyle(DeskInk.slate)
                 }
 
                 Spacer()
 
-                Text(isPrime ? "61.2% WR" : "42.1% WR")
-                    .font(.system(size: 12, weight: .heavy, design: .monospaced))
-                    .foregroundStyle(isPrime ? DeskInk.emerald : DeskInk.coral)
-                    .padding(.horizontal, 9)
+                Text(statBadge)
+                    .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                    .foregroundStyle(statColor)
+                    .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background((isPrime ? DeskInk.emerald : DeskInk.coral).opacity(0.16), in: Capsule())
+                    .background(statColor.opacity(0.16), in: Capsule())
             }
 
             // Live Second-by-Second Countdown Ticker HUD
             HStack(spacing: 6) {
                 Image(systemName: "timer")
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(isPrime ? DeskInk.emerald : DeskInk.electric)
+                    .foregroundStyle(cardColor)
                 Text(liveCountdownText())
                     .font(.system(size: 11, weight: .heavy, design: .monospaced))
-                    .foregroundStyle(isPrime ? DeskInk.emerald : DeskInk.electric)
+                    .foregroundStyle(cardColor)
                 Spacer()
                 Text("PACIFIC CLOCK")
                     .font(.system(size: 9, weight: .bold))
@@ -126,7 +138,7 @@ public struct IntelScreen: View {
             .padding(.vertical, 6)
             .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 
-            Text(statusExplanation(isPrime))
+            Text(statusExplanation(currentWindow))
                 .font(.system(size: 12, weight: .regular))
                 .foregroundStyle(DeskInk.slate)
                 .lineSpacing(2.5)
@@ -152,7 +164,7 @@ public struct IntelScreen: View {
                 .overlay(
                     RoundedRectangle(cornerRadius: 20, style: .continuous)
                         .strokeBorder(
-                            (isPrime ? DeskInk.emerald : DeskInk.violet).opacity(0.35),
+                            cardColor.opacity(0.35),
                             lineWidth: 1
                         )
                 )
@@ -170,22 +182,19 @@ public struct IntelScreen: View {
         let sec = cal.component(.second, from: now)
         let totalMin = hour * 60 + min
 
-        if currentWindow.isPrime {
-            if totalMin >= 300 && totalMin < 600 {
-                let remSec = max(0, (600 * 60) - (totalMin * 60 + sec))
-                let h = remSec / 3600
-                let m = (remSec % 3600) / 60
-                let s = remSec % 60
-                return String(format: "PRIME ENDS IN: %02dh %02dm %02ds", h, m, s)
-            } else {
-                let targetSec = 1470 * 60 // 12:30 AM
-                let curSec = (totalMin >= 1380 ? totalMin : totalMin + 1440) * 60 + sec
-                let remSec = max(0, targetSec - curSec)
-                let h = remSec / 3600
-                let m = (remSec % 3600) / 60
-                let s = remSec % 60
-                return String(format: "PRIME ENDS IN: %02dh %02dm %02ds", h, m, s)
-            }
+        if currentWindow.isSupremePrime {
+            let remSec = max(0, (9 * 3600) - (totalMin * 60 + sec))
+            let h = remSec / 3600
+            let m = (remSec % 3600) / 60
+            let s = remSec % 60
+            return String(format: "SUPREME PRIME ENDS IN: %02dh %02dm %02ds", h, m, s)
+        } else if currentWindow.isTactical {
+            let targetSec = 1470 * 60 // 12:30 AM
+            let curSec = (totalMin >= 1380 ? totalMin : totalMin + 1440) * 60 + sec
+            let remSec = max(0, targetSec - curSec)
+            let m = (remSec % 3600) / 60
+            let s = remSec % 60
+            return String(format: "BURST WINDOW ENDS IN: %02dm %02ds · NEXT SUPREME: 5:00 AM PT", m, s)
         } else {
             let nextTargetTotalSec: Int
             let nowSec = totalMin * 60 + sec
@@ -204,11 +213,13 @@ public struct IntelScreen: View {
         }
     }
 
-    private func statusExplanation(_ isPrime: Bool) -> String {
-        if isPrime {
-            return "Active Pacific Time window with verified institutional volume. Directional momentum filters are operating at peak statistical conviction."
+    private func statusExplanation(_ window: MarketEdgeWindow) -> String {
+        if window.isSupremePrime {
+            return "Active London / New York Overlap. Over 70% of daily global FX volume trades during this window. Directional expansion creates maximum 60s binary continuation."
+        } else if window.isTactical {
+            return "Pre-London institutional positioning. Liquidity is thin and bursty between moves. Focus exclusively on confirmed GBP/USD breakout momentum. Avoid slow range pairs."
         } else {
-            return "The morning window closed at 10:00 AM PT. Midday markets experience choppy consolidations and low hit rates. Smart schedule preserves capital until the 11:00 PM PT window opens."
+            return "Market is in consolidation or Asian lull. Low follow-through and high wick risk. Smart schedule preserves capital until the next verified window."
         }
     }
 
@@ -224,22 +235,22 @@ public struct IntelScreen: View {
 
             // Morning Window Card
             windowCard(
-                title: "Morning Prime (NY Overlap)",
-                time: "5:00 AM – 10:00 AM PT",
-                utcTime: "12:00 – 17:00 UTC",
-                winRate: "61.2% WR",
-                topPairs: "GBP/USD, USD/JPY",
-                note: "Peak institutional volume during London / NY overlap. Directional expansion creates reliable 60s binary continuation."
+                title: "👑 Morning Supreme Prime (NY Overlap)",
+                time: "5:00 AM – 9:00 AM PT",
+                utcTime: "12:00 – 16:00 UTC",
+                winRate: "61.2% WR · KING",
+                topPairs: "GBP/USD, USD/JPY, EUR/USD",
+                note: "Peak institutional volume during London / NY overlap. Directional expansion creates deepest liquidity and cleanest 60s binary continuation."
             )
 
             // Late Night Window Card
             windowCard(
-                title: "Late Night London Surge",
+                title: "🌙 Late Night Tactical Scalp",
                 time: "11:00 PM – 12:30 AM PT",
                 utcTime: "06:00 – 07:30 UTC",
-                winRate: "69.2% WR",
-                topPairs: "GBP/USD (+0.3p drift)",
-                note: "Pre-market London positioning surge. Highest statistical hit rate across 372 live-tested forward contracts."
+                winRate: "Bursts Only",
+                topPairs: "GBP/USD (Confirm Breakouts)",
+                note: "Pre-market London positioning. Liquidity is thin between moves. Trade confirmed momentum bursts only; avoid range chop on other pairs."
             )
         }
     }

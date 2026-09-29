@@ -7,23 +7,28 @@ public enum MarketEdgeWindow: Sendable, Equatable {
     case lateNightPrime(hoursLabel: String)    // 11:00 PM - 12:30 AM PT (06:00 - 07:30 UTC) -> 69.2% WR
     case offPeak(nextWindowDescription: String, secondsUntilNext: TimeInterval)
 
+    public var isSupremePrime: Bool {
+        if case .morningPrime = self { return true }
+        return false
+    }
+
+    public var isTactical: Bool {
+        if case .lateNightPrime = self { return true }
+        return false
+    }
+
     public var isPrime: Bool {
-        switch self {
-        case .morningPrime, .lateNightPrime:
-            return true
-        case .offPeak:
-            return false
-        }
+        return isSupremePrime
     }
 
     public var badgeTitle: String {
         switch self {
         case .morningPrime:
-            return "MORNING PRIME"
+            return "SUPREME PRIME"
         case .lateNightPrime:
-            return "LATE NIGHT PRIME"
+            return "TACTICAL SCALP"
         case .offPeak:
-            return "OFF-PEAK CHOP"
+            return "OFF-PEAK"
         }
     }
 
@@ -32,7 +37,7 @@ public enum MarketEdgeWindow: Sendable, Equatable {
         case .morningPrime(let label):
             return label
         case .lateNightPrime(let label):
-            return label
+            return "\(label) (Bursts Only)"
         case .offPeak(let next, _):
             return "Next prime: \(next)"
         }
