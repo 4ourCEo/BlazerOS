@@ -51,6 +51,17 @@ public enum DeskCredentials {
         return .missing
     }
 
+    /// Loads Clear Street session from environment or Keychain.
+    public static func clearStreetSession() -> ClearStreetSession? {
+        if let key = ProcessInfo.processInfo.environment["CLEARSTREET_API_KEY"], !key.isEmpty {
+            let accountId = ProcessInfo.processInfo.environment["CLEARSTREET_ACCOUNT_ID"]
+            let envStr = ProcessInfo.processInfo.environment["CLEARSTREET_ENV"]?.lowercased()
+            let env: ClearStreetEnvironment = envStr == "production" ? .production : .demo
+            return ClearStreetSession(apiKey: key, accountId: accountId, environment: env)
+        }
+        return nil
+    }
+
     private static func read(service: String, allowPrompt: Bool) -> CredentialGate {
         let token = item(service: service, account: "token", allowPrompt: allowPrompt)
         let accountId = item(service: service, account: "accountId", allowPrompt: allowPrompt)
