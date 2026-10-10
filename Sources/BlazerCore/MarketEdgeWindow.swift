@@ -1,10 +1,10 @@
 import Foundation
 
-/// High-conviction market trading windows and statistical pair-edge intelligence.
-/// Calibrated empirically from 372 live forward-tested 60-second binary contracts.
+/// Pacific research schedules and unverified historical pair priors.
+/// Session timing alone does not establish a profitable edge.
 public enum MarketEdgeWindow: Sendable, Equatable {
-    case morningPrime(hoursLabel: String)      // 5:00 AM - 10:00 AM PT (12:00 - 17:00 UTC) -> 59.1% - 61.2% WR
-    case lateNightPrime(hoursLabel: String)    // 11:00 PM - 12:30 AM PT (06:00 - 07:30 UTC) -> 69.2% WR
+    case morningPrime(hoursLabel: String)      // 5:00 AM - 10:00 AM PT; UTC offset varies with DST.
+    case lateNightPrime(hoursLabel: String)    // 11:00 PM - 12:30 AM PT; not a fixed London session.
     case offPeak(nextWindowDescription: String, secondsUntilNext: TimeInterval)
 
     public var isSupremePrime: Bool {
@@ -172,4 +172,3 @@ public struct EdgeEvidence: Sendable, Equatable {
         return (lower, upper)
     }
 }
-

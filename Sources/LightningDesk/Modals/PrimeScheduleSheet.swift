@@ -77,7 +77,7 @@ public struct PrimeScheduleSheet: View {
         let cardColor: Color = isSupreme ? DeskInk.emerald : (isTactical ? DeskInk.electric : DeskInk.violet)
 
         let statusTitle: String = isSupreme ? "👑 SUPREME PRIME ACTIVE" : (isTactical ? "🌙 TACTICAL LATE-NIGHT (BURSTS ONLY)" : "⚠️ OFF-PEAK CONSOLIDATION")
-        let statBadge: String = isSupreme ? "61.2% WR · NY OVERLAP" : (isTactical ? "BURSTS ONLY · THIN LIQUIDITY" : "42.1% WR · PRESERVE CAPITAL")
+        let statBadge: String = isSupreme ? "MORNING RESEARCH WINDOW" : (isTactical ? "BURSTS ONLY · THIN LIQUIDITY" : "OUTSIDE RESEARCH WINDOW")
         let statColor: Color = isSupreme ? DeskInk.emerald : (isTactical ? DeskInk.electric : DeskInk.coral)
 
         return VStack(alignment: .leading, spacing: 10) {
@@ -144,7 +144,7 @@ public struct PrimeScheduleSheet: View {
 
     private var scheduleCards: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("CALIBRATED TRADING WINDOWS (PACIFIC TIME)")
+            Text("RESEARCH TRADING WINDOWS (PACIFIC TIME)")
                 .font(.system(size: 10, weight: .bold))
                 .tracking(1.0)
                 .foregroundStyle(DeskInk.slate.opacity(0.8))
@@ -153,18 +153,18 @@ public struct PrimeScheduleSheet: View {
             // Morning Window Card
             windowCard(
                 title: "👑 Morning Supreme Prime (NY Overlap)",
-                time: "5:00 AM – 9:00 AM PT",
-                utcTime: "12:00 – 16:00 UTC",
-                winRate: "61.2% WR · KING",
+                time: "5:00 AM – 10:00 AM PT",
+                utcTime: "UTC shifts with Pacific daylight saving",
+                winRate: "WIN RATE UNVERIFIED",
                 topPairs: "GBP/USD, USD/JPY, EUR/USD",
-                note: "Peak institutional volume during London / NY overlap. Directional expansion creates deepest liquidity and cleanest 60s binary continuation."
+                note: "Scheduled morning research window. Validate setup quality, entry timing and outcomes before treating this period as an edge."
             )
 
             // Late Night Window Card
             windowCard(
                 title: "🌙 Late Night Tactical Scalp",
                 time: "11:00 PM – 12:30 AM PT",
-                utcTime: "06:00 – 07:30 UTC",
+                utcTime: "UTC shifts with Pacific daylight saving",
                 winRate: "Bursts Only",
                 topPairs: "GBP/USD (Confirm Breakouts)",
                 note: "Pre-market London positioning. Liquidity is thin between moves. Trade confirmed momentum bursts only; avoid range chop on other pairs."

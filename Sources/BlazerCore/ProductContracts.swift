@@ -3,7 +3,7 @@ import Foundation
 
 /// Full SHA-1 of the bundled scan-engine.js. Both apps must load this exact script.
 public enum EngineIdentity {
-    public static let pinnedSHA1 = "1a1d264d44eec606ded991cb4814df953bc07b34"
+    public static let pinnedSHA1 = "7c02e550e2e6ca656a258ceefc6083f098ff40b2"
 
     public static func sha1Hex(of source: String) -> String {
         let digest = Insecure.SHA1.hash(data: Data(source.utf8))

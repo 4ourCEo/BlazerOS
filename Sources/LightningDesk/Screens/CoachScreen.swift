@@ -52,6 +52,7 @@ struct CoachScreen: View {
                     }
 
                     CoachVoiceDebriefCard(model: model)
+                    CoachExpectancyMathCard()
                     CoachPrinciplesCard()
                     CoachContractCard()
                 }
@@ -59,6 +60,76 @@ struct CoachScreen: View {
                 .padding(.bottom, 24)
             }
         }
+    }
+}
+
+struct CoachExpectancyMathCard: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "function")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(DeskInk.emerald)
+                Text("The Math of Trading")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(DeskInk.ink)
+                Spacer()
+                Text("EV & RISK")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(0.8)
+                    .foregroundStyle(DeskInk.emerald)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(DeskInk.emerald.opacity(0.12), in: Capsule())
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Expectancy = (P(Win) × Payout) − (P(Loss) × Risk)")
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundStyle(DeskInk.electric)
+                Text("At an assumed 88% broker payout, break-even requires 53.2% verified wins. Directional score is not win probability; sizing must follow disciplined account risk.")
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(DeskInk.slate)
+            }
+            .padding(12)
+            .background(Color.black.opacity(0.2), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Break-Even (88%)")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(DeskInk.slate)
+                    Text("53.2%")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(DeskInk.ink)
+                }
+                Spacer()
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Risk Ceiling")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(DeskInk.slate)
+                    Text("1% – 2%")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(DeskInk.ink)
+                }
+                Spacer()
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Posture in Chop")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(DeskInk.slate)
+                    Text("STAY FLAT")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(DeskInk.coral)
+                }
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DeskInk.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.06), lineWidth: 0.5)
+        )
     }
 }
 
@@ -119,6 +190,12 @@ struct CoachPrinciplesCard: View {
                 number: "3",
                 title: "Slippage & Veto Transparency",
                 body: "Spread spikes, abnormal prints, and high volatility vetoes are surfaced immediately without delay."
+            )
+
+            principleRow(
+                number: "4",
+                title: "Flat is a Position",
+                body: "In uncalibrated chop or when mathematical expectancy is non-positive, staying flat preserves capital."
             )
         }
         .padding(18)

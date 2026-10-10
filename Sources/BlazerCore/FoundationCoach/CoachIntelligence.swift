@@ -5,13 +5,22 @@ import Foundation
 public enum CoachIntelligence {
     public static func synthesizeAnswer(seal: ParitySeal, evidence: String, question: String) -> String {
         let q = question.lowercased()
-        let conviction = seal.side == "LOW" ? (100 - seal.score) : seal.score
-        let direction = seal.side == "LOW" ? "PUT" : (seal.side == "HIGH" ? "CALL" : "WAIT")
+        let conviction = seal.score
+        let direction = seal.side.contains("LOW") ? "PUT" : (seal.side.contains("HIGH") ? "CALL" : "WAIT")
+
+        // Math / Expectancy / Edge inquiry
+        if q.contains("math") || q.contains("expectancy") || q.contains("formula") || q.contains("equation") || q.contains("fail") || q.contains("90") {
+            return "Trading is basic math: Expectancy = (Probability * Payout) - (Risk * (1 - Probability)). Chasing win rate without positive expectancy is why 90% of traders fail. At an 88% payout, break-even is 53.2%."
+        }
+
+        // Flat is a position / Chop inquiry
+        if q.contains("flat") || q.contains("chop") || q.contains("pass") || q.contains("skip") || q.contains("patience") {
+            return "Flat is a position. When market structure lacks clean momentum or mathematical expectancy is unproven, capital preservation is the highest expected value decision."
+        }
 
         // Risk or sizing inquiry
-        if q.contains("risk") || q.contains("size") || q.contains("stake") || q.contains("lot") || q.contains("money") {
-            let winRateStr = conviction >= 70 ? "high statistical edge" : "favorable probability"
-            return "This \(direction) setup carries a \(winRateStr) with a conviction rating of \(conviction). Keep risk fixed at 1 to 2 percent of your balance. Never chase losses with Martingale."
+        if q.contains("risk") || q.contains("size") || q.contains("stake") || q.contains("lot") || q.contains("money") || q.contains("kelly") {
+            return "Directional conviction \(conviction) is not a win probability. Risk math mandates a fixed 1 to 2 percent account ceiling independent of conviction. If expectancy is non-positive, stake is zero."
         }
 
         // Reason / Why inquiry
@@ -23,8 +32,7 @@ public enum CoachIntelligence {
 
         // Win / Probability inquiry
         if q.contains("win") || q.contains("chance") || q.contains("probability") || q.contains("edge") || q.contains("stat") {
-            let edge = conviction >= 60 ? "exceeds our 54 percent breakeven threshold" : "is below threshold"
-            return "At conviction \(conviction), historical calibration confirms this setup \(edge). On Pocket Option 85 to 88 percent payout, this provides positive mathematical expectancy."
+            return "A conviction score of \(conviction) does not establish a win rate or positive expectancy. At an assumed 88 percent net payout, break-even is 53.2 percent verified wins; this setup needs separate outcome evidence."
         }
 
         // Expiry / Timing inquiry

@@ -4,3 +4,5 @@
 *.xcuserstate
 xcuserdata/
 DerivedData/
+dist/
+iPhone/build/

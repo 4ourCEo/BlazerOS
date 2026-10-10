@@ -527,7 +527,7 @@ struct PersistCheck {
             }
 
             let statsEmpty = LedgerStatsEngine.evaluate(pair: "EUR/USD", rows: loaded)
-            check("stats engine fallback to prior calibration on 0 local trades", statsEmpty.statusBadge == "PRIOR (n=372)" && statsEmpty.sampleSize == 0, statsEmpty.statusBadge)
+            check("stats engine marks missing calibration provenance", statsEmpty.statusBadge == "UNVERIFIED PRIOR" && statsEmpty.sampleSize == 0, statsEmpty.statusBadge)
 
             let statsGBP = LedgerStatsEngine.evaluate(pair: "GBP/USD", rows: loaded)
             check("stats engine measures local GBP/USD trade", statsGBP.sampleSize == 1 && statsGBP.wins == 1 && statsGBP.winRate == 1.0, statsGBP.statusBadge)
@@ -549,7 +549,7 @@ struct PersistCheck {
                 )
             }
             let statsJPY = LedgerStatsEngine.evaluate(pair: "USD/JPY", rows: syntheticRows)
-            check("stats engine confirms proven edge on statistically significant sample", statsJPY.isProvenEdge && statsJPY.statusBadge == "PROVEN EDGE", statsJPY.statusBadge)
+            check("stats engine does not certify unverified outcomes", !statsJPY.isProvenEdge && statsJPY.statusBadge.contains("UNVERIFIED"), statsJPY.statusBadge)
         } catch {
             check("ledger v2 and stats engine check", false, error.localizedDescription)
         }

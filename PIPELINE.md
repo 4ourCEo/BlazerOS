@@ -18,6 +18,23 @@ No duplicate strategy logic inside UI views.
 
 The engine does not move. Persistence, coach, and sync sit around it.
 
+### October 2026 research amendment
+
+The shared engine now exposes opt-in deterministic research policies alongside the repaired baseline. The desk defaults to baseline; the frozen prior artifact is retained for research control comparisons. Both Mac and iPhone must rebuild against the updated shared engine and pin before shipping.
+
+The local-only `ResearchStore` is a separate research archive. It may persist frozen historical M1/M5 inputs and completed entry/expiry observations for reproducibility, including quote timestamps and spreads. These are explicitly excluded from CloudKit, widgets and the execution ledger. Credentials and live active-beam state remain excluded from every persisted research record. Synthetic software exercises use a separate default root and never contribute to execution-ledger statistics.
+
+The implementation supersedes claims below that the automated forward tester validates a trading edge from 100 signals. Proxy labels, incomplete source provenance, and correlated outcomes cannot certify venue profitability. See `reports/SCAN_RESEARCH_IMPLEMENTATION.md` for current behavior and verification.
+
+### TestFlight RC & Prospective Edge Gates (Locked October 2026)
+
+- **Prospective Promotion Stopping Rule**: Prospective edge validation requires $N \ge 250$ independent, clustered prime-window events across the 6-asset basket, with a 95% Wilson confidence interval lower bound strictly exceeding the break-even win rate ($53.19\%$ at $0.88$ payout).
+- **Correlation Clustering**: Concurrent triggers occurring within the same time window across correlated currency pairs are clustered into discrete observation blocks to prevent macro volatility surges from inflating effective sample size ($N_{\text{eff}}$).
+- **Execution Desk Quarantining**: Experimental policies (continuation, range-reversal, regime-router) remain strictly quarantined to the offline/research runner; the live execution desk is locked to the verified baseline.
+- **Durable Mobile State**: In-flight trades must persist durably to disk on iOS. Relaunches past expiration without exact broker prints within $\pm 5$ seconds resolve to `UNRESOLVED` for manual review.
+- **Labeling Truth & Circuit Breakers**: All broker-derived outcomes are badged strictly as "Broker Proxy Estimate"; automated marketing claims such as "PROVEN EDGE" are prohibited. The desk mechanical circuit breaker enforces $0.00$ / flat when mathematical EV $\le 0$.
+- **TestFlight Sandbox Restriction**: Initial TestFlight RC builds restrict OANDA connectivity exclusively to Practice/Demo environments.
+
 These stay off CloudKit and out of every document this layer writes:
 
 - OANDA token

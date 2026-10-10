@@ -23,7 +23,8 @@ public struct PairEdgeStats: Sendable, Equatable {
         sampleSize: Int,
         wins: Int,
         payoutRatio: Double = 0.88,
-        priorCalibratedRate: Double? = nil
+        priorCalibratedRate: Double? = nil,
+        verifiedOutcomes: Bool = false
     ) {
         self.pair = pair
         self.window = window
@@ -41,8 +42,11 @@ public struct PairEdgeStats: Sendable, Equatable {
             self.upper95 = upper
             self.expectancy = (wr * payoutRatio) - ((1.0 - wr) * 1.0)
 
-            if sampleSize >= 30 && lower > breakEvenRate {
-                self.statusBadge = "PROVEN EDGE"
+            if !verifiedOutcomes {
+                self.statusBadge = "UNVERIFIED LABELS (n=\(sampleSize))"
+                self.isProvenEdge = false
+            } else if sampleSize >= 250 && lower > breakEvenRate {
+                self.statusBadge = "STATISTICALLY PROMOTED (n=\(sampleSize))"
                 self.isProvenEdge = true
             } else if sampleSize >= 15 && wr > breakEvenRate {
                 self.statusBadge = "TENTATIVE (n=\(sampleSize))"
@@ -58,7 +62,7 @@ public struct PairEdgeStats: Sendable, Equatable {
             let lowerPct = String(format: "%.1f%%", lower * 100)
             let upperPct = String(format: "%.1f%%", upper * 100)
             let bePct = String(format: "%.1f%%", breakEvenRate * 100)
-            self.caveat = "Empirical ledger: \(wins)/\(sampleSize) wins. 95% Wilson CI: [\(lowerPct), \(upperPct)]. Break-even: \(bePct) at \(Int(payoutRatio * 100))% payout."
+            self.caveat = "Recorded ledger: \(wins)/\(sampleSize) wins. Nominal independent-trial 95% Wilson CI: [\(lowerPct), \(upperPct)]. Break-even: \(bePct) at assumed \(Int(payoutRatio * 100))% payout. \(verifiedOutcomes ? "Venue labels recorded; independence and policy stability still require validation." : "Venue settlement is unverified; these labels do not certify a trading edge.")"
         } else {
             // Prior benchmark fallback (372 contracts forward-test calibration)
             let prior = priorCalibratedRate ?? 0.50
@@ -66,9 +70,9 @@ public struct PairEdgeStats: Sendable, Equatable {
             self.lower95 = max(0, prior - 0.12)
             self.upper95 = min(1.0, prior + 0.12)
             self.expectancy = (prior * payoutRatio) - ((1.0 - prior) * 1.0)
-            self.statusBadge = "PRIOR (n=372)"
+            self.statusBadge = "UNVERIFIED PRIOR"
             self.isProvenEdge = false
-            self.caveat = "Prior forward-test calibration (372 contracts, ~60 per pair). No local ledger trades recorded yet for \(pair)."
+            self.caveat = "Unverified historical prior. No local ledger trades recorded yet for \(pair); original source and per-pair sample counts are unavailable."
         }
     }
 }
@@ -98,7 +102,8 @@ public enum LedgerStatsEngine {
             sampleSize: sampleSize,
             wins: wins,
             payoutRatio: payoutRatio,
-            priorCalibratedRate: priors[pair]
+            priorCalibratedRate: priors[pair],
+            verifiedOutcomes: !pairRows.isEmpty && pairRows.allSatisfy { $0.labelSource == "venue-confirmed" }
         )
     }
 

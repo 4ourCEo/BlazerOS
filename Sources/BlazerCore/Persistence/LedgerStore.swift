@@ -45,6 +45,10 @@ public struct LedgerRow: Equatable, Sendable {
     public var fullFingerprint: String?
     public var entryQuote: Double?
     public var expiryPrice: Double?
+    public var labelSource: String?
+    public var horizonSeconds: Int?
+    public var enteredAt: Date?
+    public var expiryObservedMs: Double?
 
     public init(
         timestamp: Date,
@@ -62,7 +66,11 @@ public struct LedgerRow: Equatable, Sendable {
         engineSHA: String? = nil,
         fullFingerprint: String? = nil,
         entryQuote: Double? = nil,
-        expiryPrice: Double? = nil
+        expiryPrice: Double? = nil,
+        labelSource: String? = nil,
+        horizonSeconds: Int? = nil,
+        enteredAt: Date? = nil,
+        expiryObservedMs: Double? = nil
     ) {
         self.timestamp = timestamp
         self.pair = pair
@@ -80,6 +88,10 @@ public struct LedgerRow: Equatable, Sendable {
         self.fullFingerprint = fullFingerprint
         self.entryQuote = entryQuote
         self.expiryPrice = expiryPrice
+        self.labelSource = labelSource
+        self.horizonSeconds = horizonSeconds
+        self.enteredAt = enteredAt
+        self.expiryObservedMs = expiryObservedMs
     }
 }
 
@@ -107,7 +119,7 @@ public actor LedgerStore {
         claimedHashes.insert(row.hash)
         claimedArms.insert(row.outcomeEventID)
         do {
-            var existing = (try? Data(contentsOf: url)) ?? Data()
+            var existing = FileManager.default.fileExists(atPath: url.path) ? try Data(contentsOf: url) : Data()
             if existing.isEmpty {
                 existing.append(Data((Self.csvHeader + "\n").utf8))
             } else if existing.last != 0x0A {
@@ -134,11 +146,11 @@ public actor LedgerStore {
 
     private func loadClaims() throws {
         if loaded { return }
-        loaded = true
         for row in parse(try text()) {
             claimedHashes.insert(row.hash)
             claimedArms.insert(row.outcomeEventID)
         }
+        loaded = true
     }
 
     private func text() throws -> String {
@@ -178,14 +190,18 @@ public actor LedgerStore {
                     veto: fields[5] == "true",
                     drift: drift,
                     outcome: fields[7],
-                    outcomeEventID: fields[2],
+                    outcomeEventID: fields.count > 19 && !fields[19].isEmpty ? fields[19] : fields[2],
                     payout: payout,
                     stake: stake,
                     marketWindow: marketWindow,
                     engineSHA: engineSHA,
                     fullFingerprint: fullFingerprint,
                     entryQuote: entryQuote,
-                    expiryPrice: expiryPrice
+                    expiryPrice: expiryPrice,
+                    labelSource: fields.count > 15 && !fields[15].isEmpty ? fields[15] : nil,
+                    horizonSeconds: fields.count > 16 ? Int(fields[16]) : nil,
+                    enteredAt: fields.count > 17 ? Self.iso8601.date(from: fields[17]) : nil,
+                    expiryObservedMs: fields.count > 18 ? Double(fields[18]) : nil
                 )
             )
         }
@@ -203,7 +219,7 @@ public actor LedgerStore {
             csv(String(format: "%.4f", row.drift)),
             csv(row.outcome),
         ]
-        if row.payout != nil || row.stake != nil || row.marketWindow != nil || row.engineSHA != nil || row.fullFingerprint != nil || row.entryQuote != nil || row.expiryPrice != nil {
+        if row.payout != nil || row.stake != nil || row.marketWindow != nil || row.engineSHA != nil || row.fullFingerprint != nil || row.entryQuote != nil || row.expiryPrice != nil || row.labelSource != nil || row.horizonSeconds != nil || row.enteredAt != nil || row.expiryObservedMs != nil {
             parts.append(csv(row.payout.map { String($0) } ?? ""))
             parts.append(csv(row.stake.map { String($0) } ?? ""))
             parts.append(csv(row.marketWindow ?? ""))
@@ -211,6 +227,11 @@ public actor LedgerStore {
             parts.append(csv(row.fullFingerprint ?? ""))
             parts.append(csv(row.entryQuote.map { String($0) } ?? ""))
             parts.append(csv(row.expiryPrice.map { String($0) } ?? ""))
+            parts.append(csv(row.labelSource ?? ""))
+            parts.append(csv(row.horizonSeconds.map { String($0) } ?? ""))
+            parts.append(csv(row.enteredAt.map { Self.iso8601.string(from: $0) } ?? ""))
+            parts.append(csv(row.expiryObservedMs.map { String($0) } ?? ""))
+            parts.append(csv(row.outcomeEventID))
         }
         return parts.joined(separator: ",") + "\n"
     }

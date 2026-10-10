@@ -18,6 +18,7 @@ let package = Package(
             name: "BlazerCore",
             resources: [
                 .copy("scan-engine.js"),
+                .copy("Research/scan-engine-control.js"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
@@ -68,6 +69,6 @@ let package = Package(
                 .swiftLanguageMode(.v6),
             ]
         ),
+        .testTarget(name: "BlazerCoreTests", dependencies: ["BlazerCore", "LightningDesk"]),
     ]
 )
-

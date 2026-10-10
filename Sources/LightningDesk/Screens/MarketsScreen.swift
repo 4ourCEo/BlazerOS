@@ -163,7 +163,7 @@ struct MarketTacticalTile: View {
 
     private var convictionRating: Int {
         let raw = score ?? 50
-        return side == "LOW" ? (100 - raw) : raw
+        return raw
     }
 
     private var isHighConviction: Bool {

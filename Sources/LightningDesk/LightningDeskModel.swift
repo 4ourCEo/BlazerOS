@@ -76,7 +76,7 @@ public final class LightningDeskModel: ObservableObject {
             if let commit = commitsByAsset[p] {
                 let score = commit.score
                 let side = cabinetSideByAsset[p] ?? "WAIT"
-                let conviction = side == "LOW" ? (100 - score) : score
+                let conviction = score
                 let isActionable = side == "HIGH" || side == "LOW"
                 let currentIsActionable = topSide == "HIGH" || topSide == "LOW"
 
@@ -122,6 +122,10 @@ public final class LightningDeskModel: ObservableObject {
     private var lastFreshPollAt: Date?
     private var now = Date()
     private var expired = false
+    private var settlementInFlight = false
+    private var selectedSignal: EngineSignal?
+    private var pendingExpiry: ResearchOutcome?
+    private var pendingTrade: ActiveTrade?
     /// Bumped on every press so a new walk replaces the one in flight.
     private var scanGeneration = 0
 
@@ -139,6 +143,10 @@ public final class LightningDeskModel: ObservableObject {
     public let pairs = Assets.watchlist
 
     public func select(pair next: String) {
+        guard activeTrade == nil, !awaitingOutcome, !settlementInFlight else {
+            notice = "Resolve the current outcome before switching pairs"
+            return
+        }
         guard next != pair else { return }
         pair = next
 
@@ -180,6 +188,7 @@ public final class LightningDeskModel: ObservableObject {
 
     /// Populates the desk with sample market candles from the golden fixture for offline testing.
     public func loadDemoDesk() {
+        guard activeTrade == nil, !awaitingOutcome, !settlementInFlight else { return }
         let fixture = GoldenFixture.market()
         let bars = GoldenFixture.frozenBars(from: fixture)
         candles = bars
@@ -281,6 +290,10 @@ public final class LightningDeskModel: ObservableObject {
 
     /// A fresh six-market walk. Nothing from the previous scan is reused.
     public func scan() async {
+        guard activeTrade == nil, !awaitingOutcome, !settlementInFlight else {
+            notice = "Resolve the current outcome before scanning"
+            return
+        }
         scanGeneration += 1
         let generation = scanGeneration
         let clock = Date()
@@ -362,25 +375,15 @@ public final class LightningDeskModel: ObservableObject {
         let bars = barsByAsset[picked.asset] ?? []
         var next = ScanKernel.commit(from: picked, bars: bars, scannedAt: Date())
         let side = picked.cabinetSide
+        selectedSignal = picked
         if EngineIdentity.loadedSHA1() != EngineIdentity.pinnedSHA1 {
             next.veto = "Engine pin"
         }
         if (side == "HIGH" || side == "LOW"), next.veto == nil {
             let batch = await OandaClient.fetchQuoteBatch(assets: [picked.asset], session: session)
-            if batch.transport == .ok, let fresh = batch.quotes.first(where: { $0.asset == picked.asset }) {
-                next = ScanCommit(
-                    asset: next.asset,
-                    engineCall: next.engineCall,
-                    score: next.score,
-                    evidence: next.evidence,
-                    strike: fresh.mid,
-                    fingerprint: next.fingerprint,
-                    candleCount: next.candleCount,
-                    candles: next.candles,
-                    scannedAt: next.scannedAt,
-                    veto: next.veto,
-                    driftPips: next.driftPips
-                )
+            let fresh = batch.transport == .ok ? batch.quotes.first(where: { $0.asset == picked.asset }) : nil
+            next.veto = EntryQuality.veto(signal: picked, quote: fresh)
+            if let fresh {
                 quote = fresh
                 if QuoteFreshness.isFresh(fresh, now: Date()) {
                     lastFreshPollAt = Date()
@@ -403,7 +406,13 @@ public final class LightningDeskModel: ObservableObject {
         publishFrame()
         liftHero()
         if let frame {
-            await remember(next, verb: frame.verb)
+            if !(await remember(next, verb: frame.verb)) {
+                commit?.veto = "Scan was not saved"
+                armedAt = nil
+                armID = nil
+                notice = "Scan was not saved; scan again"
+                publishFrame()
+            }
         }
     }
 
@@ -411,11 +420,14 @@ public final class LightningDeskModel: ObservableObject {
     public func settle(
         _ outcome: DeskOutcome,
         expiryPrice: Double? = nil,
-        entryQuote: Double? = nil
+        entryQuote: Double? = nil,
+        labelSource: String = "manual-unverified"
     ) async {
-        guard let commit, let armID else { return }
+        guard !settlementInFlight, let commit, let armID else { return }
+        settlementInFlight = true
+        defer { settlementInFlight = false }
         awaitingOutcome = false
-        let windowName = MarketEdgeWindow.current().badgeTitle
+        let windowName = MarketEdgeWindow.current(at: pendingTrade?.enteredAt ?? commit.scannedAt).badgeTitle
         let row = LedgerRow(
             timestamp: Date(),
             pair: commit.asset,
@@ -426,13 +438,17 @@ public final class LightningDeskModel: ObservableObject {
             drift: commit.driftPips ?? 0,
             outcome: outcome.rawValue,
             outcomeEventID: armID,
-            payout: 0.88,
-            stake: 10.0,
+            payout: EntryQuality.assumedPayout,
+            stake: nil,
             marketWindow: windowName,
             engineSHA: EngineIdentity.pinnedSHA1,
             fullFingerprint: commit.fingerprint,
-            entryQuote: entryQuote ?? commit.strike,
-            expiryPrice: expiryPrice
+            entryQuote: entryQuote ?? pendingTrade?.strike ?? commit.strike,
+            expiryPrice: expiryPrice ?? pendingExpiry?.exitPrice,
+            labelSource: labelSource,
+            horizonSeconds: pendingTrade.map { Int($0.durationSec) },
+            enteredAt: pendingTrade?.enteredAt,
+            expiryObservedMs: pendingExpiry?.quoteTimeMs
         )
         let snapshot = SnapshotRecord(
             hash: commit.fingerprint,
@@ -443,10 +459,20 @@ public final class LightningDeskModel: ObservableObject {
             side: commit.engineCall
         )
         do {
-            _ = try await persistence.settle(armID: armID, row: row, snapshot: snapshot)
+            let wrote = try await persistence.settle(armID: armID, row: row, snapshot: snapshot)
+            if !wrote {
+                let restored = await persistence.restore()
+                guard restored.entries.first(where: { $0.id == armID })?.outcome != nil else {
+                    awaitingOutcome = true
+                    notice = "Outcome was not saved; retry"
+                    return
+                }
+            }
             await reloadFromDisk()
         } catch {
-            notice = "Outcome was not saved"
+            awaitingOutcome = true
+            notice = "Outcome was not saved; retry"
+            return
         }
         self.armID = nil
         self.commit = nil
@@ -454,6 +480,8 @@ public final class LightningDeskModel: ObservableObject {
         armedAt = nil
         expired = false
         activeTrade = nil
+        pendingTrade = nil
+        pendingExpiry = nil
         predictedOutcome = nil
         candles = []
         publishFrame()
@@ -478,7 +506,7 @@ public final class LightningDeskModel: ObservableObject {
             let desk = try await StrategyEngine.pickDesk(
                 signals: bag,
                 trades: [],
-                payoutPercent: 85,
+                payoutPercent: EntryQuality.assumedPayout * 100,
                 preferAsset: nil
             )
             if let asset = desk.asset, let match = bag.first(where: { $0.asset == asset }) {
@@ -604,7 +632,7 @@ public final class LightningDeskModel: ObservableObject {
             if armedAt != nil || activeTrade != nil {
                 now = Date()
                 if let trade = activeTrade, trade.isExpired {
-                    handleTradeExpiry(trade)
+                    await handleTradeExpiry(trade)
                 }
                 publishFrame()
             }
@@ -614,14 +642,25 @@ public final class LightningDeskModel: ObservableObject {
 
     /// Locks in an active binary trade horizon on the armed setup (60s, 3m, or 5m).
     public func lockInTrade(duration: Double? = nil) {
-        guard let commit, armedAt != nil || (frame?.verb == "TAP HIGH" || frame?.verb == "TAP LOW") else {
+        guard !scanning, activeTrade == nil, !settlementInFlight, !awaitingOutcome else { return }
+        guard let commit, commit.veto == nil, armedAt != nil, armID != nil else {
             return
         }
         guard cabinetSide == "HIGH" || cabinetSide == "LOW" else { return }
+        guard let selectedSignal else { notice = "Scan again before entry"; return }
+        if let veto = EntryQuality.veto(signal: selectedSignal, quote: quote) {
+            notice = veto
+            return
+        }
+        guard QuoteFreshness.isPollFresh(lastFreshPollAt: lastFreshPollAt) else {
+            notice = "Entry quote stale"
+            return
+        }
         let tradeID = armID ?? "\(commit.fingerprint)-\(Int(Date().timeIntervalSince1970 * 1000))"
         armID = tradeID
-        let liveStrike = commit.strike
+        let liveStrike = quote!.mid
         let durationSec = duration ?? selectedHorizonSec
+        guard [60.0, 180.0, 300.0].contains(durationSec) else { notice = "Unsupported expiry"; return }
         let trade = ActiveTrade(
             id: tradeID,
             pair: commit.asset,
@@ -634,17 +673,33 @@ public final class LightningDeskModel: ObservableObject {
             fingerprint: commit.fingerprint
         )
         activeTrade = trade
+        pendingTrade = trade
+        pendingExpiry = nil
         armedAt = nil
         DeskHaptics.tradeLocked()
         publishFrame()
     }
 
-    private func handleTradeExpiry(_ trade: ActiveTrade) {
-        let isWin = trade.isInTheMoney ?? false
+    private func handleTradeExpiry(_ trade: ActiveTrade) async {
+        let observation = ResearchOutcome.resolve(eventID: trade.id, horizon: Int(trade.durationSec),
+            entryTime: trade.enteredAt, strike: trade.strike, side: trade.side,
+            quote: quote, observedAt: Date())
+        if observation.resolution == .unresolved && Date().timeIntervalSince(trade.expiresAt) <= 5 { return }
+        pendingExpiry = observation
+        guard observation.resolution == .hit || observation.resolution == .miss else {
+            predictedOutcome = nil
+            activeTrade = nil
+            expired = true
+            awaitingOutcome = true
+            notice = observation.resolution == .tie ? "Expiry tied; confirm the venue result" : "Expiry unverified; confirm the venue result"
+            publishFrame()
+            return
+        }
+        let isWin = observation.resolution == .hit
         let outcome: DeskOutcome = isWin ? .hit : .miss
         predictedOutcome = outcome
         expired = true
-        let finalExitPrice = trade.currentPrice
+        let finalExitPrice = observation.exitPrice
         activeTrade = nil
         awaitingOutcome = false
         DeskHaptics.settleAlert()
@@ -659,9 +714,7 @@ public final class LightningDeskModel: ObservableObject {
         publishFrame()
 
         // Phase 2 Auto-Settle: verified binary expiry logged directly to Ledger v2
-        Task {
-            await settle(outcome, expiryPrice: finalExitPrice, entryQuote: trade.strike)
-        }
+        await settle(outcome, expiryPrice: finalExitPrice, entryQuote: trade.strike, labelSource: "oanda-midpoint-proxy")
     }
 
     private func refreshQuote() async {
@@ -839,7 +892,7 @@ public final class LightningDeskModel: ObservableObject {
     }
 
     /// Writes the frozen scan to disk, then reloads the journal from that file.
-    private func remember(_ commit: ScanCommit, verb: String) async {
+    private func remember(_ commit: ScanCommit, verb: String) async -> Bool {
         let id = "\(commit.fingerprint)-\(Int(commit.scannedAt.timeIntervalSince1970 * 1000))"
         armID = id
         let entry = JournalEntry(
@@ -865,8 +918,9 @@ public final class LightningDeskModel: ObservableObject {
         do {
             try await persistence.recordScan(entry, snapshot: snapshot)
             await reloadFromDisk()
+            return true
         } catch {
-            journal.insert(replay(entry, bars: commit.candles), at: 0)
+            return false
         }
     }
 

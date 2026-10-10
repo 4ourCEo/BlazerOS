@@ -50,7 +50,7 @@ public enum StrategyEngine {
         loadBundleSource()
     }
 
-    public struct MarketInput: Encodable, Sendable {
+    public struct MarketInput: Codable, Sendable {
         public var asset: String
         public var source: String
         public var candles1m: [CandlePayload]
@@ -60,6 +60,9 @@ public enum StrategyEngine {
         public var ask: Double
         public var spread: Double
         public var expirySeconds: Int
+        public var quoteAsOfMs: Double?
+        public var evaluatedAtMs: Double?
+        public var policy: ScanPolicy?
 
         public init(
             asset: String,
@@ -70,7 +73,10 @@ public enum StrategyEngine {
             bid: Double,
             ask: Double,
             spread: Double,
-            expirySeconds: Int
+            expirySeconds: Int,
+            quoteAsOfMs: Double? = nil,
+            evaluatedAtMs: Double? = nil,
+            policy: ScanPolicy? = nil
         ) {
             self.asset = asset
             self.source = source
@@ -81,10 +87,13 @@ public enum StrategyEngine {
             self.ask = ask
             self.spread = spread
             self.expirySeconds = expirySeconds
+            self.quoteAsOfMs = quoteAsOfMs
+            self.evaluatedAtMs = evaluatedAtMs
+            self.policy = policy
         }
     }
 
-    public struct CandlePayload: Encodable, Sendable, Equatable {
+    public struct CandlePayload: Codable, Sendable, Equatable {
         public var time: Double
         public var open: Double
         public var high: Double
@@ -188,6 +197,34 @@ public enum StrategyEngine {
                 } catch {
                     cont.resume(throwing: error)
                 }
+            }
+        }
+    }
+
+    /// Immutable pre-research control artifact. Only the research runner calls this path.
+    public static let controlSHA1 = "1a1d264d44eec606ded991cb4814df953bc07b34"
+    public static func evaluateControl(input: MarketInput) async throws -> EvaluateResult {
+        try await withCheckedThrowingContinuation { continuation in
+            jsQueue.async {
+                do {
+                    guard let url = Bundle.module.url(forResource: "scan-engine-control", withExtension: "js"),
+                          let source = try? String(contentsOf: url, encoding: .utf8),
+                          EngineIdentity.sha1Hex(of: source) == controlSHA1,
+                          let context = JSContext() else { throw ScanError.failed("Control artifact missing or changed") }
+                    context.evaluateScript(source)
+                    guard context.exception == nil,
+                          let fn = context.objectForKeyedSubscript("BlazerScan")?.objectForKeyedSubscript("evaluatePairJson"),
+                          let value = fn.call(withArguments: [try encode(input)]),
+                          context.exception == nil, let json = value.toString(), let data = json.data(using: .utf8) else {
+                        throw ScanError.failed("Control evaluation failed")
+                    }
+                    var result = try JSONDecoder().decode(EvaluateResult.self, from: data)
+                    result.signal.asOfMs = input.evaluatedAtMs
+                    result.signal.policy = "control"
+                    // Mechanical entry quality needs volatility, which is not part of the old control output.
+                    result.signal.features = try evaluateSync(input: input).signal.features
+                    continuation.resume(returning: result)
+                } catch { continuation.resume(throwing: error) }
             }
         }
     }

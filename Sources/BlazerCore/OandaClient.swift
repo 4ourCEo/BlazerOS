@@ -288,7 +288,9 @@ public enum OandaClient {
             bid: quote.bid,
             ask: quote.ask,
             spread: spread,
-            expirySeconds: Timing.expirySec
+            expirySeconds: Timing.expirySec,
+            quoteAsOfMs: quote.asOfMs,
+            evaluatedAtMs: Date().timeIntervalSince1970 * 1000
         )
     }
 

@@ -22,9 +22,36 @@ BlazerMac links this package. `BlazerMac/build.sh` builds BlazerCore, then compi
 
 ```bash
 swift run -c release Parity
+swift test
 swift run BlazerOS
 ```
 
-`swift run BlazerOS` opens the Lightning Desk: pair, feed, completed candles, score, reason, strike, countdown, and Scan on one phone-sized screen. This Mac has no iOS SDK, so that view runs here as a macOS window. An iPhone project can host the same `LightningDeskView` once Xcode is installed.
+`swift run BlazerOS` opens the Lightning Desk as a macOS window. The native iPhone project uses the same `LightningDeskView`; `iPhone/build-iphone16.sh` builds Debug and Release and runs the iPhone 16 simulator tests with Xcode.
 
 `EngineIdentity.pinnedSHA1` is the SHA-1 of `Sources/BlazerCore/scan-engine.js`. If that file changes, update the pin in the same commit on every app that ships the package.
+
+## Scan research
+
+The default desk uses the repaired baseline policy. The directional score is separate from symmetric conviction and neither is a calibrated win probability. Gold uses the same $0.10 normalization unit in Swift and JavaScript. Freshness, spread and entry displacement are checked before entry. Unverified expiry observations and ties require manual venue reconciliation; a failed save retains the outcome for retry.
+
+`ForwardTest` now records local research rather than writing simulated results into the execution ledger. It captures complete M1/M5 inputs, policy and engine versions, entry observations, and durable 60/180/300-second outcomes. Quotes and these research files are never synced to CloudKit. Original engine bytes are archived as `Research/scan-engine-control.js`, with their original SHA-1 checked before every control evaluation.
+
+```bash
+# Isolated, deterministic synthetic software exercise; no Keychain or network access.
+swift run ForwardTest --benchmark --all-policies --max-events 100
+
+# Replay the synthetic archive without network access.
+swift run ForwardTest --benchmark --replay
+
+# Opt-in prospective OANDA proxy study using the device's existing Keychain session.
+swift run ForwardTest --prime-only --all-policies --continuous
+
+# Descriptive live research results, separated by source, engine and policy version.
+swift run ForwardTest --stats
+```
+
+Available policies: `control`, `baseline`, `continuation`, `reversal`, and `regime`. Select one with `--policy`; challengers are research-only and are not promoted automatically. Defaults store synthetic and OANDA proxy studies in separate directories under Application Support/BlazerOS/Research. `--root PATH` selects an explicit research archive. Live mode never silently falls back to synthetic testing when credentials are unavailable.
+
+OANDA midpoint labels are proxies, not confirmed Pocket Option settlements. Statistics mark unknown or proxy ledger labels as unverified. Payout is assumed at 88% until actual venue terms are supplied. A calendar/news feed, trained probability calibrator and prospective promotion evidence remain future work; no higher live win rate is claimed.
+
+See [the design report](reports/SCAN_ENGINE_DESIGN_DEBATE_2026-10-02.md) and [implementation notes](reports/SCAN_RESEARCH_IMPLEMENTATION.md).

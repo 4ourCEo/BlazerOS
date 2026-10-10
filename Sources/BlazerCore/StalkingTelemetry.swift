@@ -52,18 +52,17 @@ public struct StalkingTelemetry: Sendable, Equatable {
         }
 
         let isSideActionable = side == "HIGH" || side == "LOW"
-        let conviction = side == "LOW" ? (100 - score) : score
+        let conviction = score
         let dirLabel = side == "LOW" ? "PUT" : (side == "HIGH" ? "CALL" : "WAIT")
 
         // 3. Apex Prime Setup (A+)
         if isSideActionable && conviction >= 72 && edgeWindow.isPrime {
-            let winRate = edgeWindow.badgeTitle.contains("LATE NIGHT") ? "69.2%" : "61.2%"
             return StalkingTelemetry(
                 tier: .apexPrime,
                 badgeLabel: "APEX A+ CONVICTION",
                 telemetryHeadline: "\(dirLabel) Momentum Confirmed",
-                telemetryDetail: "Institutional volume expansion during \(edgeWindow.badgeTitle). Calibrated historical win rate: \(winRate).",
-                stakeGuidance: "Standard Stake ($25–$50) · Prime Edge",
+                telemetryDetail: "Directional conviction \(conviction) during \(edgeWindow.badgeTitle). Score is not a win probability.",
+                stakeGuidance: "Use your fixed risk limit",
                 isActionable: true
             )
         }

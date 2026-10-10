@@ -2,790 +2,313 @@ import BlazerCore
 import Foundation
 import LightningDesk
 
-// MARK: - Forward-Testing Models
+struct Options {
+    var synthetic = false
+    var stats = false
+    var replay = false
+    var continuous = false
+    var primeOnly = false
+    var daemon = false
+    var help = false
+    var root: URL?
+    var policies = ["baseline"]
+    var maxEvents = 100
+    var bootstrap = false
 
-struct ForwardArm: Sendable {
-    let id: String
-    let pair: String
-    let side: String
-    let strike: Double
-    let score: Int
-    let entryTime: Date
-    let expiryTime: Date
-    let expiry180s: Date
-    let expiry300s: Date
-    let fingerprint: String
-    let snapshotBars: [Candle]
-    var settled60s: Bool = false
-    var settled180s: Bool = false
-    var settled300s: Bool = false
-}
-
-struct ForwardOutcome: Sendable {
-    let arm: ForwardArm
-    let exitPrice: Double
-    let outcome: DeskOutcome
-    let driftPips: Double
-    let settledAt: Date
-}
-
-// MARK: - ANSI Dashboard Formatter
-
-enum Dashboard {
-    static let clearScreen = "\u{001B}[2J\u{001B}[H"
-    static let reset = "\u{001B}[0m"
-    static let bold = "\u{001B}[1m"
-    static let green = "\u{001B}[32m"
-    static let red = "\u{001B}[31m"
-    static let yellow = "\u{001B}[33m"
-    static let cyan = "\u{001B}[36m"
-    static let gray = "\u{001B}[90m"
-
-    static func render(
-        mode: String,
-        sessionText: String,
-        activeArms: [ForwardArm],
-        settled: [ForwardOutcome],
-        settled180s: [ForwardOutcome] = [],
-        settled300s: [ForwardOutcome] = [],
-        targetWinRate: Double = 0.60
-    ) {
-        let total = settled.count
-        let hits = settled.filter { $0.outcome == .hit }.count
-        let misses = settled.filter { $0.outcome == .miss }.count
-        let winRate = total > 0 ? Double(hits) / Double(total) : 0.0
-
-        let rateColor = winRate >= targetWinRate ? green : (total >= 10 ? red : yellow)
-        let edgeStatus = total >= 100 && winRate >= targetWinRate
-            ? "\(green)\(bold)EDGE CONFIRMED (≥60% WIN RATE)\(reset)"
-            : (total >= 100 ? "\(red)\(bold)EDGE UNCONFIRMED (<60%)\(reset)" : "\(yellow)CALIBRATING (\(total)/100 signals)\(reset)")
-
-        print(clearScreen)
-        print("\(bold)\(cyan)========================================================================\(reset)")
-        print("\(bold)\(cyan)    BLAZER OS // AUTOMATED FORWARD-TESTING VALIDATION HARNESS           \(reset)")
-        print("\(bold)\(cyan)========================================================================\(reset)")
-        print(" \(gray)Mode:\(reset) \(mode)   \(gray)Session:\(reset) \(sessionText)")
-        print(" \(gray)Engine:\(reset) scan-engine.js (Parity Sealed)   \(gray)Horizons:\(reset) 60s, 180s (3m), 300s (5m)")
-        print("\(gray)------------------------------------------------------------------------\(reset)")
-        print("\(bold) PERFORMANCE METRICS (60s HORIZON)\(reset)")
-        print("  Total Signals Tested:  \(bold)\(total)\(reset)")
-        print("  Hits (Wins):           \(green)\(bold)\(hits)\(reset)")
-        print("  Misses (Losses):       \(red)\(bold)\(misses)\(reset)")
-        let pct = String(format: "%.1f%%", winRate * 100)
-        print("  Live Win Rate (60s):   \(rateColor)\(bold)\(pct)\(reset) (Benchmark: ≥\(Int(targetWinRate * 100))%)")
-        print("  Edge Status:           \(edgeStatus)")
-
-        if !settled180s.isEmpty || !settled300s.isEmpty {
-            print("\(gray)------------------------------------------------------------------------\(reset)")
-            print("\(bold) MULTI-HORIZON COMPARISON\(reset)")
-            print("  • 60s Horizon:         \(pct) (\(hits)/\(total))")
-
-            let t180 = settled180s.count
-            let h180 = settled180s.filter { $0.outcome == .hit }.count
-            let wr180 = t180 > 0 ? (Double(h180) / Double(t180)) * 100 : 0.0
-            print("  • 180s (3m) Horizon:   \(String(format: "%.1f%%", wr180)) (\(h180)/\(t180))")
-
-            let t300 = settled300s.count
-            let h300 = settled300s.filter { $0.outcome == .hit }.count
-            let wr300 = t300 > 0 ? (Double(h300) / Double(t300)) * 100 : 0.0
-            print("  • 300s (5m) Horizon:   \(String(format: "%.1f%%", wr300)) (\(h300)/\(t300))")
-        }
-        print("\(gray)------------------------------------------------------------------------\(reset)")
-
-        print("\(bold) ACTIVE MULTI-HORIZON POSITIONS (\(activeArms.count))\(reset)")
-        if activeArms.isEmpty {
-            print("  \(gray)No active forward positions. Scanning completed M1 candles...\(reset)")
-        } else {
-            let now = Date()
-            for arm in activeArms {
-                let rem60 = max(0, Int(arm.expiryTime.timeIntervalSince(now)))
-                let rem180 = max(0, Int(arm.expiry180s.timeIntervalSince(now)))
-                let rem300 = max(0, Int(arm.expiry300s.timeIntervalSince(now)))
-                let sideBadge = arm.side == "HIGH" ? "\(green)\(bold)HIGH\(reset)" : "\(red)\(bold)LOW \(reset)"
-                let strikeStr = String(format: "%.5f", arm.strike)
-                let s60 = arm.settled60s ? "✓" : "\(rem60)s"
-                let s180 = arm.settled180s ? "✓" : "\(rem180)s"
-                let s300 = arm.settled300s ? "✓" : "\(rem300)s"
-                print("  [60s:\(s60) 3m:\(s180) 5m:\(s300)] \(arm.pair) \(sideBadge) Strike: \(strikeStr) Score: \(arm.score) ID: \(arm.id.prefix(8))")
+    init(_ arguments: [String]) throws {
+        var index = 0
+        while index < arguments.count {
+            let arg = arguments[index]
+            switch arg {
+            case "--help", "-h": help = true
+            case "--benchmark", "-b": synthetic = true
+            case "--stats", "-s": stats = true
+            case "--bootstrap": stats = true; bootstrap = true
+            case "--replay": replay = true
+            case "--continuous": continuous = true
+            case "--daemon", "-d": daemon = true; continuous = true; primeOnly = true
+            case "--prime-only", "--smart-schedule": primeOnly = true
+            case "--all-policies": policies = ["control"] + ScanPolicy.allCases.map(\.rawValue)
+            case "--root", "--policy", "--max-events":
+                index += 1
+                guard index < arguments.count else { throw ScanError.failed("Missing value for \(arg)") }
+                let value = arguments[index]
+                if arg == "--root" { root = URL(fileURLWithPath: value, isDirectory: true) }
+                if arg == "--policy" {
+                    guard value == "control" || ScanPolicy(rawValue: value) != nil else { throw ScanError.failed("Unknown policy \(value)") }
+                    policies = [value]
+                }
+                if arg == "--max-events" {
+                    guard let count = Int(value), count > 0 else { throw ScanError.failed("Invalid event limit") }
+                    maxEvents = count
+                }
+            default: throw ScanError.failed("Unknown argument \(arg)")
             }
+            index += 1
         }
-        print("\(gray)------------------------------------------------------------------------\(reset)")
-
-        print("\(bold) RECENT SETTLED OUTCOMES (60s Horizon - Last 10)\(reset)")
-        if settled.isEmpty {
-            print("  \(gray)Awaiting first trade expiration...\(reset)")
-        } else {
-            let recent = settled.suffix(10).reversed()
-            print("  \(gray)TIME      PAIR     SIDE  STRIKE    EXIT      DRIFT    OUTCOME\(reset)")
-            for item in recent {
-                let formatter = DateFormatter()
-                formatter.dateFormat = "HH:mm:ss"
-                let timeStr = formatter.string(from: item.settledAt)
-                let sideStr = item.arm.side == "HIGH" ? "\(green)HIGH\(reset)" : "\(red)LOW \(reset)"
-                let strikeStr = String(format: "%.5f", item.arm.strike)
-                let exitStr = String(format: "%.5f", item.exitPrice)
-                let driftStr = String(format: "%+.1f", item.driftPips)
-                let mark = item.outcome == .hit ? "\(green)\(bold)HIT \(reset)" : "\(red)\(bold)MISS\(reset)"
-                print("  \(timeStr)  \(item.arm.pair)  \(sideStr)  \(strikeStr)  \(exitStr)  \(driftStr)p  \(mark)")
-            }
-        }
-        print("\(bold)\(cyan)========================================================================\(reset)")
-        print(" \(gray)Press Ctrl+C to stop forward test and export ledger summary.\(reset)\n")
     }
 }
-
-// MARK: - Forward Test Engine
 
 @MainActor
-final class ForwardTestRunner {
-    private let coordinator: PersistenceCoordinator
-    private var activeArms: [ForwardArm] = []
-    private var settledHistory: [ForwardOutcome] = []
-    private var settledHistory180s: [ForwardOutcome] = []
-    private var settledHistory300s: [ForwardOutcome] = []
-    private var lastScannedCandleTimes: [String: Double] = [:]
-    private var isRunning = true
+final class ResearchRunner {
+    let store: ResearchStore
+    let options: Options
+    let root: URL
+    let horizons = [60, 180, 300]
+    var pending: [String: ResearchEvent] = [:]
+    var completed: Set<String> = []
+    var lastBar: [String: Double] = [:]
+    var captured = 0
+    var observationFault: String?
 
-    init() {
-        let root = FileLocations.applicationSupport()
-        self.coordinator = PersistenceCoordinator(root: root)
+    init(options: Options) {
+        self.options = options
+        root = options.root ?? ResearchStore.defaultRoot(synthetic: options.synthetic)
+        store = ResearchStore(root: root)
     }
 
-    // MARK: - Benchmark Replay Suite (100+ forward-tested signals)
-
-    func runBenchmark(targetSignals: Int = 100) async {
-        print("\(Dashboard.bold)Running Automated 100-Signal Forward-Testing Benchmark...\(Dashboard.reset)")
-        let pairs = Assets.watchlist
-        var evaluatedSignals = 0
-
-        // Build continuous realistic random-walk candle sequences with varying market regimes
-        for pairIndex in 0..<pairs.count {
-            if evaluatedSignals >= targetSignals { break }
-            let pair = pairs[pairIndex]
-            let basePriceForPair: Double = {
-                if pair.contains("XAU") { return 2650.00 }
-                if pair == "GBP/JPY" { return 195.00 }
-                if pair == "USD/JPY" { return 150.00 }
-                if pair == "GBP/USD" { return 1.3000 }
-                if pair == "AUD/USD" { return 0.6500 }
-                return 1.0800
-            }()
-            var basePrice = basePriceForPair
-            let pipSize = Assets.pipScale(for: pair)
-            var currentTimeMs = Date().timeIntervalSince1970 * 1000 - Double(targetSignals * 2) * 60_000
-
-            // Generate sequence of 150 candles
-            var candleStream: [StrategyEngine.CandlePayload] = []
-            for _ in 0..<180 {
-                let delta = Double.random(in: -3.0...3.0) * pipSize
-                let open = basePrice
-                let close = basePrice + delta
-                let high = max(open, close) + Double.random(in: 0.1...1.5) * pipSize
-                let low = min(open, close) - Double.random(in: 0.1...1.5) * pipSize
-                candleStream.append(
-                    StrategyEngine.CandlePayload(
-                        time: currentTimeMs,
-                        open: open,
-                        high: high,
-                        low: low,
-                        close: close
-                    )
-                )
-                basePrice = close
-                currentTimeMs += 60_000
-            }
-
-            // Walk forward through candle stream (using 60 candles window)
-            for windowEnd in 60..<candleStream.count - 1 {
-                if evaluatedSignals >= targetSignals { break }
-                let window = Array(candleStream[(windowEnd - 60)...windowEnd])
-                let nextCandle = candleStream[windowEnd + 1]
-                let currentQuote = window.last!.close
-
-                let input = StrategyEngine.MarketInput(
-                    asset: pair,
-                    source: "benchmark",
-                    candles1m: window,
-                    candles5m: window,
-                    lastPrice: currentQuote,
-                    bid: currentQuote - (0.2 * pipSize),
-                    ask: currentQuote + (0.2 * pipSize),
-                    spread: 0.4 * pipSize,
-                    expirySeconds: 60
-                )
-
-                guard let result = try? await StrategyEngine.evaluate(input: input) else { continue }
-                let side = result.signal.cabinetSide
-                guard side == "HIGH" || side == "LOW" else { continue }
-
-                let rawScore = Int((result.signal.opportunity ?? result.signal.confidence ?? 50).rounded())
-                let score = side == "LOW" ? (100 - rawScore) : rawScore
-                guard score >= 68 else { continue }
-
-                let strike = currentQuote
-                let exitPrice = nextCandle.close
-                let outcome: DeskOutcome
-                if side == "HIGH" {
-                    outcome = exitPrice > strike ? .hit : .miss
-                } else {
-                    outcome = exitPrice < strike ? .hit : .miss
-                }
-
-                let armID = UUID().uuidString
-                let frozenBars = window.map { Candle(time: $0.time, open: $0.open, high: $0.high, low: $0.low, close: $0.close) }
-                let hash = ScanFingerprint.hex(candles: frozenBars)
-                let driftPips = (exitPrice - strike) / pipSize
-
-                let arm = ForwardArm(
-                    id: armID,
-                    pair: pair,
-                    side: side,
-                    strike: strike,
-                    score: score,
-                    entryTime: Date(timeIntervalSince1970: window.last!.time / 1000),
-                    expiryTime: Date(timeIntervalSince1970: nextCandle.time / 1000),
-                    expiry180s: Date(timeIntervalSince1970: (nextCandle.time + 120_000) / 1000),
-                    expiry300s: Date(timeIntervalSince1970: (nextCandle.time + 240_000) / 1000),
-                    fingerprint: hash,
-                    snapshotBars: frozenBars
-                )
-
-                let forwardOutcome = ForwardOutcome(
-                    arm: arm,
-                    exitPrice: exitPrice,
-                    outcome: outcome,
-                    driftPips: driftPips,
-                    settledAt: Date(timeIntervalSince1970: nextCandle.time / 1000)
-                )
-
-                // Record to persistent coordinator
-                let entry = JournalEntry(
-                    id: armID,
-                    fingerprint: hash,
-                    pair: pair,
-                    score: score,
-                    side: side,
-                    verb: side == "HIGH" ? "CALL" : "PUT",
-                    why: result.signal.why,
-                    strike: strike,
-                    veto: nil,
-                    scannedAt: arm.entryTime,
-                    outcome: outcome.rawValue
-                )
-                let snapshot = SnapshotRecord(
-                    hash: hash,
-                    pair: pair,
-                    bars: frozenBars,
-                    strike: strike,
-                    score: score,
-                    side: side
-                )
-                let ledgerRow = LedgerRow(
-                    timestamp: forwardOutcome.settledAt,
-                    pair: pair,
-                    hash: hash,
-                    score: score,
-                    side: side,
-                    veto: false,
-                    drift: driftPips,
-                    outcome: outcome.rawValue,
-                    outcomeEventID: armID
-                )
-
-                try? await coordinator.recordScan(entry, snapshot: snapshot)
-                _ = try? await coordinator.settle(armID: armID, row: ledgerRow, snapshot: snapshot)
-
-                settledHistory.append(forwardOutcome)
-                evaluatedSignals += 1
-
-                Dashboard.render(
-                    mode: "BENCHMARK WALK-FORWARD (M1 EXPIRY)",
-                    sessionText: "Simulated Feed (\(evaluatedSignals)/\(targetSignals))",
-                    activeArms: [],
-                    settled: settledHistory
-                )
-                try? await Task.sleep(nanoseconds: 30_000_000) // 30ms render throttle
-            }
-        }
-
-        printFinalReport()
+    func evaluate(_ input: StrategyEngine.MarketInput, policy: String) async throws -> EngineSignal {
+        if policy == "control" { return try await StrategyEngine.evaluateControl(input: input).signal }
+        var candidate = input
+        candidate.policy = ScanPolicy(rawValue: policy)
+        return try await StrategyEngine.evaluate(input: candidate).signal
     }
 
-    private var lastDormantLoggedAt: Date?
-    private var wasDormant = false
-
-    private func logDaemon(_ tag: String, _ text: String) {
-        let formatter = ISO8601DateFormatter()
-        let time = formatter.string(from: Date())
-        print("[\(time)] [\(tag)] \(text)")
-        fflush(stdout)
+    func capture(_ input: StrategyEngine.MarketInput, quote: LiveQuote, at time: Date, synthetic: Bool) async throws -> [ResearchEvent] {
+        var events: [ResearchEvent] = []
+        for policy in options.policies {
+            var candidate = input
+            candidate.policy = policy == "control" ? nil : ScanPolicy(rawValue: policy)
+            let signal = try await evaluate(candidate, policy: policy)
+            let event = try ResearchEvent(input: candidate, signal: signal,
+                sourceKind: synthetic ? "synthetic" : "oanda-proxy", capturedAt: time, entryQuote: quote,
+                engineSHA: policy == "control" ? StrategyEngine.controlSHA1 : EngineIdentity.pinnedSHA1)
+            try await store.record(event) // Persist before exposing an accepted research entry.
+            if event.entryTime != nil { pending[event.id] = event }
+            events.append(event)
+            print("CAPTURE \(policy) \(input.asset) \(signal.cabinetSide) \(event.entryVeto ?? "accepted proxy entry")")
+        }
+        captured += 1
+        return events
     }
 
-    // MARK: - Live Forward-Testing Loop (OANDA Feed)
-
-    func runLive(session: OandaSession, smartSchedule: Bool = false, isDaemon: Bool = false) async {
-        let pairs = Assets.watchlist
-        if isDaemon {
-            logDaemon("STARTUP", "BlazerOS Prime Auto-Settler daemon started across \(pairs.count) pairs.")
-            logDaemon("CONFIG", "Smart-Schedule: \(smartSchedule) | Expiry: 60s Binary Horizon | Engine: scan-engine.js")
-        } else {
-            print("Starting live forward testing across \(pairs.count) pairs with OANDA...")
+    func restore() async throws {
+        completed = Set(try await store.outcomes().map { "\($0.eventID)-\($0.horizon)" })
+        let events = try await store.events()
+        for event in events where event.sourceKind == "oanda-proxy" && event.entryTime != nil {
+            if horizons.contains(where: { !completed.contains("\(event.id)-\($0)") }) { pending[event.id] = event }
         }
-
-        // Preload historical settled rows so the calibration count reflects cumulative progress
-        let root = FileLocations.applicationSupport()
-        let ledger = LedgerStore(root: root)
-        if let existingRows = try? await ledger.rows(), !existingRows.isEmpty {
-            settledHistory = existingRows.compactMap { (row: LedgerRow) -> ForwardOutcome? in
-                guard let outcome = DeskOutcome(rawValue: row.outcome) else { return nil }
-                return ForwardOutcome(
-                    arm: ForwardArm(
-                        id: row.outcomeEventID,
-                        pair: row.pair,
-                        side: row.side,
-                        strike: row.entryQuote ?? 0,
-                        score: row.score,
-                        entryTime: row.timestamp,
-                        expiryTime: row.timestamp,
-                        expiry180s: row.timestamp,
-                        expiry300s: row.timestamp,
-                        fingerprint: row.hash,
-                        snapshotBars: [],
-                        settled60s: true,
-                        settled180s: true,
-                        settled300s: true
-                    ),
-                    exitPrice: row.expiryPrice ?? 0,
-                    outcome: outcome,
-                    driftPips: row.drift,
-                    settledAt: row.timestamp
-                )
-            }
-            if isDaemon {
-                let hits = settledHistory.filter { $0.outcome == .hit }.count
-                let total = settledHistory.count
-                let wr = total > 0 ? (Double(hits) / Double(total)) * 100 : 0.0
-                logDaemon("LEDGER", "Preloaded \(total) historical trades (Win Rate: \(String(format: "%.1f%%", wr))).")
-            }
+        // Avoid recapturing a completed candle after restart.
+        for event in events where event.sourceKind == "oanda-proxy" {
+            if let time = event.input.candles1m.last?.time { lastBar[event.input.asset] = max(lastBar[event.input.asset] ?? 0, time) }
         }
+    }
 
-        while isRunning {
-            let now = Date()
-
-            // 1. Settle expired arms across horizons (60s, 180s, 300s)
-            var remainingArms: [ForwardArm] = []
-            for var arm in activeArms {
-                if !arm.settled60s && now >= arm.expiryTime {
-                    let ok = await settleLiveHorizon(arm: arm, horizonSeconds: 60, session: session, isDaemon: isDaemon)
-                    if ok { arm.settled60s = true }
-                }
-                if !arm.settled180s && now >= arm.expiry180s {
-                    let ok = await settleLiveHorizon(arm: arm, horizonSeconds: 180, session: session, isDaemon: isDaemon)
-                    if ok { arm.settled180s = true }
-                }
-                if !arm.settled300s && now >= arm.expiry300s {
-                    let ok = await settleLiveHorizon(arm: arm, horizonSeconds: 300, session: session, isDaemon: isDaemon)
-                    if ok { arm.settled300s = true }
-                }
-
-                if !arm.settled300s && now.timeIntervalSince(arm.expiry300s) < 600 {
-                    remainingArms.append(arm)
-                }
-            }
-            activeArms = remainingArms
-
-            // 2. Smart-schedule check: pause arming during off-peak chop
-            let edgeWindow = MarketEdgeWindow.current(at: now)
-            if smartSchedule && !edgeWindow.isPrime {
-                if activeArms.isEmpty {
-                    if isDaemon {
-                        if !wasDormant || Date().timeIntervalSince(lastDormantLoggedAt ?? .distantPast) >= 1800 {
-                            logDaemon("DORMANT", "Off-peak lull (\(edgeWindow.badgeTitle)). Sleeping until next prime window: \(edgeWindow.detailText)")
-                            lastDormantLoggedAt = Date()
-                        }
-                        wasDormant = true
-                        try? await Task.sleep(nanoseconds: 30_000_000_000) // Sleep 30s during off-peak
-                        continue
-                    } else {
-                        Dashboard.render(
-                            mode: "LIVE OANDA STREAM (\(session.environment.rawValue.uppercased())) [DORMANT]",
-                            sessionText: "Off-peak lull · \(edgeWindow.detailText) · Sleeping...",
-                            activeArms: activeArms,
-                            settled: settledHistory,
-                            settled180s: settledHistory180s,
-                            settled300s: settledHistory300s
-                        )
-                        try? await Task.sleep(nanoseconds: 10_000_000_000) // Sleep 10s between checks
-                        continue
+    func observe(session: OandaSession) async throws {
+        while !Task.isCancelled {
+            let assets = Set(pending.values.map { $0.input.asset }).sorted()
+            if !assets.isEmpty {
+                let batch = await OandaClient.fetchQuoteBatch(assets: assets, session: session)
+                let observed = Date()
+                let quotes = Dictionary(batch.quotes.map { ($0.asset, $0) }, uniquingKeysWith: { first, _ in first })
+                for event in Array(pending.values) {
+                    guard let entryTime = event.entryTime, let strike = event.entryPrice else { continue }
+                    for horizon in horizons {
+                        let key = "\(event.id)-\(horizon)"
+                        let expiry = entryTime.addingTimeInterval(Double(horizon))
+                        guard !completed.contains(key), observed >= expiry else { continue }
+                        let outcome = ResearchOutcome.resolve(eventID: event.id, horizon: horizon,
+                            entryTime: entryTime, strike: strike, side: event.signal.cabinetSide,
+                            quote: batch.transport == .ok ? quotes[event.input.asset] : nil, observedAt: observed)
+                        // Allow an observation until the window closes. Old or later prints never become wins/losses.
+                        if outcome.resolution == .unresolved && observed.timeIntervalSince(expiry) <= 5 { continue }
+                        try await store.record(outcome)
+                        completed.insert(key)
+                        print("OUTCOME \(event.signal.policy ?? "baseline") \(event.input.asset) \(horizon)s \(outcome.resolution.rawValue)")
                     }
-                }
-            } else if wasDormant {
-                wasDormant = false
-                if isDaemon {
-                    logDaemon("PRIME_ACTIVE", "⚡ Prime window active (\(edgeWindow.badgeTitle)). Resuming live signal evaluation across \(pairs.count) pairs...")
+                    if horizons.allSatisfy({ completed.contains("\(event.id)-\($0)") }) { pending[event.id] = nil }
                 }
             }
+            try await Task.sleep(for: .seconds(1))
+        }
+    }
 
-            // 3. Scan pairs for newly completed candles (only during prime)
-            if !smartSchedule || edgeWindow.isPrime {
-                for pair in pairs {
-                if smartSchedule, case .chopRisk = MarketEdgeWindow.conviction(for: pair) {
-                    continue // Skip known chop-drag pairs in smart-schedule mode
-                }
+    func runLive(session: OandaSession) async throws {
+        try await restore()
+        let observer = Task {
+            do { try await self.observe(session: session) }
+            catch is CancellationError {}
+            catch { self.observationFault = error.localizedDescription }
+        }
+        defer { observer.cancel() }
+        print("Local OANDA proxy research. Root: \(root.path). Policies: \(options.policies.joined(separator: ", ")). No venue trades are placed.")
+        while !Task.isCancelled && (options.continuous || captured < options.maxEvents) {
+            // Surface archive/observer errors instead of continuing with a broken outcome sampler.
+            if let observationFault { throw ScanError.failed("Outcome sampler failed: \(observationFault)") }
+            if !FxSession.isOpen() || (options.primeOnly && !MarketEdgeWindow.current().isPrime) {
+                try await Task.sleep(for: .seconds(5))
+                continue
+            }
+            for pair in Assets.watchlist {
+                if Task.isCancelled { break }
                 do {
-                    guard let bundle = try await OandaClient.fetchBundle(asset: pair, session: session) else {
-                        continue
-                    }
-                    guard let latestCandle = bundle.candles1m.last else { continue }
-                    let lastTime = lastScannedCandleTimes[pair] ?? 0
-
-                    if latestCandle.time > lastTime {
-                        lastScannedCandleTimes[pair] = latestCandle.time
-                        let result = try await StrategyEngine.evaluate(input: bundle)
-                        let side = result.signal.cabinetSide
-                        if side == "HIGH" || side == "LOW" {
-                            let rawScore = Int((result.signal.opportunity ?? result.signal.confidence ?? 50).rounded())
-                            let conviction = side == "LOW" ? (100 - rawScore) : rawScore
-
-                            // 1. Strict conviction threshold (>= 70)
-                            guard conviction >= 70 else { continue }
-
-                            // 2. Spread gate: max 0.4 pips for FX, max 3.5 pips ($0.35) for Gold
-                            let pipScale = Assets.pipScale(for: pair)
-                            let spreadPips = bundle.spread / pipScale
-                            let maxSpread = pair.contains("XAU") ? 3.5 : 0.4
-                            guard spreadPips <= maxSpread else { continue }
-
-                            // 3. Anti-exhaustion filter: reject over-extended wicks lacking a fresh break or sweep
-                            let evidence = result.signal.evidence ?? ""
-                            if evidence.contains("extended") && !evidence.contains("Broke") && !evidence.contains("Swept") {
-                                continue
-                            }
-
-                            armNewTrade(
-                                pair: pair,
-                                side: side,
-                                strike: bundle.lastPrice,
-                                score: conviction,
-                                why: result.signal.why,
-                                input: bundle,
-                                isDaemon: isDaemon
-                            )
-                        }
-                    }
+                    guard var input = try await OandaClient.fetchBundle(asset: pair, session: session),
+                          let bar = input.candles1m.last, bar.time > (lastBar[pair] ?? 0) else { continue }
+                    let time = Date()
+                    input.evaluatedAtMs = time.timeIntervalSince1970 * 1000
+                    let quote = LiveQuote(asset: pair, bid: input.bid, ask: input.ask, mid: input.lastPrice,
+                        asOfMs: input.quoteAsOfMs ?? 0, source: input.source)
+                    _ = try await capture(input, quote: quote, at: time, synthetic: false)
+                    lastBar[pair] = bar.time
                 } catch {
-                    // Suppress transient network hiccups in live loop
+                    print("SCAN_ERROR \(pair): \(error.localizedDescription)")
+                    // Storage errors must terminate; transport/scan errors are retried on the next pass.
+                    if !(error is ScanError) { throw error }
+                }
+                if !options.continuous && captured >= options.maxEvents { break }
+            }
+            try await Task.sleep(for: .seconds(1))
+        }
+        while !pending.isEmpty && !Task.isCancelled {
+            if let observationFault { throw ScanError.failed("Outcome sampler failed: \(observationFault)") }
+            try await Task.sleep(for: .seconds(1))
+        }
+        observer.cancel()
+        await observer.value
+        if let observationFault { throw ScanError.failed("Outcome sampler failed: \(observationFault)") }
+        try await printStats()
+    }
+
+    func runSynthetic() async throws {
+        print("Deterministic synthetic software exercise; results do not measure a market edge. Root: \(root.path)")
+        var seed: UInt64 = 42
+        func noise() -> Double {
+            seed = seed &* 6364136223846793005 &+ 1
+            return Double(seed >> 11) / Double(UInt64.max >> 11) * 2 - 1
+        }
+        let count = max(650, 605 + options.maxEvents)
+        let base = 1_700_000_000_000.0
+        var price = 1.1
+        var bars: [StrategyEngine.CandlePayload] = []
+        for i in 0..<count {
+            let open = price
+            price += (noise() * 2 + 0.15) * 0.0001
+            bars.append(.init(time: base + Double(i) * 60_000, open: open,
+                high: max(open, price) + 0.0001, low: min(open, price) - 0.0001, close: price))
+        }
+        for end in 599..<(599 + options.maxEvents) {
+            let prefix = Array(bars[0...end])
+            var m5: [StrategyEngine.CandlePayload] = []
+            for start in stride(from: 0, through: prefix.count - 5, by: 5) {
+                let group = Array(prefix[start..<(start + 5)])
+                m5.append(.init(time: group[0].time, open: group[0].open,
+                    high: group.map(\.high).max()!, low: group.map(\.low).min()!, close: group[4].close))
+            }
+            let timeMs = bars[end].time + 60_000
+            let time = Date(timeIntervalSince1970: timeMs / 1000)
+            let mid = bars[end].close
+            let input = StrategyEngine.MarketInput(asset: "EUR/USD", source: "synthetic",
+                candles1m: Array(prefix.suffix(120)), candles5m: Array(m5.suffix(120)), lastPrice: mid,
+                bid: mid - 0.00002, ask: mid + 0.00002, spread: 0.00004,
+                expirySeconds: 60, quoteAsOfMs: timeMs, evaluatedAtMs: timeMs)
+            let quote = LiveQuote(asset: input.asset, bid: input.bid, ask: input.ask, mid: mid, asOfMs: timeMs, source: "synthetic")
+            let events = try await capture(input, quote: quote, at: time, synthetic: true)
+            for event in events {
+                guard let entry = event.entryTime, let strike = event.entryPrice else { continue }
+                for horizon in horizons {
+                    let target = entry.addingTimeInterval(Double(horizon))
+                    let exit = bars[end + horizon / 60].close
+                    let quote = LiveQuote(asset: input.asset, bid: exit - 0.00002, ask: exit + 0.00002,
+                        mid: exit, asOfMs: target.timeIntervalSince1970 * 1000, source: "synthetic")
+                    let outcome = ResearchOutcome.resolve(eventID: event.id, horizon: horizon,
+                        entryTime: entry, strike: strike, side: event.signal.cabinetSide,
+                        quote: quote, observedAt: target, labelSource: "synthetic")
+                    try await store.record(outcome)
+                }
+                pending[event.id] = nil
+            }
+        }
+        try await printStats()
+    }
+
+    func replay() async throws {
+        let events = try await store.events()
+        var matches = 0
+        for event in events {
+            let policy = event.signal.policy ?? "baseline"
+            let expectedSHA = policy == "control" ? StrategyEngine.controlSHA1 : EngineIdentity.pinnedSHA1
+            guard event.engineSHA == expectedSHA else { throw ScanError.failed("Replay requires archived engine \(event.engineSHA)") }
+            let signal = try await evaluate(event.input, policy: policy)
+            guard signal.cabinetSide == event.signal.cabinetSide, signal.confidence == event.signal.confidence,
+                  signal.evidence == event.signal.evidence, signal.why == event.signal.why else {
+                throw ScanError.failed("Replay mismatch for \(event.id)")
+            }
+            matches += 1
+        }
+        print("Replayed \(matches) frozen events with matching side, conviction, evidence and veto narrative.")
+    }
+
+    func printStats() async throws {
+        let events = try await store.events()
+        let outcomes = try await store.outcomes()
+        let byID = Dictionary(events.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        print("Research archive: \(root.path). \(events.count) captured candidates; \(events.filter { $0.entryTime != nil }.count) accepted entries.")
+        let cohorts = Dictionary(grouping: events) {
+            "\($0.sourceKind)/\($0.engineSHA)/\($0.policyVersion)/\($0.signal.policy ?? "baseline")"
+        }
+        for cohort in cohorts.keys.sorted() {
+            let candidateIDs = Set(cohorts[cohort]!.map(\.id))
+            let candidates = cohorts[cohort]!
+            let accepted = candidates.filter { $0.entryTime != nil }.count
+            print("COHORT \(cohort): \(accepted)/\(candidates.count) candidates accepted.")
+            for horizon in horizons {
+                let rows = outcomes.filter { candidateIDs.contains($0.eventID) && $0.horizon == horizon && byID[$0.eventID] != nil }
+                let wins = rows.filter { $0.resolution == .hit }.count
+                let losses = rows.filter { $0.resolution == .miss }.count
+                let ties = rows.filter { $0.resolution == .tie }.count
+                let missing = rows.filter { $0.resolution == .unresolved }.count
+                let n = wins + losses
+                let rate = n > 0 ? String(format: "%.1f%%", Double(wins) / Double(n) * 100) : "unavailable"
+                let ev = n > 0 ? String(format: "%+.4f", (Double(wins) * EntryQuality.assumedPayout - Double(losses)) / Double(n)) : "unavailable"
+                let interval = EdgeEvidence.wilsonScoreInterval(wins: wins, total: n)
+                let ci = n > 0 ? String(format: "%.1f–%.1f%%", interval.lower * 100, interval.upper * 100) : "unavailable"
+                print("\(horizon)s: \(wins)/\(n) resolved wins (\(rate)); nominal Wilson CI=\(ci); assumed EV88=\(ev); ties=\(ties), unresolved=\(missing).")
+                if options.bootstrap, n > 0, let boot = ExpectancyMath.bootstrapStressTest(wins: wins, sampleSize: n, iterations: 500) {
+                    let bootRate = String(format: "%.1f%%", boot.medianWinRate * 100)
+                    let p5 = String(format: "%.1f%%", boot.p5WinRate * 100)
+                    let p95 = String(format: "%.1f%%", boot.p95WinRate * 100)
+                    let maxDD = String(format: "%.2f", boot.maxDrawdownWorstCase)
+                    let posRate = String(format: "%.1f%%", boot.positiveEVRate * 100)
+                    print("     └─ Bootstrap (500x): median=\(bootRate) (p5–p95: \(p5)–\(p95)), worst DD=\(maxDD) units, profitable runs=\(posRate).")
                 }
             }
-            }
-
-            // 4. Render dashboard
-            let modeTitle = smartSchedule
-                ? "LIVE OANDA STREAM (\(session.environment.rawValue.uppercased())) [SMART-SCHEDULE]"
-                : "LIVE OANDA STREAM (\(session.environment.rawValue.uppercased()))"
-            let sessionInfo = smartSchedule
-                ? "⚡ \(edgeWindow.badgeTitle) (\(edgeWindow.detailText))"
-                : "Account: \(session.accountId.prefix(7))..."
-
-            if !isDaemon {
-                Dashboard.render(
-                    mode: modeTitle,
-                    sessionText: sessionInfo,
-                    activeArms: activeArms,
-                    settled: settledHistory,
-                    settled180s: settledHistory180s,
-                    settled300s: settledHistory300s
-                )
-            }
-
-            // Auto-stop once 100-trade calibration benchmark is satisfied
-            if settledHistory.count >= 100 && activeArms.isEmpty && !CommandLine.arguments.contains("--continuous") && !isDaemon {
-                printFinalReport()
-                break
-            }
-
-            try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 second polling interval
         }
-    }
-
-    private func armNewTrade(
-        pair: String,
-        side: String,
-        strike: Double,
-        score: Int,
-        why: String,
-        input: StrategyEngine.MarketInput,
-        isDaemon: Bool = false
-    ) {
-        let armID = UUID().uuidString
-        let now = Date()
-        let expiry = now.addingTimeInterval(60.0) // 60s binary horizon
-        let frozenBars = input.candles1m.map { Candle(time: $0.time, open: $0.open, high: $0.high, low: $0.low, close: $0.close) }
-        let hash = ScanFingerprint.hex(candles: frozenBars)
-
-        let arm = ForwardArm(
-            id: armID,
-            pair: pair,
-            side: side,
-            strike: strike,
-            score: score,
-            entryTime: now,
-            expiryTime: expiry,
-            expiry180s: now.addingTimeInterval(180.0),
-            expiry300s: now.addingTimeInterval(300.0),
-            fingerprint: hash,
-            snapshotBars: frozenBars
-        )
-        activeArms.append(arm)
-
-        let entry = JournalEntry(
-            id: armID,
-            fingerprint: hash,
-            pair: pair,
-            score: score,
-            side: side,
-            verb: side == "HIGH" ? "CALL" : "PUT",
-            why: why,
-            strike: strike,
-            veto: nil,
-            scannedAt: now
-        )
-        let snapshot = SnapshotRecord(
-            hash: hash,
-            pair: pair,
-            bars: frozenBars,
-            strike: strike,
-            score: score,
-            side: side
-        )
-
-        Task {
-            try? await coordinator.recordScan(entry, snapshot: snapshot)
-        }
-
-        if isDaemon {
-            let strikeStr = String(format: "%.5f", strike)
-            logDaemon("ARMED", "\(pair) \(side) @ \(strikeStr) (Score: \(score), ID: \(armID.prefix(8))) | Expiries: 60s, 3m, 5m")
-        }
-    }
-
-    @discardableResult
-    private func settleLiveHorizon(arm: ForwardArm, horizonSeconds: Int, session: OandaSession, isDaemon: Bool = false) async -> Bool {
-        let quotes = await OandaClient.fetchQuotes(assets: [arm.pair], session: session)
-        guard let exitQuote = quotes.first else {
-            return false
-        }
-
-        let exitPrice = exitQuote.mid
-        let pipScale = Assets.pipScale(for: arm.pair)
-        let driftPips = (exitPrice - arm.strike) / pipScale
-
-        let outcome: DeskOutcome
-        if arm.side == "HIGH" {
-            outcome = exitPrice > arm.strike ? .hit : .miss
-        } else {
-            outcome = exitPrice < arm.strike ? .hit : .miss
-        }
-
-        let forwardOutcome = ForwardOutcome(
-            arm: arm,
-            exitPrice: exitPrice,
-            outcome: outcome,
-            driftPips: driftPips,
-            settledAt: Date()
-        )
-
-        let mark = outcome == .hit ? "HIT" : "MISS"
-        let sign = driftPips >= 0 ? "+" : ""
-        let driftStr = "\(sign)\(String(format: "%.1f", driftPips))"
-        let exitStr = String(format: "%.5f", exitPrice)
-        let strikeStr = String(format: "%.5f", arm.strike)
-
-        if horizonSeconds == 60 {
-            settledHistory.append(forwardOutcome)
-
-            let snapshot = SnapshotRecord(
-                hash: arm.fingerprint,
-                pair: arm.pair,
-                bars: arm.snapshotBars,
-                strike: arm.strike,
-                score: arm.score,
-                side: arm.side
-            )
-            let row = LedgerRow(
-                timestamp: forwardOutcome.settledAt,
-                pair: arm.pair,
-                hash: arm.fingerprint,
-                score: arm.score,
-                side: arm.side,
-                veto: false,
-                drift: driftPips,
-                outcome: outcome.rawValue,
-                outcomeEventID: arm.id,
-                payout: 0.88,
-                stake: 10.0,
-                marketWindow: MarketEdgeWindow.current().badgeTitle,
-                engineSHA: EngineIdentity.pinnedSHA1,
-                fullFingerprint: arm.fingerprint,
-                entryQuote: arm.strike,
-                expiryPrice: exitPrice
-            )
-
-            _ = try? await coordinator.settle(armID: arm.id, row: row, snapshot: snapshot)
-
-            if isDaemon {
-                let total = settledHistory.count
-                let hits = settledHistory.filter { $0.outcome == .hit }.count
-                let wr = total > 0 ? (Double(hits) / Double(total)) * 100 : 0.0
-                logDaemon("SETTLED-60s", "\(arm.pair) \(arm.side) Strike: \(strikeStr) Exit: \(exitStr) (\(driftStr)p) -> \(mark) | 60s Total: \(total) | Win Rate: \(String(format: "%.1f%%", wr))")
-            }
-        } else if horizonSeconds == 180 {
-            settledHistory180s.append(forwardOutcome)
-            if isDaemon {
-                let total = settledHistory180s.count
-                let hits = settledHistory180s.filter { $0.outcome == .hit }.count
-                let wr = total > 0 ? (Double(hits) / Double(total)) * 100 : 0.0
-                logDaemon("SETTLED-3m", "\(arm.pair) \(arm.side) Strike: \(strikeStr) Exit: \(exitStr) (\(driftStr)p) -> \(mark) | 3m Total: \(total) | Win Rate: \(String(format: "%.1f%%", wr))")
-            }
-        } else if horizonSeconds == 300 {
-            settledHistory300s.append(forwardOutcome)
-            if isDaemon {
-                let total = settledHistory300s.count
-                let hits = settledHistory300s.filter { $0.outcome == .hit }.count
-                let wr = total > 0 ? (Double(hits) / Double(total)) * 100 : 0.0
-                logDaemon("SETTLED-5m", "\(arm.pair) \(arm.side) Strike: \(strikeStr) Exit: \(exitStr) (\(driftStr)p) -> \(mark) | 5m Total: \(total) | Win Rate: \(String(format: "%.1f%%", wr))")
-            }
-        }
-
-        return true
-    }
-
-    func stop() {
-        isRunning = false
-    }
-
-    private func printFinalReport() {
-        let total = settledHistory.count
-        let hits = settledHistory.filter { $0.outcome == .hit }.count
-        let winRate = total > 0 ? (Double(hits) / Double(total)) * 100 : 0.0
-        print("\n\(Dashboard.bold)Validation Summary:\(Dashboard.reset)")
-        print("  Total Signals (60s): \(total)")
-        print("  Win Rate (60s):      \(String(format: "%.1f%%", winRate))")
-
-        if !settledHistory180s.isEmpty {
-            let total180 = settledHistory180s.count
-            let hits180 = settledHistory180s.filter { $0.outcome == .hit }.count
-            let wr180 = total180 > 0 ? (Double(hits180) / Double(total180)) * 100 : 0.0
-            print("  Win Rate (180s / 3m): \(String(format: "%.1f%%", wr180)) (\(hits180)/\(total180))")
-        }
-
-        if !settledHistory300s.isEmpty {
-            let total300 = settledHistory300s.count
-            let hits300 = settledHistory300s.filter { $0.outcome == .hit }.count
-            let wr300 = total300 > 0 ? (Double(hits300) / Double(total300)) * 100 : 0.0
-            print("  Win Rate (300s / 5m): \(String(format: "%.1f%%", wr300)) (\(hits300)/\(total300))")
-        }
-
-        if winRate >= 60.0 {
-            print("  \(Dashboard.green)\(Dashboard.bold)RESULT: PASS (Trading edge validated >= 60%)\(Dashboard.reset)")
-        } else {
-            print("  \(Dashboard.red)\(Dashboard.bold)RESULT: EDGE NOT CONFIRMED (< 60%)\(Dashboard.reset)")
-        }
-    }
-
-    func printStats() async {
-        let root = FileLocations.applicationSupport()
-        let ledger = LedgerStore(root: root)
-        let rows = (try? await ledger.rows()) ?? []
-        print("\n\(Dashboard.bold)\(Dashboard.cyan)========================================================================\(Dashboard.reset)")
-        print("\(Dashboard.bold)\(Dashboard.cyan)       BLAZER OS // LIVE FORWARD-TEST LEDGER AUDIT                      \(Dashboard.reset)")
-        print("\(Dashboard.bold)\(Dashboard.cyan)========================================================================\(Dashboard.reset)")
-        print(" \(Dashboard.gray)Storage:\(Dashboard.reset) \(FileLocations.ledgerCSV(in: root).path)")
-        print(" \(Dashboard.gray)Total Recorded Trades:\(Dashboard.reset) \(rows.count)")
-
-        let hits = rows.filter { $0.outcome == "HIT" }.count
-        let misses = rows.filter { $0.outcome == "MISS" }.count
-        let winRate = rows.count > 0 ? (Double(hits) / Double(rows.count)) * 100 : 0.0
-        let color = winRate >= 60.0 ? Dashboard.green : (rows.count >= 5 ? Dashboard.red : Dashboard.yellow)
-
-        print("  Hits: \(Dashboard.green)\(hits)\(Dashboard.reset)   Misses: \(Dashboard.red)\(misses)\(Dashboard.reset)   Win Rate: \(color)\(Dashboard.bold)\(String(format: "%.1f%%", winRate))\(Dashboard.reset)")
-
-        let pairs = Set(rows.map { $0.pair }).sorted()
-        if !pairs.isEmpty {
-            print("\(Dashboard.gray)------------------------------------------------------------------------\(Dashboard.reset)")
-            print("\(Dashboard.bold) PER-PAIR ATTRIBUTION:\(Dashboard.reset)")
-            for pair in pairs {
-                let pRows = rows.filter { $0.pair == pair }
-                let pHits = pRows.filter { $0.outcome == "HIT" }.count
-                let pTotal = pRows.count
-                let pWR = pTotal > 0 ? (Double(pHits) / Double(pTotal)) * 100 : 0.0
-                let pColor = pWR >= 60.0 ? Dashboard.green : (pTotal >= 5 ? Dashboard.red : Dashboard.yellow)
-                print("  \(pair.padding(toLength: 10, withPad: " ", startingAt: 0)): \(pHits)/\(pTotal) (\(pColor)\(String(format: "%.1f%%", pWR))\(Dashboard.reset))")
-            }
-        }
-
-        print("\(Dashboard.gray)------------------------------------------------------------------------\(Dashboard.reset)")
-        print("\(Dashboard.bold) RECENT TRADES:\(Dashboard.reset)")
-        let formatter = ISO8601DateFormatter()
-        for row in rows.suffix(10).reversed() {
-            let mark = row.outcome == "HIT" ? "\(Dashboard.green)\(Dashboard.bold)HIT \(Dashboard.reset)" : "\(Dashboard.red)\(Dashboard.bold)MISS\(Dashboard.reset)"
-            let drift = String(format: "%+.1f", row.drift)
-            print("  \(formatter.string(from: row.timestamp))  \(row.pair.padding(toLength: 8, withPad: " ", startingAt: 0))  \(row.side.padding(toLength: 8, withPad: " ", startingAt: 0))  \(drift)p  \(mark)")
-        }
-        print("\(Dashboard.bold)\(Dashboard.cyan)========================================================================\(Dashboard.reset)\n")
+        print("Descriptive proxy/synthetic labels. No profitable-edge certification; payout is assumed, not verified.")
     }
 }
-
-// MARK: - Entry Point
 
 @main
 struct ForwardTestApp {
-    static func main() async {
-        let args = CommandLine.arguments
-
-        let runner = ForwardTestRunner()
-
-        if args.contains("--stats") || args.contains("-s") {
-            await runner.printStats()
-            return
-        }
-
-        if args.contains("--benchmark") || args.contains("-b") {
-            let count = 100
-            await runner.runBenchmark(targetSignals: count)
-            return
-        }
-
-        let isDaemon = args.contains("--daemon") || args.contains("-d")
-        let smartSchedule = isDaemon || args.contains("--smart-schedule") || args.contains("--prime-only")
-        let allowPrompt = !isDaemon
-
-        let gate = DeskCredentials.session(allowPrompt: allowPrompt)
-        switch gate {
-        case .ready(let session):
-            if args.contains("--replay") {
-                await runner.runBenchmark(targetSignals: 100)
-            } else {
-                await runner.runLive(session: session, smartSchedule: smartSchedule, isDaemon: isDaemon)
+    @MainActor static func main() async {
+        do {
+            let options = try Options(Array(CommandLine.arguments.dropFirst()))
+            if options.help {
+                print("ForwardTest [--benchmark | --stats | --bootstrap | --replay] [--root PATH] [--policy baseline|continuation|reversal|regime|control | --all-policies] [--max-events N] [--prime-only] [--continuous | --daemon]")
+                return
             }
-        case .locked:
-            if isDaemon {
-                let formatter = ISO8601DateFormatter()
-                print("[\(formatter.string(from: Date()))] [ERROR] Keychain item exists but requires interactive unlock. Run 'swift run ForwardTest' interactively once or provide OANDA_API_TOKEN / OANDA_ACCOUNT_ID.")
-            } else {
-                print("\(Dashboard.red)Keychain item exists but is locked. Unlock keychain and retry.\(Dashboard.reset)")
-                print("\(Dashboard.yellow)Falling back to 100-signal automated benchmark...\(Dashboard.reset)")
-                await runner.runBenchmark(targetSignals: 100)
+            let runner = ResearchRunner(options: options)
+            if options.stats { try await runner.printStats(); return }
+            if options.replay { try await runner.replay(); return }
+            if options.synthetic { try await runner.runSynthetic(); return }
+            guard EngineIdentity.bundleMatchesPin() else { throw ScanError.failed("Engine pin mismatch") }
+            let gate = DeskCredentials.session(allowPrompt: !options.daemon)
+            guard case .ready(let session) = gate else {
+                throw ScanError.failed("OANDA Keychain session unavailable. Use --benchmark explicitly for isolated synthetic testing.")
             }
-        case .missing:
-            if isDaemon {
-                let formatter = ISO8601DateFormatter()
-                print("[\(formatter.string(from: Date()))] [ERROR] No OANDA credentials found in Keychain or environment.")
-            } else {
-                print("\(Dashboard.yellow)No OANDA credentials found in Keychain.\(Dashboard.reset)")
-                print("\(Dashboard.bold)Running 100-signal forward-testing validation benchmark...\(Dashboard.reset)")
-                await runner.runBenchmark(targetSignals: 100)
-            }
+            try await runner.runLive(session: session)
+        } catch {
+            print("ERROR: \(error.localizedDescription)")
+            exit(1)
         }
     }
 }

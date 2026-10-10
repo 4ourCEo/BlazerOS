@@ -22,7 +22,7 @@ public struct DeskRestraint: Identifiable, Equatable, Sendable {
     }
 }
 
-public struct EngineSignal: Decodable, Sendable {
+public struct EngineSignal: Codable, Sendable {
     public var asset: String
     public var cabinetSide: String
     public var call: String
@@ -36,6 +36,11 @@ public struct EngineSignal: Decodable, Sendable {
     public var asOfMs: Double?
     public var printMs: Double?
     public var source: String?
+    public var directionScore: Double?
+    public var strength: Double?
+    public var policy: String?
+    public var features: ScanFeatures?
+    public var vetoes: [String]?
 
     public init(
         asset: String,
@@ -50,7 +55,12 @@ public struct EngineSignal: Decodable, Sendable {
         evidence: String? = nil,
         asOfMs: Double? = nil,
         printMs: Double? = nil,
-        source: String? = nil
+        source: String? = nil,
+        directionScore: Double? = nil,
+        strength: Double? = nil,
+        policy: String? = nil,
+        features: ScanFeatures? = nil,
+        vetoes: [String]? = nil
     ) {
         self.asset = asset
         self.cabinetSide = cabinetSide
@@ -65,6 +75,11 @@ public struct EngineSignal: Decodable, Sendable {
         self.asOfMs = asOfMs
         self.printMs = printMs
         self.source = source
+        self.directionScore = directionScore
+        self.strength = strength
+        self.policy = policy
+        self.features = features
+        self.vetoes = vetoes
     }
 }
 
@@ -296,11 +311,14 @@ public enum QuoteFreshness {
 
 public enum PriceFormat {
     public static func px(_ price: Double) -> String {
-        price >= 20 ? String(format: "%.3f", price) : String(format: "%.5f", price)
+        if price >= 500 {
+            return String(format: "%.2f", price)
+        }
+        return price >= 20 ? String(format: "%.3f", price) : String(format: "%.5f", price)
     }
 }
 
-public struct LiveQuote: Sendable, Equatable {
+public struct LiveQuote: Codable, Sendable, Equatable {
     public var asset: String
     public var bid: Double
     public var ask: Double

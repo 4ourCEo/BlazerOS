@@ -109,6 +109,10 @@ public enum CloudRecordMapper {
         record["drift"] = row.drift as CKRecordValue
         record["outcome"] = row.outcome as CKRecordValue
         record["outcomeEventID"] = row.outcomeEventID as CKRecordValue
+        if let value = row.labelSource { record["labelSource"] = value as CKRecordValue }
+        if let value = row.horizonSeconds { record["horizonSeconds"] = Int64(value) as CKRecordValue }
+        if let value = row.enteredAt { record["enteredAt"] = value as CKRecordValue }
+        if let value = row.expiryObservedMs { record["expiryObservedMs"] = value as CKRecordValue }
         return record
     }
 
@@ -134,7 +138,11 @@ public enum CloudRecordMapper {
             veto: vetoVal != 0,
             drift: drift,
             outcome: outcome,
-            outcomeEventID: outcomeEventID
+            outcomeEventID: outcomeEventID,
+            labelSource: record["labelSource"] as? String,
+            horizonSeconds: (record["horizonSeconds"] as? Int64).map(Int.init),
+            enteredAt: record["enteredAt"] as? Date,
+            expiryObservedMs: record["expiryObservedMs"] as? Double
         )
     }
 
