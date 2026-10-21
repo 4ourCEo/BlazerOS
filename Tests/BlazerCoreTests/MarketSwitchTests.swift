@@ -10,20 +10,20 @@ import Testing
         .appendingPathComponent("blazer-market-test-\(UUID().uuidString)")
     let model = LightningDeskModel(storageRoot: root)
 
-    #expect(model.marketMode == .crypto)
-    #expect(model.pairs == ["BTC/USDT"])
-
-    model.marketMode = .fx
     #expect(model.marketMode == .fx)
     #expect(model.pairs.contains("EUR/USD"))
-    _ = model.radarLeader
-    _ = model.side(for: "EUR/USD")
-    _ = model.score(for: "EUR/USD")
-    _ = model.strike(for: "EUR/USD")
-    _ = model.candles(for: "EUR/USD")
 
     model.marketMode = .crypto
+    #expect(model.marketMode == .crypto)
     #expect(model.pairs == ["BTC/USDT"])
+    _ = model.radarLeader
+    _ = model.side(for: "BTC/USDT")
+    _ = model.score(for: "BTC/USDT")
+    _ = model.strike(for: "BTC/USDT")
+    _ = model.candles(for: "BTC/USDT")
+
+    model.marketMode = .fx
+    #expect(model.pairs.contains("EUR/USD"))
     // Switching modes must not corrupt state; the book refresh happens on scan, not on switch.
     #expect(model.book.isEmpty == false)
 }

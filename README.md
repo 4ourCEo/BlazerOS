@@ -32,9 +32,10 @@ swift run BlazerOS
 
 ## Reliability release
 
-The iPhone app is the execution desk. OANDA/Binance data, the pinned scan engine, and history
-are local to the phone; no Mac, server, CloudKit, or broker automation is required. Entry is
-manual and confirmed against the venue.
+The iPhone app is the execution desk. OANDA data, the pinned scan engine, and history are
+local to the phone; no Mac, server, CloudKit, or broker automation is required. Entry is
+manual and confirmed against the venue. The default market is **FX/OANDA for Pocket Option
+handoff**; the existing crypto desk remains available as an optional mode.
 
 Reliability work in this tree covers entry gating, full-input scan identity, synthetic/reference
 isolation, pending-settlement recovery, widget/Live Activity expiry, and Siri consumption. See

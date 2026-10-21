@@ -33,7 +33,7 @@ public final class LightningDeskModel: ObservableObject {
     /// Walk label, for example "GBP/USD 2/6". Nil when idle.
     @Published var scanStep: String?
     /// Last full-book read. Display only.
-    @Published var book: [BookRow] = CTAssets.watchlist.map { BookRow(asset: $0, side: "—") }
+    @Published var book: [BookRow] = Assets.watchlist.map { BookRow(asset: $0, side: "—") }
     @Published var notice: String?
     @Published public private(set) var frame: DeskFrame?
     /// Active 60-second binary trade execution. Nil when not in an active position.
@@ -57,7 +57,7 @@ public final class LightningDeskModel: ObservableObject {
     /// The visible watchlist is derived from `pairs`; `book` sides reset on the next scan.
     /// Never mutate other @Published state here — publishing from inside a SwiftUI view
     /// update crashes the app.
-    @Published public var marketMode: DeskMarket = .crypto
+    @Published public var marketMode: DeskMarket = .fx
     /// True while the offline fixture is being shown. It suppresses the missing-credential cover
     /// without pretending a live Keychain session exists.
     @Published public private(set) var isDemoDesk = false
