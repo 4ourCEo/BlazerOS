@@ -55,6 +55,10 @@ public struct LedgerRow: Equatable, Sendable, Codable {
     public var horizonSeconds: Int?
     public var enteredAt: Date?
     public var expiryObservedMs: Double?
+    /// Handoff evidence captured when the manual entry was recorded.
+    public var evaluationAgeMs: Double?
+    public var recordingDelayMs: Double?
+    public var remainingBeamMs: Double?
 
     /// Schema version this row was written with. Nil for rows read from v1/v2 files.
     public var schemaVersion: Int?
@@ -86,6 +90,9 @@ public struct LedgerRow: Equatable, Sendable, Codable {
         horizonSeconds: Int? = nil,
         enteredAt: Date? = nil,
         expiryObservedMs: Double? = nil,
+        evaluationAgeMs: Double? = nil,
+        recordingDelayMs: Double? = nil,
+        remainingBeamMs: Double? = nil,
         schemaVersion: Int? = nil
     ) {
         self.timestamp = timestamp
@@ -108,6 +115,9 @@ public struct LedgerRow: Equatable, Sendable, Codable {
         self.horizonSeconds = horizonSeconds
         self.enteredAt = enteredAt
         self.expiryObservedMs = expiryObservedMs
+        self.evaluationAgeMs = evaluationAgeMs
+        self.recordingDelayMs = recordingDelayMs
+        self.remainingBeamMs = remainingBeamMs
         self.schemaVersion = schemaVersion
     }
 }
@@ -129,19 +139,21 @@ public struct LedgerReadResult: Sendable, Equatable {
 /// - v1: eight columns, identity is the 4-byte display hash.
 /// - v2: eleven measurement columns appended under the v1 header. Ambiguous to readers.
 /// - v3: every column declared in the header, explicit `schemaVersion`, full identity.
+/// - v4: evaluation age, recording delay, and remaining beam persisted for handoff evidence.
 ///
-/// v3 keeps every v1/v2 column at its original index so existing files still parse.
+/// Later versions keep every earlier column at its original index so existing files still parse.
 public actor LedgerStore {
-    public static let schemaVersion = 3
+    public static let schemaVersion = 4
 
     /// v1 header, kept so older files and readers can still recognise the file.
     public static let legacyHeader = "timestamp,pair,hash,score,side,veto,drift,outcome"
 
     public static let csvHeader = "timestamp,pair,hash,score,side,veto,drift,outcome,"
         + "payout,stake,marketWindow,engineSHA,fullFingerprint,entryQuote,expiryPrice,"
-        + "labelSource,horizonSeconds,enteredAt,expiryObservedMs,outcomeEventID,schemaVersion"
+        + "labelSource,horizonSeconds,enteredAt,expiryObservedMs,outcomeEventID,schemaVersion,"
+        + "evaluationAgeMs,recordingDelayMs,remainingBeamMs"
 
-    public static let columnCount = 21
+    public static let columnCount = 24
 
     private let url: URL
     private var claimedIdentities: Set<String> = []
@@ -297,6 +309,9 @@ public actor LedgerStore {
                     horizonSeconds: fields.count > 16 ? Int(fields[16]) : nil,
                     enteredAt: fields.count > 17 ? Self.iso8601.date(from: fields[17]) : nil,
                     expiryObservedMs: fields.count > 18 ? Double(fields[18]) : nil,
+                    evaluationAgeMs: fields.count > 21 ? Double(fields[21]) : nil,
+                    recordingDelayMs: fields.count > 22 ? Double(fields[22]) : nil,
+                    remainingBeamMs: fields.count > 23 ? Double(fields[23]) : nil,
                     schemaVersion: version
                 )
             )
@@ -312,7 +327,7 @@ public actor LedgerStore {
         try AtomicFile.write(data, to: backup)
     }
 
-    /// Always writes a fixed-width v3 row so the header is truthful.
+    /// Always writes a fixed-width v4 row so the header is truthful.
     private func line(for row: LedgerRow) -> String {
         let parts = [
             csv(Self.iso8601.string(from: row.timestamp)),
@@ -336,6 +351,9 @@ public actor LedgerStore {
             csv(row.expiryObservedMs.map { String($0) } ?? ""),
             csv(row.outcomeEventID),
             csv(String(Self.schemaVersion)),
+            csv(row.evaluationAgeMs.map { String($0) } ?? ""),
+            csv(row.recordingDelayMs.map { String($0) } ?? ""),
+            csv(row.remainingBeamMs.map { String($0) } ?? ""),
         ]
         return parts.joined(separator: ",") + "\n"
     }

@@ -119,6 +119,9 @@ public enum CloudRecordMapper {
         if let value = row.horizonSeconds { record["horizonSeconds"] = Int64(value) as CKRecordValue }
         if let value = row.enteredAt { record["enteredAt"] = value as CKRecordValue }
         if let value = row.expiryObservedMs { record["expiryObservedMs"] = value as CKRecordValue }
+        if let value = row.evaluationAgeMs { record["evaluationAgeMs"] = value as CKRecordValue }
+        if let value = row.recordingDelayMs { record["recordingDelayMs"] = value as CKRecordValue }
+        if let value = row.remainingBeamMs { record["remainingBeamMs"] = value as CKRecordValue }
         if let value = row.payout { record["payout"] = value as CKRecordValue }
         if let value = row.stake { record["stake"] = value as CKRecordValue }
         if let value = row.marketWindow { record["marketWindow"] = value as CKRecordValue }
@@ -165,6 +168,9 @@ public enum CloudRecordMapper {
             horizonSeconds: (record["horizonSeconds"] as? Int64).map(Int.init),
             enteredAt: record["enteredAt"] as? Date,
             expiryObservedMs: record["expiryObservedMs"] as? Double,
+            evaluationAgeMs: record["evaluationAgeMs"] as? Double,
+            recordingDelayMs: record["recordingDelayMs"] as? Double,
+            remainingBeamMs: record["remainingBeamMs"] as? Double,
             schemaVersion: (record["schemaVersion"] as? Int64).map(Int.init)
         )
     }

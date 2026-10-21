@@ -68,6 +68,10 @@ server, CloudKit, or broker automation is required. Broker execution remains man
   or confirmed performance. The expiry card pre-selects the reference with `Confirm HIT` /
   `Confirm MISS`, so a matching venue result is one tap; the other choice remains available
   when the venue disagrees.
+- App Group data now lives under `Library/Application Support/BlazerOS` after a one-time
+  migration from the legacy group root. The ledger, diagnostics, journal, and reference history
+  are therefore exportable with `devicectl`; the widget reads the legacy path until the app
+  completes the move.
 - Widgets render a saved TAP only inside the 8-second beam; afterwards the row reads
   `HISTORICAL`. The timeline refreshes at beam close.
 - Live Activities use `context.isStale` and the expiry time; expired activities show
@@ -108,7 +112,12 @@ server, CloudKit, or broker automation is required. Broker execution remains man
 ## Verification performed
 
 - `swift build` and `swift build -c release` — pass
-- `swift test` — **150 tests pass**
+- `swift test` — **153 tests pass**
+- Storage migration tests — legacy App Group root moves under `Library/Application Support`;
+  the widget fallback reads legacy until the app migrates
+- Ledger schema v4 test — `evaluationAgeMs`, `recordingDelayMs`, and `remainingBeamMs`
+  round-trip through the CSV; the confirmed device MISS row was pulled from the phone with
+  `labelSource=venue-confirmed`
 - `swift run -c release Parity` — 43 checks pass
 - `swift run Persist` — 59 checks pass
 - `swift run Soak` — 10/10 soak checks pass
@@ -158,6 +167,10 @@ server, CloudKit, or broker automation is required. Broker execution remains man
 - This build is development-signed because the team is a Personal Team and the only installed
   identity is `Apple Development`. App Store/TestFlight distribution still needs a paid team
   and an Apple Distribution identity; that is an account prerequisite, not a capability gap.
+- `iPhone/exportOptions-appstore.plist` is prepared for `app-store-connect`. Exporting the
+  verified archive with it fails exactly at the account boundary:
+  `No profiles for 'com.blazer.os' / 'com.blazer.os.widgets' / 'com.blazer.os.liveactivity'`,
+  `No signing certificate "iOS Distribution" found`, and `No Accounts`.
 - No TestFlight upload was attempted.
 
 ## Remaining gate (physical device)
@@ -175,11 +188,13 @@ These are simulator-independent and require the actual phone:
 7. Confirm the widget shows `HISTORICAL` after the beam, and the Live Activity shows
    `EXPIRED` after the horizon without a foreground update.
 8. Repeat Siri "Scan with Blazer" while the app is already open.
-9. Coach: the bounded request and citations are verified on-device; still confirm the
-   `APPLE ON-DEVICE` origin label in the panel and that disabling Apple Intelligence produces
-   the honest unavailable reason plus `BASIC FALLBACK`.
+9. Coach: the bounded request, citations, and `APPLE ON-DEVICE` label are verified on-device;
+   still confirm that disabling Apple Intelligence produces the honest unavailable reason plus
+   `BASIC FALLBACK`.
 10. Start a long generation, background the app, and confirm scan/quote/countdown/entry are
     unaffected.
-11. Handoff: once a fresh TAP is armed, switch to Pocket Option, place the manual trade,
-    return, and record the entry. Confirm the saved `ActiveTrade` carries `evaluationAgeMs`,
-    `recordingDelayMs`, and `remainingBeamMs` from the real out-and-back interval.
+11. Handoff: one real CALL HIGH was recorded at **6.7 s** evaluation age, **1.9 s** recording
+    delay, **6.1 s** beam left, and confirmed MISS; ledger schema v4 now persists those three
+    fields for future rows. Still exercise 3 m/5 m and confirm the exported CSV carries them.
+12. Reference history: the next fresh expiry must populate **Journal → Reference Outcomes**
+    automatically and the one-tap `Confirm HIT` / `Confirm MISS` must match the venue choice.

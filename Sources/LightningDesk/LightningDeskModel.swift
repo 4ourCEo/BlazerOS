@@ -13,6 +13,9 @@ public enum DeskMarket: String, Sendable, CaseIterable {
 @MainActor
 public final class LightningDeskModel: ObservableObject {
     public init(storageRoot: URL? = nil) {
+        if storageRoot == nil {
+            FileLocations.migrateLegacyGroupStorageIfNeeded()
+        }
         let root = storageRoot ?? FileLocations.applicationSupport()
         persistence = PersistenceCoordinator(root: root)
         referenceStore = ReferenceOutcomeStore(
@@ -899,6 +902,14 @@ public final class LightningDeskModel: ObservableObject {
         let trade = pendingTrade
         let expiry = pendingExpiry
         let windowName = MarketEdgeWindow.current(at: trade?.enteredAt ?? settleCommit.scannedAt).badgeTitle
+        let resolvedEntryQuote = entryQuote ?? trade?.brokerEntryPrice ?? trade?.strike ?? settleCommit.strike
+        let resolvedExpiryPrice = expiryPrice ?? expiry?.exitPrice
+        let horizonSeconds = trade.map { Int($0.durationSec) }
+        let enteredAt = trade?.enteredAt
+        let expiryObservedMs = expiry?.quoteTimeMs
+        let evaluationAgeMs = trade?.evaluationAgeMs
+        let recordingDelayMs = trade?.recordingDelayMs
+        let remainingBeamMs = trade?.remainingBeamMs
         let row = LedgerRow(
             timestamp: Date(),
             pair: settleCommit.asset,
@@ -914,12 +925,15 @@ public final class LightningDeskModel: ObservableObject {
             marketWindow: windowName,
             engineSHA: settleCommit.engineSHA,
             fullFingerprint: settleCommit.fullFingerprint,
-            entryQuote: entryQuote ?? trade?.brokerEntryPrice ?? trade?.strike ?? settleCommit.strike,
-            expiryPrice: expiryPrice ?? expiry?.exitPrice,
+            entryQuote: resolvedEntryQuote,
+            expiryPrice: resolvedExpiryPrice,
             labelSource: labelSource,
-            horizonSeconds: trade.map { Int($0.durationSec) },
-            enteredAt: trade?.enteredAt,
-            expiryObservedMs: expiry?.quoteTimeMs
+            horizonSeconds: horizonSeconds,
+            enteredAt: enteredAt,
+            expiryObservedMs: expiryObservedMs,
+            evaluationAgeMs: evaluationAgeMs,
+            recordingDelayMs: recordingDelayMs,
+            remainingBeamMs: remainingBeamMs
         )
         let snapshot = SnapshotRecord(
             hash: settleCommit.fingerprint,
