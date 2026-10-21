@@ -62,6 +62,11 @@ server, CloudKit, or broker automation is required. Broker execution remains man
 
 ### iPhone surfaces
 
+- At expiry, the OANDA midpoint result is auto-recorded as a **reference outcome** under
+  `Research/oanda-proxy/outcomes` and shown in Journal under **Reference Outcomes**. It never
+  enters the trading ledger, `OutcomeStats`, or confirmed performance. The expiry card
+  pre-selects the reference with `Confirm HIT` / `Confirm MISS`, so a matching venue result is
+  one tap; the other choice remains available when the venue disagrees.
 - Widgets render a saved TAP only inside the 8-second beam; afterwards the row reads
   `HISTORICAL`. The timeline refreshes at beam close.
 - Live Activities use `context.isStale` and the expiry time; expired activities show
@@ -117,6 +122,9 @@ server, CloudKit, or broker automation is required. Broker execution remains man
   entry, pair-switch refusal, stale/historical refusal, relaunch restore, Siri flag
   consumption) and all-tabs canvas tests at default and largest Dynamic Type
   (`.accessibilityExtraExtraExtraLarge`)
+- Reference auto-record tested by `testExpiryRecordsReferenceWithoutTouchingConfirmedStats` —
+  the OANDA observation is written under `Research/oanda-proxy/outcomes`, appears in
+  `referenceHistory`, and leaves confirmed `outcomeStats` at zero
 - Physical iPhone bounded Coach request (DEBUG harness `BLAZER_FM_COACH_SELFTEST=1`) — pass:
   `origin=appleOnDevice state=completed latencyMs=7835.7 tokens=1617 limit=4096 method=exact
   retries=0 omitted=0 issues=[]`, citing both supplied scan IDs; Mac control 11.6 s with the

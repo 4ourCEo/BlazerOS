@@ -57,7 +57,7 @@ struct JournalScreen: View {
             .padding(.horizontal, 20)
             .padding(.top, 14)
 
-            if model.journal.isEmpty {
+            if model.journal.isEmpty && model.referenceHistory.isEmpty {
                 VStack(spacing: 14) {
                     Spacer()
                     Image(systemName: "book.closed")
@@ -81,6 +81,13 @@ struct JournalScreen: View {
                             PerformanceAnalyticsCard(
                                 hits: model.outcomeStats.hits,
                                 misses: model.outcomeStats.misses,
+                                journal: model.journal
+                            )
+                        }
+
+                        if !model.referenceHistory.isEmpty {
+                            ReferenceOutcomesCard(
+                                outcomes: model.referenceHistory,
                                 journal: model.journal
                             )
                         }
@@ -670,5 +677,76 @@ struct EquityCurveView: View {
         }
         .padding(10)
         .background(Color.white.opacity(0.025), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+/// Auto-recorded OANDA midpoint observations. These never contribute to confirmed performance.
+struct ReferenceOutcomesCard: View {
+    let outcomes: [ResearchOutcome]
+    let journal: [ReplayEntry]
+
+    private func entry(for outcome: ResearchOutcome) -> ReplayEntry? {
+        journal.first { $0.id == outcome.eventID }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Reference Outcomes")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(DeskInk.ink)
+                Spacer()
+                Text("OANDA MID · NOT CONFIRMED")
+                    .font(.system(size: 8.5, weight: .bold))
+                    .tracking(0.5)
+                    .foregroundStyle(DeskInk.slate)
+            }
+            Text("Auto-recorded at expiry. Excluded from confirmed win rate and expectancy.")
+                .font(.system(size: 10))
+                .foregroundStyle(DeskInk.slate)
+                .fixedSize(horizontal: false, vertical: true)
+
+            ForEach(outcomes.prefix(8), id: \.eventID) { outcome in
+                let record = entry(for: outcome)
+                HStack(spacing: 8) {
+                    Text(record?.pair ?? "—")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(DeskInk.ink)
+                    Text(outcome.resolution.rawValue.uppercased())
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(referenceInk(outcome.resolution))
+                    if let record {
+                        Text("Strike \(PriceFormat.px(record.strike))")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(DeskInk.slate)
+                    }
+                    if let exit = outcome.exitPrice {
+                        Text("→ \(PriceFormat.px(exit))")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(DeskInk.slate)
+                    }
+                    Spacer()
+                    Text(outcome.targetExpiry.formatted(date: .omitted, time: .shortened))
+                        .font(.system(size: 10))
+                        .foregroundStyle(DeskInk.slate.opacity(0.8))
+                }
+                .padding(.vertical, 3)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DeskInk.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.06), lineWidth: 0.5)
+        )
+    }
+
+    private func referenceInk(_ resolution: ResearchResolution) -> Color {
+        switch resolution {
+        case .hit: return DeskInk.emerald
+        case .miss: return DeskInk.coral
+        case .tie, .unresolved: return DeskInk.slate
+        }
     }
 }

@@ -586,18 +586,25 @@ struct DeskScreen: View {
             }
 
             if model.awaitingOutcome {
+                if let reference = model.predictedOutcome {
+                    Text("Reference suggests \(reference.rawValue). Confirm what Pocket Option settled.")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(DeskInk.slate)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                let reference = model.predictedOutcome
                 HStack(spacing: 10) {
                     outcomeChoice(
-                        model.predictedOutcome == .hit ? "HIT (WIN)" : "HIT",
+                        reference == .hit ? "Confirm HIT" : (reference == .miss ? "HIT instead" : "HIT"),
                         tint: DeskInk.emerald,
-                        isHighlighted: model.predictedOutcome == .hit
+                        isHighlighted: reference == .hit
                     ) {
                         Task { await model.confirmVenueOutcome(.hit) }
                     }
                     outcomeChoice(
-                        model.predictedOutcome == .miss ? "MISS (LOSS)" : "MISS",
+                        reference == .miss ? "Confirm MISS" : (reference == .hit ? "MISS instead" : "MISS"),
                         tint: DeskInk.coral,
-                        isHighlighted: model.predictedOutcome == .miss
+                        isHighlighted: reference == .miss
                     ) {
                         Task { await model.confirmVenueOutcome(.miss) }
                     }

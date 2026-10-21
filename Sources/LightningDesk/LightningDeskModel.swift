@@ -15,6 +15,10 @@ public final class LightningDeskModel: ObservableObject {
     public init(storageRoot: URL? = nil) {
         let root = storageRoot ?? FileLocations.applicationSupport()
         persistence = PersistenceCoordinator(root: root)
+        referenceStore = ResearchStore(
+            root: root.appendingPathComponent("Research", isDirectory: true)
+                .appendingPathComponent("oanda-proxy", isDirectory: true)
+        )
         strikeStore = StrikeStore(url: root.appendingPathComponent("strike_positions.json"))
         let diagnosticsURL = root.appendingPathComponent("model_diagnostics.jsonl")
         if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *) {
@@ -79,6 +83,9 @@ public final class LightningDeskModel: ObservableObject {
     @Published public private(set) var pendingSaveCount: Int = 0
     @Published private(set) var outcomeStats = OutcomeStats.empty
     @Published public private(set) var ledgerRows: [LedgerRow] = []
+    /// OANDA midpoint observations recorded at expiry. Reference only; never counted as
+    /// venue-confirmed performance and never written to the trading ledger.
+    @Published public private(set) var referenceOutcomes: [ResearchOutcome] = []
     /// Keychain presence only. A saved token is not kept here.
     @Published private(set) var keychainState: KeychainState = .unknown
     /// Form drafts. Cleared when the Keychain write succeeds. Never synced.
@@ -373,6 +380,7 @@ public final class LightningDeskModel: ObservableObject {
     }
 
     private let persistence: PersistenceCoordinator
+    private let referenceStore: ResearchStore
     private var session: OandaSession?
     private var armID: String?
     private var commit: ScanCommit?
@@ -1004,6 +1012,15 @@ public final class LightningDeskModel: ObservableObject {
         LedgerStatsEngine.evaluate(pair: asset, rows: ledgerRows, payoutRatio: 0.88)
     }
 
+    /// Reference observations that belong to a desk entry. These are OANDA midpoint results,
+    /// not venue settlements, and are excluded from `outcomeStats`.
+    public var referenceHistory: [ResearchOutcome] {
+        let ids = Set(journal.map(\.id))
+        return referenceOutcomes
+            .filter { ids.contains($0.eventID) }
+            .sorted { $0.targetExpiry > $1.targetExpiry }
+    }
+
     /// Empirical average drift in pips computed from local settled trades.
     public func averageDrift(for asset: String) -> Double? {
         let settled = ledgerRows.filter { $0.pair == asset && ($0.outcome == "HIT" || $0.outcome == "MISS") }
@@ -1403,6 +1420,26 @@ public final class LightningDeskModel: ObservableObject {
         }
 
         publishFrame()
+
+        // Record the OANDA midpoint observation automatically as reference history. This is
+        // deliberately separate from the ledger: only the user's venue confirmation is a
+        // confirmed result.
+        if referenceAvailable || observation.resolution == .tie {
+            await recordReference(observation)
+        }
+    }
+
+    private func recordReference(_ observation: ResearchOutcome) async {
+        do {
+            try await referenceStore.record(observation)
+            if !referenceOutcomes.contains(where: {
+                $0.eventID == observation.eventID && $0.horizon == observation.horizon
+            }) {
+                referenceOutcomes.append(observation)
+            }
+        } catch {
+            // Reference history is best-effort. It never blocks or changes venue confirmation.
+        }
     }
 
     /// Clears the desk only when the current arm's outcome is durably in the journal.
@@ -1858,6 +1895,7 @@ public final class LightningDeskModel: ObservableObject {
         journal = restored.entries.map {
             replay($0, bars: restored.bars(for: $0.fullFingerprint ?? $0.fingerprint))
         }
+        referenceOutcomes = (try? await referenceStore.outcomes()) ?? []
         for entry in journal {
             if candlesByAsset[entry.pair] == nil && !entry.candles.isEmpty {
                 candlesByAsset[entry.pair] = entry.candles
@@ -2098,6 +2136,16 @@ extension LightningDeskModel {
     /// Test-only seam: run the same on-disk restore path used at launch.
     public func restoreForTesting() async {
         await reloadFromDisk()
+    }
+
+    /// Test-only seam: force the active trade past expiry without waiting.
+    public func expireActiveTradeForTesting() async {
+        guard var trade = activeTrade else { return }
+        let now = Date()
+        trade.enteredAt = now.addingTimeInterval(-trade.durationSec - 1)
+        trade.expiresAt = trade.enteredAt.addingTimeInterval(trade.durationSec)
+        activeTrade = trade
+        await handleTradeExpiry(trade)
     }
 
     /// Device-only diagnostic: prove Apple’s on-device model is available and generating.

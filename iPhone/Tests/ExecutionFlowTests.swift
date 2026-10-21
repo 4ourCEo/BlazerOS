@@ -67,6 +67,33 @@ final class ExecutionFlowTests: XCTestCase {
         XCTAssertEqual(model.activeTrade?.durationSec, 60)
     }
 
+    func testExpiryRecordsReferenceWithoutTouchingConfirmedStats() async {
+        let root = root()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = LightningDeskModel(storageRoot: root)
+        let (commit, signal, quote) = armedFixture()
+        model.installArmedScanForTesting(commit: commit, signal: signal, quote: quote)
+        _ = await model.rememberForTesting()
+
+        await model.lockInTrade(duration: 60)
+        let armID = model.activeTrade?.id
+        XCTAssertNotNil(armID)
+
+        await model.expireActiveTradeForTesting()
+
+        XCTAssertTrue(model.awaitingOutcome)
+        XCTAssertEqual(model.outcomeStats.hits + model.outcomeStats.misses, 0)
+        XCTAssertEqual(model.referenceHistory.first?.eventID, armID)
+        XCTAssertEqual(model.referenceHistory.first?.horizon, 60)
+        XCTAssertTrue(
+            ["hit", "miss", "tie"].contains(model.referenceHistory.first?.resolution.rawValue ?? "")
+        )
+        let referenceFile = root
+            .appendingPathComponent("Research/oanda-proxy/outcomes")
+            .appendingPathComponent("\(armID ?? "missing")-60.json")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: referenceFile.path))
+    }
+
     func testStaleSignalCannotBecomeAnEntry() async {
         let root = root()
         defer { try? FileManager.default.removeItem(at: root) }
