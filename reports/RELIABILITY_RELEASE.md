@@ -86,6 +86,8 @@ server, CloudKit, or broker automation is required. Broker execution remains man
   credentials.
 - Authoritative numbers are rendered from code; model text is labelled `APPLE ON-DEVICE` or
   `BASIC FALLBACK`.
+- The remote Strike-audit UI (DeepSeek/Gemini API key) is disabled. The only reachable AI
+  path is Apple’s on-device model.
 
 ## Verification performed
 

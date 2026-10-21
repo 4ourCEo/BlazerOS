@@ -13,7 +13,6 @@ struct StrikeTradeSheet: View {
     @State private var askText = "0.50"
     @State private var minutesText = "5"
     @State private var contractsText = "1"
-    @State private var apiKeyText = ""
     @State private var side: StrikeSide = .yes
 
     private let posix = Locale(identifier: "en_US_POSIX")
@@ -190,55 +189,15 @@ struct StrikeTradeSheet: View {
     }
 
     private var auditSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("AI COPILOT")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(1.0)
-                    .foregroundStyle(DeskInk.slate)
-                Spacer()
-                Picker("", selection: $model.copilotProvider) {
-                    Text("DeepSeek").tag(AIProvider.deepseek)
-                    Text("Gemini").tag(AIProvider.gemini)
-                }
-                .labelsHidden()
-                .pickerStyle(.segmented)
-                .frame(width: 180)
-            }
-
-            // API key entry (stored in Keychain; the copilot fails closed without it).
-            HStack(spacing: 8) {
-                SecureField("API key (stored in Keychain)", text: $apiKeyText)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12, design: .monospaced))
-                Button("Save") {
-                    let trimmed = apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !trimmed.isEmpty else { return }
-                    try? model.copilotVault.set(trimmed, for: model.copilotProvider.keychainKeyName)
-                    apiKeyText = ""
-                    model.notice = "Copilot key saved."
-                }
-                .buttonStyle(.bordered)
-            }
-
-            if model.isAuditingStrike {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("Auditing setup…")
-                        .font(.system(size: 12))
-                        .foregroundStyle(DeskInk.slate)
-                }
-            } else if let advice = model.strikeAdvice {
-                adviceCard(advice)
-            } else if let issue = model.strikeAdviceIssue {
-                Text(issue)
-                    .font(.system(size: 12))
-                    .foregroundStyle(DeskInk.slate)
-            } else {
-                Text("Optional second opinion. Advisory only — not a validated edge.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(DeskInk.slate)
-            }
+        VStack(alignment: .leading, spacing: 6) {
+            Text("ON-DEVICE ASSISTANT")
+                .font(.system(size: 10, weight: .bold))
+                .tracking(1.0)
+                .foregroundStyle(DeskInk.slate)
+            Text("Grounded explanations are available in Coach using Apple’s on-device model. Remote AI providers and API keys are disabled in this release.")
+                .font(.system(size: 12))
+                .foregroundStyle(DeskInk.slate)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 10).fill(DeskInk.surface))
@@ -308,26 +267,6 @@ struct StrikeTradeSheet: View {
 
     private var buttons: some View {
         HStack(spacing: 10) {
-            Button {
-                DeskHaptics.commit()
-                guard let strike, let entryPrice, let secondsRemaining else { return }
-                model.requestStrikeAudit(
-                    symbol: model.pair,
-                    strike: strike,
-                    entryPrice: entryPrice,
-                    secondsRemaining: secondsRemaining,
-                    side: side,
-                    direction: direction,
-                    score: model.frame?.score ?? 0
-                )
-            } label: {
-                Text("Run AI Audit")
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-            }
-            .buttonStyle(.bordered)
-            .disabled(assessment == nil || model.isAuditingStrike)
-
             Button {
                 DeskHaptics.tradeLocked()
                 guard let strike, let entryPrice, let expiryDate, let quantity, quantity > 0 else { return }
