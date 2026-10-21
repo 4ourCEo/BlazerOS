@@ -109,23 +109,26 @@ server, CloudKit, or broker automation is required. Broker execution remains man
   (`.accessibilityExtraExtraExtraLarge`)
 - Widget, Live Activity, Intents, Debug, Release simulator, and unsigned Release arm64 device
   builds — pass
+- Signed Debug device build for `Gilbert’s iPhone` — build and install succeed
 - Built app/extension privacy manifests present; generated simulator `.xcent` shows
-  `group.com.blazer.os` on app, widget, and Live Activity with team `A2N63PR6N6`
+  `group.com.blazer.os` on app, widget, and Live Activity with team `8GZ3352QQB`
 
-## Release-candidate blocker: Apple signing
+## Device status and signing
 
-Generic iOS archive is **not** verified. The only local signing identity is
-`Apple Development: … (A2N63PR6N6)`; there is no iOS Development certificate or provisioning
-profile for `com.blazer.os`, `com.blazer.os.widgets`, or `com.blazer.os.liveactivity`.
-`xcodebuild archive` fails with “No profiles … were found” and “No signing certificate …”.
-
-The physical iPhone `Gilbert’s iPhone` is visible to `devicectl` but currently **offline**.
-No install, on-device run, or TestFlight upload was attempted. Foundation Models was verified
-with real on-device generation on this Mac (macOS 27), not on the phone.
-
-The project and `exportOptions.plist` now agree on team `A2N63PR6N6`, and app-group
-entitlements are present in all three targets. Creating/downloading profiles and archiving
-requires Apple account access; it has not been done without approval.
+- `Gilbert’s iPhone` (iPhone 16, iOS 27.0, build 24A435) is connected, paired, booted, and
+  Developer Mode is enabled.
+- The actual team is `8GZ3352QQB`. The certificate label suffix `(A2N63PR6N6)` is not the
+  team ID. Project and `exportOptions.plist` now agree on `8GZ3352QQB`.
+- Existing iOS Team Provisioning Profiles exist for the app, widget, and Live Activity and
+  expire 2026-10-27.
+- The app profile includes `group.com.blazer.os`. The widget and Live Activity profiles do
+  **not**, so a signed build with app-group entitlements on those extensions fails with
+  “doesn’t include the App Groups capability.”
+- A Debug build with extension entitlements temporarily empty installs successfully. iOS
+  refuses to launch it until the Developer App certificate is trusted on the phone:
+  **Settings → General → VPN & Device Management → Developer App → trust the certificate**.
+- No archive or TestFlight upload was attempted. Refreshing the extension profiles to include
+  the app group requires Apple account access/approval.
 
 ## Remaining gate (physical device)
 
