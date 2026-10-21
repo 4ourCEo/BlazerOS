@@ -113,8 +113,11 @@ reports the request outcome (`completed`, `contextTooLarge`, `cancelled`, `timed
 - The Coach screen reproduced the 7,750-token overflow; the budget fix is committed and the
   bounded-context re-test is pending unlock.
 - The app now defaults to FX/OANDA for Pocket Option handoff; crypto remains selectable.
-- Extension app-group provisioning is still missing from the widget/Live Activity profiles,
-  so the device test build uses empty extension entitlements.
+- Extension app-group provisioning is fixed: the widget and Live Activity profiles were
+  refreshed with `group.com.blazer.os`, and the signed archive/IPA carry it on the app and both
+  extensions. Device test builds no longer blank extension entitlements.
+- The final bounded-context Coach run and the measured OANDA → Pocket Option handoff remain
+  pending because the physical phone is locked.
 
 ## Physical iPhone verification gap
 

@@ -165,7 +165,8 @@ M0 through M4 are completely sealed and verified:
 - `swift run -c release Persist`: 41/41 PASS (includes 12 CloudKit tests + 2 voice note tests)
 - `swift run -c release Soak`: 10/10 PASS (100 engine scans, 100 atomic settlements, 50 duplicate drops, 30 corrupt recoveries, 25 voice notes)
 - `iPhone/build-iphone16.sh`: Debug SUCCEEDED, Release SUCCEEDED, 6/6 iPhone 16 tests PASS
-- `iPhone/archive-testflight.sh`: TestFlight Release Candidate archive verified
+- `iPhone/archive-testflight.sh`: Release archive + development export; verifies app-group
+  entitlements and embedded profiles on the app, both extensions, and the exported IPA
 
 ## Status
 

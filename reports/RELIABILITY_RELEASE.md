@@ -116,10 +116,11 @@ server, CloudKit, or broker automation is required. Broker execution remains man
 - Widget, Live Activity, Intents, Debug, Release simulator, and unsigned Release arm64 device
   builds — pass
 - Signed Debug device build for `Gilbert’s iPhone` — build and install succeed
-- Release archive for `generic/platform=iOS` — **archive succeeded** with temporary empty
-  extension entitlements; app group verified on the app, absent from the widget/Live Activity
-  profiles
-- Built app/extension privacy manifests present; generated simulator `.xcent` shows
+- Release archive for `generic/platform=iOS` — **archive and development export succeed**
+  with the real app-group entitlements on the app, widget, and Live Activity; the script now
+  passes `-allowProvisioningUpdates`, refreshes stale extension profiles, and fails the build
+  if any embedded binary or IPA payload lacks `group.com.blazer.os`
+- Built app/extension privacy manifests present; signed `.xcent`/entitlements show
   `group.com.blazer.os` on app, widget, and Live Activity with team `8GZ3352QQB`
 
 ## Device status and signing
@@ -128,17 +129,16 @@ server, CloudKit, or broker automation is required. Broker execution remains man
   Developer Mode is enabled.
 - The actual team is `8GZ3352QQB`. The certificate label suffix `(A2N63PR6N6)` is not the
   team ID. Project and `exportOptions.plist` now agree on `8GZ3352QQB`.
-- Existing iOS Team Provisioning Profiles exist for the app, widget, and Live Activity and
-  expire 2026-10-27.
-- The app profile includes `group.com.blazer.os`. The widget and Live Activity profiles do
-  **not**, so a signed build with app-group entitlements on those extensions fails with
-  “doesn’t include the App Groups capability.”
-- A Debug build with extension entitlements temporarily empty installs successfully. The
-  Developer App certificate was trusted on the phone; real on-device generation succeeded.
-- A local archive was produced for inspection, but it is **not** release-ready because the
-  extensions lack the app group. No TestFlight upload was attempted.
-- Refreshing the extension profiles to include the app group requires Apple account
-  access/approval.
+- Xcode refreshed the widget and Live Activity profiles on 2026-10-21; all three profiles now
+  include `group.com.blazer.os` (widget/Live Activity expire 2026-10-28, app 2026-10-27).
+- `iPhone/archive-testflight.sh` archives with `-allowProvisioningUpdates`, verifies the signed
+  entitlements and embedded profile of every embedded binary, then repeats the check on the
+  exported IPA. Empty extension entitlements are no longer an accepted workaround: without the
+  app group the widget installs but cannot read the shared journal.
+- This build is development-signed because the team is a Personal Team and the only installed
+  identity is `Apple Development`. App Store/TestFlight distribution still needs a paid team
+  and an Apple Distribution identity; that is an account prerequisite, not a capability gap.
+- No TestFlight upload was attempted.
 
 ## Remaining gate (physical device)
 
