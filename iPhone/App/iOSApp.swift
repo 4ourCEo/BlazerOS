@@ -28,6 +28,9 @@ struct BlazerOSPhoneApp: App {
                     if ProcessInfo.processInfo.environment["BLAZER_FM_SELFTEST"] == "1" {
                         await model.runAssistantSelfTestForTesting()
                     }
+                    if ProcessInfo.processInfo.environment["BLAZER_FM_COACH_SELFTEST"] == "1" {
+                        await model.runBoundedCoachSelfTestForTesting()
+                    }
                     #endif
                 }
         }

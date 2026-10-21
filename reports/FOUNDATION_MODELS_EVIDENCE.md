@@ -110,14 +110,18 @@ reports the request outcome (`completed`, `contextTooLarge`, `cancelled`, `timed
 
 - Real on-device generation succeeded on the phone (Apple A18 / iOS 27) with the self-test
   context.
-- The Coach screen reproduced the 7,750-token overflow; the budget fix is committed and the
-  bounded-context re-test is pending unlock.
+- The Coach screen reproduced the 7,750-token overflow; the budget fix is committed.
+- The bounded Coach request passed on the physical iPhone (A18 / iOS 27) on 2026-10-21:
+  `PHONE_COACH_RESULT origin=appleOnDevice state=completed latencyMs=7835.7 tokens=1617
+  limit=4096 method=exact retries=0 omitted=0 issues=[] failure=none`, citing both supplied
+  scan IDs. The same harness on the Mac completed in 11.6 s with the same 1,617/4,096 token
+  count. The harness is DEBUG-only: `BLAZER_FM_COACH_SELFTEST=1`.
 - The app now defaults to FX/OANDA for Pocket Option handoff; crypto remains selectable.
 - Extension app-group provisioning is fixed: the widget and Live Activity profiles were
   refreshed with `group.com.blazer.os`, and the signed archive/IPA carry it on the app and both
   extensions. Device test builds no longer blank extension entitlements.
-- The final bounded-context Coach run and the measured OANDA → Pocket Option handoff remain
-  pending because the physical phone is locked.
+- The measured OANDA → Pocket Option → return/confirm handoff remains pending because it
+  requires the unlocked phone and the manual broker step.
 
 ## Physical iPhone verification gap
 

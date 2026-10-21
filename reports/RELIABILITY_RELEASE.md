@@ -113,6 +113,10 @@ server, CloudKit, or broker automation is required. Broker execution remains man
   entry, pair-switch refusal, stale/historical refusal, relaunch restore, Siri flag
   consumption) and all-tabs canvas tests at default and largest Dynamic Type
   (`.accessibilityExtraExtraExtraLarge`)
+- Physical iPhone bounded Coach request (DEBUG harness `BLAZER_FM_COACH_SELFTEST=1`) — pass:
+  `origin=appleOnDevice state=completed latencyMs=7835.7 tokens=1617 limit=4096 method=exact
+  retries=0 omitted=0 issues=[]`, citing both supplied scan IDs; Mac control 11.6 s with the
+  same 1,617/4,096 count
 - Widget, Live Activity, Intents, Debug, Release simulator, and unsigned Release arm64 device
   builds — pass
 - Signed Debug device build for `Gilbert’s iPhone` — build and install succeed
@@ -155,8 +159,11 @@ These are simulator-independent and require the actual phone:
 7. Confirm the widget shows `HISTORICAL` after the beam, and the Live Activity shows
    `EXPIRED` after the horizon without a foreground update.
 8. Repeat Siri "Scan with Blazer" while the app is already open.
-9. Coach: confirm `Apple on-device model ready`, generated explanations, the `APPLE
-   ON-DEVICE` origin label, cited record ID, and that disabling Apple Intelligence produces
+9. Coach: the bounded request and citations are verified on-device; still confirm the
+   `APPLE ON-DEVICE` origin label in the panel and that disabling Apple Intelligence produces
    the honest unavailable reason plus `BASIC FALLBACK`.
 10. Start a long generation, background the app, and confirm scan/quote/countdown/entry are
     unaffected.
+11. Handoff: once a fresh TAP is armed, switch to Pocket Option, place the manual trade,
+    return, and record the entry. Confirm the saved `ActiveTrade` carries `evaluationAgeMs`,
+    `recordingDelayMs`, and `remainingBeamMs` from the real out-and-back interval.

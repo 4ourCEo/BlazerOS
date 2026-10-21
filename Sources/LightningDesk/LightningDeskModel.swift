@@ -2133,6 +2133,113 @@ extension LightningDeskModel {
         print("PHONE_FM_RESULT origin=\(result.origin.rawValue) decision=\(result.value.decision) score=\(result.value.score) latencyMs=\(result.diagnostic.latencyMs) issues=\(result.diagnostic.validationIssues)")
     }
 
+    /// Device-only diagnostic: exercise the bounded Coach request with a full context.
+    /// Uses the same `answer` path as the Coach panel. No execution state is touched.
+    /// Invoked only with BLAZER_FM_COACH_SELFTEST=1 in DEBUG.
+    public func runBoundedCoachSelfTestForTesting() async {
+        let availability = await assistant.availability(force: true)
+        print("PHONE_COACH_AVAIL ready=\(availability.isReady) detail=\(availability.detail)")
+        guard availability.isReady else { return }
+        let now = Date()
+        func scan(at index: Int) -> ScanRecordContext {
+            let first = index == 0
+            let pair = first ? "EUR/USD" : "GBP/USD"
+            let evaluationTime = now.addingTimeInterval(Double(-index * 120))
+            let fingerprint = String(repeating: first ? "A" : "B", count: 40)
+            return ScanRecordContext(
+                id: "phone-coach-scan-\(index)",
+                fullFingerprint: fingerprint,
+                pair: pair,
+                engineCall: "WAIT",
+                score: 44 + index,
+                evidence: "Completed M5 bars show a tight range. Spread widened before the evaluation. Momentum is not aligned with the higher-timeframe trend.",
+                veto: first ? nil : "Spread above the pair ceiling.",
+                evaluationTime: evaluationTime,
+                quoteMid: 1.1 + Double(index) * 0.01,
+                spread: 0.0002,
+                m1Count: 80,
+                m5Count: 40,
+                engineSHA: "phone-selftest",
+                expirySeconds: 60,
+                isActionable: false,
+                blockingReason: "Range is tight; no completed-bar displacement.",
+                recordedVerb: "WAIT"
+            )
+        }
+        let scans = [scan(at: 0), scan(at: 1)]
+
+        func entry(at index: Int) -> ConfirmedEntryContext {
+            let pair = index.isMultiple(of: 2) ? "EUR/USD" : "GBP/USD"
+            let side = index.isMultiple(of: 2) ? "HIGH" : "LOW"
+            let outcomes = ["MISS", "MISS", "HIT", "UNRESOLVED"]
+            let recordedAt = now.addingTimeInterval(Double(-index * 600))
+            let enteredAt = now.addingTimeInterval(Double(-index * 600 - 30))
+            let entryQuote = 1.1 + Double(index) * 0.001
+            let expiryPrice = 1.1005 + Double(index) * 0.001
+            return ConfirmedEntryContext(
+                id: "entry-\(index)",
+                pair: pair,
+                side: side,
+                outcome: outcomes[index],
+                recordedAt: recordedAt,
+                enteredAt: enteredAt,
+                horizonSeconds: 60,
+                entryQuote: entryQuote,
+                expiryPrice: expiryPrice,
+                stake: 1,
+                payout: 0.92,
+                lateEntry: index == 3,
+                recordID: "phone-coach-scan-\(index % 2)"
+            )
+        }
+        let entries = [entry(at: 0), entry(at: 1), entry(at: 2), entry(at: 3)]
+
+        func gap(at index: Int) -> ObservationGap {
+            let kinds: [ObservationGap.Kind] = [
+                .missingConfirmation, .lateEntry, .staleFeed, .unresolvedExpiry,
+            ]
+            let pair = index.isMultiple(of: 2) ? "EUR/USD" : "GBP/USD"
+            return ObservationGap(
+                id: "gap-\(index)",
+                pair: pair,
+                kind: kinds[index],
+                detail: "The venue result was not captured before the app was backgrounded; the expiry observation remains unresolved.",
+                recordID: "phone-coach-scan-\(index % 2)"
+            )
+        }
+        let gaps = [gap(at: 0), gap(at: 1), gap(at: 2), gap(at: 3)]
+
+        let notes = [
+            JournalNoteContext(
+                id: "note-0",
+                pair: "EUR/USD",
+                note: "Waited for the beam but the venue rejected the stake; recorded only after returning to the desk.",
+                createdAt: now
+            )
+        ]
+        let performance = PerformanceSummary(
+            sampleSize: 4, wins: 1, losses: 2, ties: 0, unresolved: 1,
+            winRate: 0.25, breakEven: 1.0 / (1.0 + EntryQuality.assumedPayout),
+            expectancy: -0.1, confirmedOnly: true,
+            caveat: "Small venue-confirmed sample. Descriptive only."
+        )
+        let context = AssistantContext(
+            generatedAt: now, scans: scans, confirmedEntries: entries,
+            performance: performance, gaps: gaps, notes: notes
+        )
+        print("PHONE_COACH_CONTEXT scans=\(context.scans.count) entries=\(context.confirmedEntries.count) gaps=\(context.gaps.count) notes=\(context.notes.count)")
+        let started = Date()
+        let result = await assistant.answer(
+            "Why did the latest scan return WAIT, and what is missing from the record?",
+            context: context,
+            timeout: 30
+        )
+        let d = result.diagnostic
+        let tokens = d.contextTokens.map(String.init) ?? "nil"
+        let limit = d.contextLimit.map(String.init) ?? "nil"
+        print("PHONE_COACH_RESULT origin=\(result.origin.rawValue) state=\(result.requestState.rawValue) latencyMs=\(String(format: "%.1f", d.latencyMs)) wallMs=\(String(format: "%.1f", Date().timeIntervalSince(started) * 1000)) tokens=\(tokens) limit=\(limit) method=\(d.contextMethod ?? "nil") retries=\(d.retryCount.map(String.init) ?? "nil") omitted=\(d.omitted?.count ?? 0) issues=\(d.validationIssues) failure=\(d.failure ?? "none") answerChars=\(result.value.answer.count) citations=\(result.value.citations)")
+    }
+
     /// Test-only seam: persist the frozen scan exactly as a real scan does.
     public func rememberForTesting() async -> Bool {
         guard let commit, let frame else { return false }

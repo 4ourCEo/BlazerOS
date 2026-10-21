@@ -33,6 +33,13 @@ struct BlazerOSMain: App {
                     default: break
                     }
                 }
+                .task {
+                    #if DEBUG
+                    if ProcessInfo.processInfo.environment["BLAZER_FM_COACH_SELFTEST"] == "1" {
+                        await model.runBoundedCoachSelfTestForTesting()
+                    }
+                    #endif
+                }
         }
         #if os(macOS)
         .defaultSize(width: PhoneTarget.width, height: PhoneTarget.height)
