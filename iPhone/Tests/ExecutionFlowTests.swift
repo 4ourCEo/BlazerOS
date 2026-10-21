@@ -57,6 +57,9 @@ final class ExecutionFlowTests: XCTestCase {
         await model.lockInTrade(duration: 60)
         XCTAssertEqual(model.activeTrade?.pair, "EUR/USD")
         XCTAssertEqual(model.activeTrade?.side, "HIGH")
+        XCTAssertNotNil(model.activeTrade?.evaluationAgeMs)
+        XCTAssertLessThanOrEqual(model.activeTrade?.remainingBeamMs ?? 9_999, 8_000)
+        XCTAssertGreaterThanOrEqual(model.activeTrade?.remainingBeamMs ?? -1, 0)
 
         model.select(pair: "USD/JPY")
         XCTAssertEqual(model.activeTrade?.pair, "EUR/USD")

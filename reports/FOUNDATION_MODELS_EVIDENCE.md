@@ -87,7 +87,7 @@ retry loops. The fallback label no longer says the model is unavailable.
 
 Chat runs without tool definitions to avoid multi-turn tool latency; tools remain active for
 scan fetch, comparison, debrief, and research. A real oversized-context test compacted and
-completed in ~10.4s (`state=completed retry=0 tokens=1316`).
+completed in ~10.4s (`state=completed retry=0 tokens=1316`); an earlier full-context attempt compacted after a context error and completed in ~47s.
 
 A device re-test of the bounded request is pending the phone being unlocked. Earlier, before
 the budget fix, the physical iPhone did generate successfully twice:

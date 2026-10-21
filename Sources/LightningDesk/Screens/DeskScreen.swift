@@ -707,6 +707,13 @@ struct DeskScreen: View {
                     )
                 }
 
+                if let age = trade.evaluationAgeMs, let remaining = trade.remainingBeamMs {
+                    Text(String(format: "Recorded %.1fs after scan · %.1fs beam left", age / 1000, remaining / 1000))
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundStyle(DeskInk.slate)
+                        .accessibilityLabel(String(format: "Recorded %.1f seconds after the scan. %.1f seconds of the action window remained.", age / 1000, remaining / 1000))
+                }
+
                 GeometryReader { geo in
                     let fillWidth = max(0, min(geo.size.width, geo.size.width * railFraction))
                     ZStack(alignment: .leading) {

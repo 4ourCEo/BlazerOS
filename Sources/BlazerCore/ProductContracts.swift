@@ -147,6 +147,10 @@ public struct ActiveTrade: Sendable, Equatable, Identifiable, Codable {
     public var payout: Double?
     /// User-supplied broker entry price. Optional; never inferred.
     public var brokerEntryPrice: Double?
+    /// Evaluation age and beam timing captured when the user recorded the manual entry.
+    public var evaluationAgeMs: Double?
+    public var remainingBeamMs: Double?
+    public var recordingDelayMs: Double?
     public var fingerprint: String
 
     public init(
@@ -161,6 +165,9 @@ public struct ActiveTrade: Sendable, Equatable, Identifiable, Codable {
         stake: Double? = nil,
         payout: Double? = nil,
         brokerEntryPrice: Double? = nil,
+        evaluationAgeMs: Double? = nil,
+        remainingBeamMs: Double? = nil,
+        recordingDelayMs: Double? = nil,
         fingerprint: String
     ) {
         self.id = id
@@ -175,6 +182,9 @@ public struct ActiveTrade: Sendable, Equatable, Identifiable, Codable {
         self.stake = stake
         self.payout = payout
         self.brokerEntryPrice = brokerEntryPrice
+        self.evaluationAgeMs = evaluationAgeMs
+        self.remainingBeamMs = remainingBeamMs
+        self.recordingDelayMs = recordingDelayMs
         self.fingerprint = fingerprint
     }
 

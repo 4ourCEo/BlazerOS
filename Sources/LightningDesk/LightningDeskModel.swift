@@ -1290,15 +1290,25 @@ public final class LightningDeskModel: ObservableObject {
         let liveStrike = quote.mid
         let durationSec = duration ?? selectedHorizonSec
         guard [60.0, 180.0, 300.0].contains(durationSec) else { notice = "Unsupported expiry"; return }
+        let enteredAt = Date()
+        let recordingDelayMs = activeEntryArmedAt.map {
+            max(0, enteredAt.timeIntervalSince($0) * 1000)
+        }
+        let evaluationAgeMs = max(0, enteredAt.timeIntervalSince(commit.scannedAt) * 1000)
+        let remainingBeamMs = max(0, Timing.liveMs - (recordingDelayMs ?? 0))
         let trade = ActiveTrade(
             id: tradeID,
             pair: commit.asset,
             side: cabinetSide,
             strike: liveStrike,
             score: commit.score,
-            enteredAt: Date(),
+            enteredAt: enteredAt,
             durationSec: durationSec,
             currentPrice: quote.mid,
+            brokerEntryPrice: nil,
+            evaluationAgeMs: evaluationAgeMs,
+            remainingBeamMs: remainingBeamMs,
+            recordingDelayMs: recordingDelayMs,
             fingerprint: commit.fingerprint
         )
         guard await persistOpenPosition(trade, commit: commit, armID: tradeID) else {
