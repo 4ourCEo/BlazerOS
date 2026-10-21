@@ -178,6 +178,8 @@ public actor DeskAssistant {
 
         Narrate this deterministic session summary. Copy every metric exactly; do not recompute
         or invent values. Distinguish small samples from dependable evidence. Cite record IDs.
+        The structured counts and gap groups are supplied by the app from the frozen records;
+        do not reclassify gaps or invent IDs.
         """
         let compactContext = context.bounded(
             maxScans: 0, maxEntries: 4, maxGaps: 4, maxNotes: 0, maxText: 100
@@ -196,7 +198,9 @@ public actor DeskAssistant {
             compactPrompt: compactPrompt,
             contextNotes: context.selectionNotes(after: modelContext)
         ) { data in
-            try Self.decodeSessionDebrief(data, performance: context.performance)
+            try Self.decodeSessionDebrief(
+                data, performance: context.performance, gaps: context.gaps
+            )
         } validate: {
             AssistantValidation.validate($0, context: context)
         }
@@ -312,17 +316,22 @@ public actor DeskAssistant {
     }
 
     private static func decodeSessionDebrief(
-        _ data: Data, performance: PerformanceSummary
+        _ data: Data, performance: PerformanceSummary, gaps: [ObservationGap]
     ) throws -> SessionDebrief {
         if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *) {
             let dto = try JSONDecoder().decode(GeneratedSessionDebrief.self, from: data)
             return SessionDebrief(
-                summary: dto.summary, sampleSize: dto.sampleSize, wins: dto.wins,
-                losses: dto.losses, ties: dto.ties, unresolved: dto.unresolved,
-                winRate: performance.winRate, expectancy: performance.expectancy,
-                missingConfirmations: dto.missingConfirmations,
-                lateEntries: dto.lateEntries,
-                staleInterruptions: dto.staleInterruptions,
+                summary: dto.summary,
+                sampleSize: performance.sampleSize,
+                wins: performance.wins,
+                losses: performance.losses,
+                ties: performance.ties,
+                unresolved: performance.unresolved,
+                winRate: performance.winRate,
+                expectancy: performance.expectancy,
+                missingConfirmations: gaps.filter { $0.kind == .missingConfirmation }.map(\.recordID),
+                lateEntries: gaps.filter { $0.kind == .lateEntry }.map(\.recordID),
+                staleInterruptions: gaps.filter { $0.kind == .staleFeed }.map(\.recordID),
                 behavioralObservations: Array(dto.behavioralObservations.prefix(6)),
                 citations: Array(dto.citations.prefix(20))
             )
@@ -462,6 +471,11 @@ public actor DeskAssistant {
                     estimate: estimate, retry: retryCount, omitted: omitted,
                     validationIssues: issues
                 )
+                #if DEBUG
+                if ProcessInfo.processInfo.environment["BLAZER_FM_DEBUG_REJECTS"] == "1" {
+                    print("FM_REJECTED feature=\(feature.rawValue) issues=\(issues) value=\(String(describing: decoded))")
+                }
+                #endif
                 await diagnostics.record(diagnostic)
                 return AssistantResult(value: fallback, origin: .deterministicFallback, diagnostic: diagnostic)
             } catch {

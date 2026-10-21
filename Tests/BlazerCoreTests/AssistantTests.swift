@@ -110,7 +110,45 @@ private func scanExplanationData(
     )
     return try JSONEncoder().encode(dto)
 }
+
+@available(macOS 26.0, iOS 26.0, *)
+private func debriefData(
+    summary: String,
+    behavioral: [String] = [],
+    citations: [String] = ["scan-1"]
+) throws -> Data {
+    let object: [String: Any] = [
+        "summary": summary,
+        "behavioralObservations": behavioral,
+        "citations": citations,
+    ]
+    return try JSONSerialization.data(withJSONObject: object)
+}
 #endif
+
+private func sampleDebriefContext(expectancy: Double? = 0.88) -> AssistantContext {
+    let scan = sampleScan()
+    let performance = PerformanceSummary(
+        sampleSize: 1, wins: 1, losses: 0, ties: 0, unresolved: 11,
+        winRate: 1.0, breakEven: 1.0 / 1.88, expectancy: expectancy,
+        confirmedOnly: true,
+        caveat: "Small confirmed sample (n=1). Descriptive only; not evidence of a stable edge."
+    )
+    let gaps = [
+        ObservationGap(
+            id: "gap-event-1", pair: "EUR/USD", kind: .missingConfirmation,
+            detail: "No venue confirmation was recorded.", recordID: "event-1"
+        ),
+        ObservationGap(
+            id: "late-scan-1", pair: "EUR/USD", kind: .lateEntry,
+            detail: "Entry was recorded after the beam.", recordID: "scan-1"
+        ),
+    ]
+    return AssistantContext(
+        generatedAt: Date(), scans: [scan], confirmedEntries: [],
+        performance: performance, gaps: gaps, notes: []
+    )
+}
 
 @Test func availableEngineProducesModelOrigin() async throws {
     #if canImport(FoundationModels)
@@ -169,6 +207,54 @@ private func scanExplanationData(
         #expect(result.diagnostic.validationIssues.contains {
             $0.contains("evidence is not in the frozen record")
         })
+    }
+    #endif
+}
+
+@Test func debriefDerivesStructuredFieldsFromContext() async throws {
+    #if canImport(FoundationModels)
+    if #available(macOS 26.0, iOS 26.0, *) {
+        let context = sampleDebriefContext()
+        let engine = FakeEngine(data: try debriefData(
+            summary: "One confirmed win and no confirmed losses out of one. Expectancy is positive only in this small sample; descriptive only.",
+            citations: ["scan-1", "gap-event-1"]
+        ))
+        let assistant = DeskAssistant(engine: engine)
+        let result = await assistant.debrief(context: context)
+        #expect(result.origin == .appleOnDevice)
+        #expect(result.diagnostic.validationIssues.isEmpty)
+        #expect(result.value.sampleSize == 1)
+        #expect(result.value.wins == 1)
+        #expect(result.value.losses == 0)
+        #expect(result.value.unresolved == 11)
+        #expect(result.value.expectancy == 0.88)
+        #expect(result.value.missingConfirmations == ["event-1"])
+        #expect(result.value.lateEntries == ["scan-1"])
+        #expect(result.value.staleInterruptions.isEmpty)
+    }
+    #endif
+}
+
+@Test func allRecordIDsIncludesLocalEntryAndGapIDs() {
+    let context = sampleDebriefContext()
+    #expect(context.allRecordIDs.contains("event-1"))
+    #expect(context.allRecordIDs.contains("gap-event-1"))
+    #expect(context.allRecordIDs.contains("late-scan-1"))
+    #expect(context.allRecordIDs.contains("scan-1"))
+}
+
+@Test func debriefRejectsUnknownCitation() async throws {
+    #if canImport(FoundationModels)
+    if #available(macOS 26.0, iOS 26.0, *) {
+        let context = sampleDebriefContext()
+        let engine = FakeEngine(data: try debriefData(
+            summary: "One confirmed win in a small sample.",
+            citations: ["not-a-record"]
+        ))
+        let assistant = DeskAssistant(engine: engine)
+        let result = await assistant.debrief(context: context)
+        #expect(result.origin == .deterministicFallback)
+        #expect(result.diagnostic.validationIssues.contains { $0.contains("unknown citation") })
     }
     #endif
 }

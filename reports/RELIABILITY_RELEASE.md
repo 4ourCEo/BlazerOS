@@ -81,6 +81,10 @@ server, CloudKit, or broker automation is required. Broker execution remains man
   and deterministic fallback are implemented.
 - Grounded explanations, conversational coach, journal drafts, debrief, comparison, and
   research suggestions all pass through semantic validation before display.
+- Validation accepts verbatim whole-record evidence, any ID present in the context for
+  citations, and deterministic expectancy when the context computed it. Debrief counts and
+  gap groups are derived from the frozen context; the model only narrates the summary and
+  behavioral observations.
 - Read-only tools expose scans, comparisons, confirmed entries, deterministic performance,
   observation gaps, and journal search. They cannot write, confirm outcomes, trade, or read
   credentials.
@@ -117,6 +121,9 @@ server, CloudKit, or broker automation is required. Broker execution remains man
   `origin=appleOnDevice state=completed latencyMs=7835.7 tokens=1617 limit=4096 method=exact
   retries=0 omitted=0 issues=[]`, citing both supplied scan IDs; Mac control 11.6 s with the
   same 1,617/4,096 count
+- Physical iPhone feature matrix — Coach, Debrief, Compare, Journal draft, and Research all
+  returned `origin=appleOnDevice`, `state=completed`, `issues=[]`; the persisted Debrief
+  context now shows accurate deterministic counts and no validation error
 - Widget, Live Activity, Intents, Debug, Release simulator, and unsigned Release arm64 device
   builds — pass
 - Signed Debug device build for `Gilbert’s iPhone` — build and install succeed

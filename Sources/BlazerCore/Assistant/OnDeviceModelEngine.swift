@@ -221,16 +221,11 @@ struct GeneratedJournalDraft: Codable, Sendable {
 @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
 @Generable
 struct GeneratedSessionDebrief: Codable, Sendable {
+    @Guide(description: "Two or three sentences narrating the supplied deterministic metrics and recorded caveat. State the confirmed counts; do not restate win rate, expectancy, break-even, percentages, or raw decimals because the app renders them. Never predict price or claim a durable edge.")
     var summary: String
-    var sampleSize: Int
-    var wins: Int
-    var losses: Int
-    var ties: Int
-    var unresolved: Int
-    var missingConfirmations: [String]
-    var lateEntries: [String]
-    var staleInterruptions: [String]
+    @Guide(description: "Only behavioral observations supported by recorded events. Empty when none.")
     var behavioralObservations: [String]
+    @Guide(description: "IDs present in the supplied records: scan id, entry id, gap id, or note id.")
     var citations: [String]
 }
 

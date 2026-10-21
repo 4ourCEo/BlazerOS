@@ -198,7 +198,18 @@ public struct AssistantContext: Codable, Sendable, Equatable {
     public static let empty = AssistantContext()
 
     public var allRecordIDs: Set<String> {
-        Set(scans.map(\.id) + confirmedEntries.map(\.recordID) + gaps.map(\.recordID) + notes.map(\.id))
+        var ids = Set<String>()
+        for scan in scans { ids.insert(scan.id) }
+        for entry in confirmedEntries {
+            ids.insert(entry.id)
+            ids.insert(entry.recordID)
+        }
+        for gap in gaps {
+            ids.insert(gap.id)
+            ids.insert(gap.recordID)
+        }
+        for note in notes { ids.insert(note.id) }
+        return ids
     }
 
     /// Bounds context to the on-device model window. Evidence and notes are truncated;

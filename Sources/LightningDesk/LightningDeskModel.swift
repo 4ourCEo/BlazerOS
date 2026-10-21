@@ -595,6 +595,7 @@ public final class LightningDeskModel: ObservableObject {
             activeTab = .coach
             await explainLatestScan()
             await askAssistant("Why did this scan return WAIT?")
+            await requestSessionDebrief()
         }
         #endif
         await withTaskGroup(of: Void.self) { group in
@@ -2218,9 +2219,10 @@ extension LightningDeskModel {
             )
         ]
         let performance = PerformanceSummary(
-            sampleSize: 4, wins: 1, losses: 2, ties: 0, unresolved: 1,
-            winRate: 0.25, breakEven: 1.0 / (1.0 + EntryQuality.assumedPayout),
-            expectancy: -0.1, confirmedOnly: true,
+            sampleSize: 3, wins: 1, losses: 2, ties: 0, unresolved: 1,
+            winRate: 1.0 / 3.0, breakEven: 1.0 / (1.0 + EntryQuality.assumedPayout),
+            expectancy: (1.0 / 3.0) * EntryQuality.assumedPayout - (2.0 / 3.0),
+            confirmedOnly: true,
             caveat: "Small venue-confirmed sample. Descriptive only."
         )
         let context = AssistantContext(
@@ -2238,6 +2240,26 @@ extension LightningDeskModel {
         let tokens = d.contextTokens.map(String.init) ?? "nil"
         let limit = d.contextLimit.map(String.init) ?? "nil"
         print("PHONE_COACH_RESULT origin=\(result.origin.rawValue) state=\(result.requestState.rawValue) latencyMs=\(String(format: "%.1f", d.latencyMs)) wallMs=\(String(format: "%.1f", Date().timeIntervalSince(started) * 1000)) tokens=\(tokens) limit=\(limit) method=\(d.contextMethod ?? "nil") retries=\(d.retryCount.map(String.init) ?? "nil") omitted=\(d.omitted?.count ?? 0) issues=\(d.validationIssues) failure=\(d.failure ?? "none") answerChars=\(result.value.answer.count) citations=\(result.value.citations)")
+
+        let debriefStarted = Date()
+        let debrief = await assistant.debrief(context: context, timeout: 30)
+        let dd = debrief.diagnostic
+        let debriefTokens = dd.contextTokens.map(String.init) ?? "nil"
+        let debriefLimit = dd.contextLimit.map(String.init) ?? "nil"
+        print("PHONE_DEBRIEF_RESULT origin=\(debrief.origin.rawValue) state=\(debrief.requestState.rawValue) latencyMs=\(String(format: "%.1f", dd.latencyMs)) wallMs=\(String(format: "%.1f", Date().timeIntervalSince(debriefStarted) * 1000)) tokens=\(debriefTokens) limit=\(debriefLimit) method=\(dd.contextMethod ?? "nil") retries=\(dd.retryCount.map(String.init) ?? "nil") omitted=\(dd.omitted?.count ?? 0) issues=\(dd.validationIssues) failure=\(dd.failure ?? "none") summary=\(debrief.value.summary)")
+
+        let compare = await assistant.compare(scans[0], scans[1], timeout: 30)
+        print("PHONE_COMPARE_RESULT origin=\(compare.origin.rawValue) state=\(compare.requestState.rawValue) issues=\(compare.diagnostic.validationIssues) failure=\(compare.diagnostic.failure ?? "none") citations=\(compare.value.citations)")
+
+        let draft = await assistant.journalDraft(
+            note: "I waited for the beam and recorded the entry after returning from the broker.",
+            context: context,
+            timeout: 30
+        )
+        print("PHONE_DRAFT_RESULT origin=\(draft.origin.rawValue) state=\(draft.requestState.rawValue) issues=\(draft.diagnostic.validationIssues) failure=\(draft.diagnostic.failure ?? "none") summaryChars=\(draft.value.summary.count)")
+
+        let research = await assistant.researchSuggestions(context: context, timeout: 40)
+        print("PHONE_RESEARCH_RESULT origin=\(research.origin.rawValue) state=\(research.requestState.rawValue) issues=\(research.diagnostic.validationIssues) failure=\(research.diagnostic.failure ?? "none") suggestions=\(research.value.count)")
     }
 
     /// Test-only seam: persist the frozen scan exactly as a real scan does.

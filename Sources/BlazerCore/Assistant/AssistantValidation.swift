@@ -7,7 +7,11 @@ public enum AssistantValidation {
         "risk-free", "sure win"
     ]
 
-    public static func containsForbiddenClaim(_ text: String, allowWinRate: Bool = false) -> String? {
+    public static func containsForbiddenClaim(
+        _ text: String,
+        allowWinRate: Bool = false,
+        allowExpectancy: Bool = false
+    ) -> String? {
         let lower = text.lowercased()
         if lower.contains("$") { return "currency amount" }
         if lower.contains("broker confirmed") || lower.contains("broker settlement") {
@@ -15,6 +19,7 @@ public enum AssistantValidation {
         }
         return forbiddenClaims.first {
             if allowWinRate && $0 == "win rate" { return false }
+            if allowExpectancy && $0 == "expectancy" { return false }
             return lower.contains($0)
         }
     }
@@ -131,7 +136,8 @@ public enum AssistantValidation {
         }
         if let claim = containsForbiddenClaim(
             answer.answer,
-            allowWinRate: context.performance.sampleSize > 0
+            allowWinRate: context.performance.sampleSize > 0,
+            allowExpectancy: context.performance.expectancy != nil
         ) {
             issues.append("unsupported claim: \(claim)")
         }
@@ -155,14 +161,31 @@ public enum AssistantValidation {
         if debrief.citations.contains(where: { !context.allRecordIDs.contains($0) }) {
             issues.append("unknown citation")
         }
-        let gapIDs = Set(context.gaps.map(\.recordID))
-        if debrief.missingConfirmations.contains(where: { !gapIDs.contains($0) }) {
+        func allowedGapReferences(_ kind: ObservationGap.Kind) -> Set<String> {
+            var values = Set<String>()
+            for gap in context.gaps where gap.kind == kind {
+                values.insert(gap.id)
+                values.insert(gap.recordID)
+            }
+            return values
+        }
+        let missingReferences = allowedGapReferences(.missingConfirmation)
+        let lateReferences = allowedGapReferences(.lateEntry)
+        let staleReferences = allowedGapReferences(.staleFeed)
+        if debrief.missingConfirmations.contains(where: { !missingReferences.contains($0) }) {
             issues.append("unknown missing-confirmation reference")
         }
-        if debrief.lateEntries.contains(where: { !gapIDs.contains($0) }) {
+        if debrief.lateEntries.contains(where: { !lateReferences.contains($0) }) {
             issues.append("unknown late-entry reference")
         }
-        if let claim = containsForbiddenClaim(debrief.summary, allowWinRate: p.sampleSize > 0) {
+        if debrief.staleInterruptions.contains(where: { !staleReferences.contains($0) }) {
+            issues.append("unknown stale-interruption reference")
+        }
+        if let claim = containsForbiddenClaim(
+            debrief.summary,
+            allowWinRate: p.sampleSize > 0,
+            allowExpectancy: p.expectancy != nil
+        ) {
             issues.append("unsupported claim: \(claim)")
         }
         if containsUnsupportedPercentage(debrief.summary, performance: p) {
