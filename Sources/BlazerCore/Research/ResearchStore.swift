@@ -29,6 +29,22 @@ public actor ResearchStore {
     }
     public func outcomes() throws -> [ResearchOutcome] { try load(ResearchOutcome.self, directory: "outcomes") }
 
+    public func record(_ experiment: ResearchExperiment) throws {
+        try writeOnce(experiment, directory: "experiments", name: experiment.id)
+    }
+
+    public func experiments() throws -> [ResearchExperiment] {
+        try load(ResearchExperiment.self, directory: "experiments")
+    }
+
+    public func record(_ report: ResearchExperimentReport) throws {
+        try writeOnce(report, directory: "reports", name: report.id)
+    }
+
+    public func reports() throws -> [ResearchExperimentReport] {
+        try load(ResearchExperimentReport.self, directory: "reports")
+    }
+
     private func writeOnce<T: Encodable>(_ value: T, directory: String, name: String) throws {
         guard !name.isEmpty, name.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" }) else {
             throw ScanError.failed("Invalid research event ID")

@@ -41,3 +41,13 @@ import BlazerCore
     #expect(SavedScanPresentation.word(outcome: "HIT", verb: "TAP HIGH", scannedAt: scan, now: outside) == "HIT")
     #expect(!SavedScanPresentation.isLive(outcome: "HIT", scannedAt: scan, now: inside))
 }
+
+@Test func liveActivityExpiresWithoutAStaleFlag() {
+    let now = Date()
+    let ends = now.addingTimeInterval(60)
+    #expect(!LiveActivityPresentation.isExpired(endsAt: ends, isStale: false, now: now))
+    #expect(LiveActivityPresentation.isExpired(endsAt: ends, isStale: false, now: now.addingTimeInterval(61)))
+    #expect(LiveActivityPresentation.isExpired(endsAt: ends, isStale: true, now: now))
+    #expect(LiveActivityPresentation.word(verb: "TAP HIGH", endsAt: ends, isStale: false, now: now.addingTimeInterval(61)) == "EXPIRED")
+    #expect(LiveActivityPresentation.footer(endsAt: ends, isStale: false, now: now.addingTimeInterval(61))?.contains("CONFIRM") == true)
+}

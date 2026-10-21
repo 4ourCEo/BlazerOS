@@ -39,17 +39,21 @@ public struct ActivePositionRecord: Codable, Equatable, Sendable {
     public var fullFingerprint: String
     /// Complete frozen input, when the app recorded it. Optional for pre-v4 records.
     public var scanInput: ScanInputSnapshot?
+    /// When the eight-second beam was armed. Optional for older records.
+    public var armedAt: Date?
 
     public init(
         armID: String,
         trade: ActiveTrade,
         fullFingerprint: String,
-        scanInput: ScanInputSnapshot? = nil
+        scanInput: ScanInputSnapshot? = nil,
+        armedAt: Date? = nil
     ) {
         self.armID = armID
         self.trade = trade
         self.fullFingerprint = fullFingerprint
         self.scanInput = scanInput
+        self.armedAt = armedAt
     }
 }
 

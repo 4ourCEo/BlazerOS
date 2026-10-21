@@ -145,6 +145,8 @@ public struct ActiveTrade: Sendable, Equatable, Identifiable, Codable {
     public var currentPrice: Double?
     public var stake: Double?
     public var payout: Double?
+    /// User-supplied broker entry price. Optional; never inferred.
+    public var brokerEntryPrice: Double?
     public var fingerprint: String
 
     public init(
@@ -158,6 +160,7 @@ public struct ActiveTrade: Sendable, Equatable, Identifiable, Codable {
         currentPrice: Double? = nil,
         stake: Double? = nil,
         payout: Double? = nil,
+        brokerEntryPrice: Double? = nil,
         fingerprint: String
     ) {
         self.id = id
@@ -171,6 +174,7 @@ public struct ActiveTrade: Sendable, Equatable, Identifiable, Codable {
         self.currentPrice = currentPrice
         self.stake = stake
         self.payout = payout
+        self.brokerEntryPrice = brokerEntryPrice
         self.fingerprint = fingerprint
     }
 

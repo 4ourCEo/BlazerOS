@@ -16,6 +16,15 @@ public final class LightningDeskModel: ObservableObject {
         let root = storageRoot ?? FileLocations.applicationSupport()
         persistence = PersistenceCoordinator(root: root)
         strikeStore = StrikeStore(url: root.appendingPathComponent("strike_positions.json"))
+        let diagnosticsURL = root.appendingPathComponent("model_diagnostics.jsonl")
+        if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *) {
+            assistant = DeskAssistant.appleOnDevice(diagnosticsURL: diagnosticsURL)
+        } else {
+            assistant = DeskAssistant(
+                engine: UnavailableModelEngine(reason: .unsupportedOS),
+                diagnosticsURL: diagnosticsURL
+            )
+        }
     }
     @Published public var pair: String = "EUR/USD"
     @Published var feed: FeedStatus = .connecting
@@ -55,6 +64,9 @@ public final class LightningDeskModel: ObservableObject {
     @Published var showingCredentials = false
     /// Frozen scans. Newest first. Display only; quotes never rewrite the score.
     @Published private(set) var journal: [ReplayEntry] = []
+    /// Durable journal records. The display model above drops engine metadata; the assistant
+    /// must read these original records.
+    private var storedJournal: [JournalEntry] = []
     @Published var showingJournal = false
     @Published var openReplayID: String?
     /// Explanation of the open replay. Built from the seal, not from a live quote.
@@ -76,6 +88,19 @@ public final class LightningDeskModel: ObservableObject {
     @Published var credentialSaveFailed = false
     /// Voice coach session for the open replay. One active session at a time.
     @Published var voiceSession = VoiceSession()
+
+    // MARK: - On-device assistant (explanations only; never execution authority)
+    private let assistant: DeskAssistant
+    @Published public private(set) var assistantAvailability: AssistantAvailability = .unknown
+    @Published public private(set) var assistantStatus: AssistantStatus = .idle
+    @Published public private(set) var assistantOrigin: AssistantOrigin?
+    @Published public private(set) var assistantAnswer: CoachAnswer?
+    @Published public private(set) var assistantScanExplanation: ScanExplanation?
+    @Published public private(set) var assistantJournalDraft: JournalDraft?
+    @Published public private(set) var assistantDebrief: SessionDebrief?
+    @Published public private(set) var assistantComparison: ScanComparison?
+    @Published public private(set) var assistantResearch: [ResearchSuggestion] = []
+    @Published public private(set) var assistantError: String?
     /// Whether spoken audio debriefing plays when a 60s binary position expires.
     @Published public var voiceDebriefEnabled: Bool = UserDefaults.standard.object(forKey: "blazer.voice_debrief_enabled") as? Bool ?? true {
         didSet {
@@ -334,6 +359,8 @@ public final class LightningDeskModel: ObservableObject {
     private var commit: ScanCommit?
     private var cabinetSide = "WAIT"
     private var armedAt: Date?
+    /// Armed time of the manual entry currently being tracked. Persisted with the entry.
+    private var activeEntryArmedAt: Date?
     private var quote: LiveQuote?
     /// Last quote observed for the active manual entry, independent of the browsing pair.
     private var activeTradeQuote: LiveQuote?
@@ -518,6 +545,7 @@ public final class LightningDeskModel: ObservableObject {
         }
         #endif
         await reloadFromDisk()
+        Task { await refreshAssistantAvailability() }
         // Finish any settlement that was interrupted by a crash or a failed write.
         if pendingSaveCount > 0 {
             let remaining = await persistence.reconcilePendingSettlements()
@@ -573,6 +601,7 @@ public final class LightningDeskModel: ObservableObject {
         awaitingOutcome = false
         activeTrade = nil
         activeTradeQuote = nil
+        activeEntryArmedAt = nil
         predictedOutcome = nil
         armID = nil
         candles = []
@@ -675,6 +704,7 @@ public final class LightningDeskModel: ObservableObject {
         awaitingOutcome = false
         activeTrade = nil
         activeTradeQuote = nil
+        activeEntryArmedAt = nil
         predictedOutcome = nil
         armID = nil
         candles = []
@@ -841,12 +871,12 @@ public final class LightningDeskModel: ObservableObject {
             drift: settleCommit.driftPips ?? 0,
             outcome: outcome.rawValue,
             outcomeEventID: settleArmID,
-            payout: EntryQuality.assumedPayout,
-            stake: nil,
+            payout: trade?.payout,
+            stake: trade?.stake,
             marketWindow: windowName,
             engineSHA: settleCommit.engineSHA,
             fullFingerprint: settleCommit.fullFingerprint,
-            entryQuote: entryQuote ?? trade?.strike ?? settleCommit.strike,
+            entryQuote: entryQuote ?? trade?.brokerEntryPrice ?? trade?.strike ?? settleCommit.strike,
             expiryPrice: expiryPrice ?? expiry?.exitPrice,
             labelSource: labelSource,
             horizonSeconds: trade.map { Int($0.durationSec) },
@@ -900,6 +930,7 @@ public final class LightningDeskModel: ObservableObject {
         expired = false
         activeTrade = nil
         activeTradeQuote = nil
+        activeEntryArmedAt = nil
         pendingTrade = nil
         pendingExpiry = nil
         predictedOutcome = nil
@@ -1051,14 +1082,22 @@ public final class LightningDeskModel: ObservableObject {
     private func consumePendingScanIfReady() async -> Bool {
         #if os(iOS)
         guard !scanning, activeTrade == nil, !awaitingOutcome, !settlementInFlight else { return false }
-        let defaults = UserDefaults(suiteName: PhoneTarget.appGroup)
-        guard defaults?.bool(forKey: PhoneTarget.pendingScanKey) == true else { return false }
-        defaults?.set(false, forKey: PhoneTarget.pendingScanKey)
+        guard takePendingScanRequest() else { return false }
         await scan()
         return true
         #else
         return false
         #endif
+    }
+
+    /// Consumes the Siri pending request exactly once. Internal so the cached-session path
+    /// can be regression-tested without launching a network scan.
+    @discardableResult
+    func takePendingScanRequest() -> Bool {
+        let defaults = UserDefaults(suiteName: PhoneTarget.appGroup)
+        guard defaults?.bool(forKey: PhoneTarget.pendingScanKey) == true else { return false }
+        defaults?.set(false, forKey: PhoneTarget.pendingScanKey)
+        return true
     }
 
     private func diagLog(_ message: String) {
@@ -1217,6 +1256,7 @@ public final class LightningDeskModel: ObservableObject {
         }
         guard let commit, let selectedSignal, let quote else { return }
         let tradeID = armID ?? "\(commit.fingerprint)-\(Int(Date().timeIntervalSince1970 * 1000))"
+        activeEntryArmedAt = armedAt
         armID = tradeID
         let liveStrike = quote.mid
         let durationSec = duration ?? selectedHorizonSec
@@ -1245,6 +1285,26 @@ public final class LightningDeskModel: ObservableObject {
         publishFrame()
     }
 
+    /// Optional broker details supplied by the user after placing the manual trade.
+    /// Missing values remain missing; nothing is inferred.
+    public func updateActiveEntryDetails(
+        brokerEntryPrice: Double?,
+        stake: Double?,
+        payout: Double?
+    ) async {
+        guard var trade = activeTrade, let commit else { return }
+        trade.brokerEntryPrice = brokerEntryPrice
+        trade.stake = stake
+        trade.payout = payout
+        activeTrade = trade
+        pendingTrade = trade
+        if await persistOpenPosition(trade, commit: commit, armID: trade.id) {
+            notice = "Broker details saved locally."
+        } else {
+            notice = "Broker details were not saved; retry."
+        }
+    }
+
     /// The position is durable before the desk treats it as tracked. A write failure is
     /// reported and the entry is refused rather than tracked without a recovery copy.
     private func persistOpenPosition(_ trade: ActiveTrade, commit: ScanCommit, armID: String) async -> Bool {
@@ -1252,7 +1312,8 @@ public final class LightningDeskModel: ObservableObject {
             armID: armID,
             trade: trade,
             fullFingerprint: commit.fullFingerprint,
-            scanInput: commit.inputSnapshot
+            scanInput: commit.inputSnapshot,
+            armedAt: activeEntryArmedAt
         )
         do {
             try await persistence.saveOpenPosition(record)
@@ -1284,6 +1345,7 @@ public final class LightningDeskModel: ObservableObject {
         predictedOutcome = referenceAvailable ? (referenceIsHit ? .hit : .miss) : nil
         activeTrade = nil
         activeTradeQuote = nil
+        activeEntryArmedAt = nil
         expired = true
         awaitingOutcome = true
         DeskHaptics.settleAlert()
@@ -1457,7 +1519,11 @@ public final class LightningDeskModel: ObservableObject {
             strike: entry.strike,
             candleCount: entry.candles.count
         )
-        voiceSession.start(seal: seal, evidence: entry.why, using: FoundationCoachService())
+        voiceSession.start(
+            seal: seal,
+            evidence: entry.why,
+            using: FoundationCoachService(assistant: assistant, context: assistantContext())
+        )
     }
 
     func stopVoice() {
@@ -1468,6 +1534,147 @@ public final class LightningDeskModel: ObservableObject {
     public func askCoachLatest() {
         guard let entry = journal.first else { return }
         askCoach(for: entry)
+    }
+
+    // MARK: - On-device assistant actions (explanations only)
+
+    public func refreshAssistantAvailability() async {
+        if case .generating = assistantStatus { return }
+        assistantStatus = .checking
+        let value = await assistant.availability(force: true)
+        assistantAvailability = value
+        if value.isReady {
+            assistantStatus = .idle
+            assistantError = nil
+        } else {
+            assistantStatus = .unavailable(value.detail)
+            assistantError = value.detail
+        }
+    }
+
+    public func askAssistant(_ question: String) async {
+        let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let context = assistantContext()
+        let generation = nextAssistantGeneration()
+        assistantStatus = .generating(.coachAnswer)
+        assistantError = nil
+        let result = await assistant.answer(trimmed, context: context)
+        guard generation == assistantGeneration else { return }
+        assistantAnswer = result.value
+        assistantOrigin = result.origin
+        assistantStatus = result.isModelGenerated ? .idle : .basicFallback
+        assistantError = result.isModelGenerated ? nil : result.diagnostic.failure
+    }
+
+    public func explainLatestScan() async {
+        let context = assistantContext()
+        guard let scan = context.scans.first else {
+            assistantError = "No saved scan is available to explain."
+            return
+        }
+        let generation = nextAssistantGeneration()
+        assistantStatus = .generating(.scanExplanation)
+        assistantError = nil
+        let result = await assistant.explainScan(scan, context: context)
+        guard generation == assistantGeneration else { return }
+        assistantScanExplanation = result.value
+        assistantOrigin = result.origin
+        assistantStatus = result.isModelGenerated ? .idle : .basicFallback
+        assistantError = result.isModelGenerated ? nil : result.diagnostic.failure
+    }
+
+    public func requestSessionDebrief() async {
+        let context = assistantContext()
+        let generation = nextAssistantGeneration()
+        assistantStatus = .generating(.sessionDebrief)
+        assistantError = nil
+        let result = await assistant.debrief(context: context)
+        guard generation == assistantGeneration else { return }
+        assistantDebrief = result.value
+        assistantOrigin = result.origin
+        assistantStatus = result.isModelGenerated ? .idle : .basicFallback
+        assistantError = result.isModelGenerated ? nil : result.diagnostic.failure
+    }
+
+    public func compareLatestScans() async {
+        let context = assistantContext()
+        guard context.scans.count >= 2 else {
+            assistantError = "At least two saved scans are required for a comparison."
+            return
+        }
+        let generation = nextAssistantGeneration()
+        assistantStatus = .generating(.scanComparison)
+        assistantError = nil
+        let result = await assistant.compare(context.scans[1], context.scans[0])
+        guard generation == assistantGeneration else { return }
+        assistantComparison = result.value
+        assistantOrigin = result.origin
+        assistantStatus = result.isModelGenerated ? .idle : .basicFallback
+        assistantError = result.isModelGenerated ? nil : result.diagnostic.failure
+    }
+
+    public func requestResearchSuggestions() async {
+        let context = assistantContext()
+        let generation = nextAssistantGeneration()
+        assistantStatus = .generating(.researchSuggestions)
+        assistantError = nil
+        let result = await assistant.researchSuggestions(context: context)
+        guard generation == assistantGeneration else { return }
+        assistantResearch = result.value
+        assistantOrigin = result.origin
+        assistantStatus = result.isModelGenerated ? .idle : .basicFallback
+        assistantError = result.isModelGenerated ? nil : result.diagnostic.failure
+    }
+
+    public func draftJournalNote(_ note: String) async {
+        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let context = assistantContext()
+        let generation = nextAssistantGeneration()
+        assistantStatus = .generating(.journalDraft)
+        assistantError = nil
+        let result = await assistant.journalDraft(note: trimmed, context: context)
+        guard generation == assistantGeneration else { return }
+        assistantJournalDraft = result.value
+        assistantOrigin = result.origin
+        assistantStatus = result.isModelGenerated ? .idle : .basicFallback
+        assistantError = result.isModelGenerated ? nil : result.diagnostic.failure
+    }
+
+    /// Saves a generated annotation only after the user explicitly confirms it.
+    /// The original voice note is never overwritten.
+    public func saveAssistantJournalDraft(_ draft: JournalDraft, entryID: String) async {
+        guard storedJournal.contains(where: { $0.id == entryID }) else { return }
+        let emotion = draft.emotion.lowercased() == "not stated" ? nil : Emotion(name: draft.emotion)
+        let tag = draft.tags.first.map { Tag(label: $0) }
+        do {
+            try await persistence.annotate(
+                entryID: entryID,
+                tag: tag,
+                emotion: emotion,
+                lesson: Lesson(text: draft.lesson)
+            )
+            await reloadFromDisk()
+            assistantError = nil
+        } catch {
+            assistantError = "The journal draft could not be saved."
+        }
+    }
+
+    public func assistantDiagnostics(limit: Int = 20) async -> [AssistantDiagnostic] {
+        await assistant.recentDiagnostics(limit: limit)
+    }
+
+    private var assistantGeneration = 0
+
+    private func nextAssistantGeneration() -> Int {
+        assistantGeneration += 1
+        return assistantGeneration
+    }
+
+    private func assistantContext() -> AssistantContext {
+        AssistantContextBuilder.make(journal: storedJournal, ledgerRows: ledgerRows)
     }
 
     /// Save a spoken voice note to a journal entry.
@@ -1489,9 +1696,29 @@ public final class LightningDeskModel: ObservableObject {
             hash: entry.fingerprint
         )
         coachExplanation = PromptBuilder.sealedCard(brief)
-        let card = await FoundationCoachService().card(for: brief)
+        let context = assistantContext()
+        guard let scan = context.scans.first(where: { $0.id == id }) else { return }
+        assistantStatus = .generating(.scanExplanation)
+        let result = await assistant.explainScan(scan, context: context)
         guard openReplayID == id else { return }
-        coachExplanation = card
+        assistantScanExplanation = result.value
+        assistantOrigin = result.origin
+        assistantStatus = result.isModelGenerated ? .idle : .basicFallback
+        assistantError = result.isModelGenerated ? nil : result.diagnostic.failure
+        if result.isModelGenerated {
+            let evidence = result.value.evidenceUsed.isEmpty
+                ? "No evidence was recorded."
+                : result.value.evidenceUsed.joined(separator: " · ")
+            coachExplanation = CoachExplanation(
+                summary: result.value.summary,
+                confidence: "Sealed",
+                bullets: [
+                    "Engine: \(scan.engineCall) · score \(scan.score)",
+                    "Evidence: \(evidence)",
+                    result.value.coachNote,
+                ]
+            )
+        }
     }
 
     /// Sealed coach explanation for the latest recorded scan, or the currently open replay.
@@ -1522,7 +1749,13 @@ public final class LightningDeskModel: ObservableObject {
             why: commit.evidence,
             strike: commit.strike,
             veto: commit.veto,
-            scannedAt: commit.scannedAt
+            scannedAt: commit.scannedAt,
+            engineSHA: commit.engineSHA,
+            expirySeconds: commit.expirySeconds,
+            m1Count: commit.candles.count,
+            m5Count: commit.m5Candles.count,
+            evaluationQuote: commit.strike,
+            evaluationSpread: commit.spread
         )
         let snapshot = SnapshotRecord(
             hash: commit.fingerprint,
@@ -1563,6 +1796,7 @@ public final class LightningDeskModel: ObservableObject {
         ledgerRows = restored.ledgerRows
         restoreIssues = restored.issues
         pendingSaveCount = restored.pendingSettlements.count
+        storedJournal = restored.entries
         journal = restored.entries.map {
             replay($0, bars: restored.bars(for: $0.fullFingerprint ?? $0.fingerprint))
         }
@@ -1615,11 +1849,13 @@ public final class LightningDeskModel: ObservableObject {
             veto: entry.veto
         )
         cabinetSide = position.trade.side
+        activeEntryArmedAt = position.armedAt
         selectedSignal = nil
         pendingTrade = position.trade
         if position.trade.isExpired {
             activeTrade = nil
         activeTradeQuote = nil
+        activeEntryArmedAt = nil
             expired = true
             awaitingOutcome = true
             notice = "Position expired while closed; confirm the venue result"

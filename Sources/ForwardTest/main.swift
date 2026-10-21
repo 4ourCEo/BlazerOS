@@ -14,6 +14,7 @@ struct Options {
     var policies = ["baseline"]
     var maxEvents = 100
     var bootstrap = false
+    var experiment = false
 
     init(_ arguments: [String]) throws {
         var index = 0
@@ -24,6 +25,7 @@ struct Options {
             case "--benchmark", "-b": synthetic = true
             case "--stats", "-s": stats = true
             case "--bootstrap": stats = true; bootstrap = true
+            case "--experiment": experiment = true
             case "--replay": replay = true
             case "--continuous": continuous = true
             case "--daemon", "-d": daemon = true; continuous = true; primeOnly = true
@@ -248,6 +250,31 @@ final class ResearchRunner {
         print("Replayed \(matches) frozen events with matching side, conviction, evidence and veto narrative.")
     }
 
+    func runExperiment() async throws {
+        let events = try await store.events()
+        let outcomes = try await store.outcomes()
+        for policy in options.policies {
+            let engine = policy == "control" ? StrategyEngine.controlSHA1 : EngineIdentity.pinnedSHA1
+            let experiment = ResearchExperiment(
+                name: "chronological \(policy) evaluation",
+                policy: policy,
+                engineSHA: engine,
+                acceptanceCriteria: "Held-out cohort has positive assumed-payout expectancy with a lower Wilson bound above 50% after at least 30 resolved outcomes.",
+                rejectionCriteria: "Held-out cohort has non-positive expectancy or its lower Wilson bound remains below 50%.",
+                notes: "Generated locally. No live activation."
+            )
+            try await store.record(experiment)
+            let report = ResearchEvaluator.evaluate(experiment: experiment, events: events, outcomes: outcomes)
+            try await store.record(report)
+            for cohort in [report.train, report.test] {
+                let rate = cohort.winRate.map { String(format: "%.1f%%", $0 * 100) } ?? "unavailable"
+                let ev = cohort.expectancy.map { String(format: "%+.4f", $0) } ?? "unavailable"
+                print("EXPERIMENT \(policy) \(cohort.label): n=\(cohort.resolved) H=\(cohort.highSignals) L=\(cohort.lowSignals) WAIT=\(cohort.waitSignals) accepted=\(cohort.acceptedEntries)/\(cohort.candidates) WR=\(rate) EV88=\(ev) balanced=\(report.highLowBalanced)")
+                print("  \(cohort.caveat)")
+            }
+        }
+    }
+
     func printStats() async throws {
         let events = try await store.events()
         let outcomes = try await store.outcomes()
@@ -293,10 +320,11 @@ struct ForwardTestApp {
         do {
             let options = try Options(Array(CommandLine.arguments.dropFirst()))
             if options.help {
-                print("ForwardTest [--benchmark | --stats | --bootstrap | --replay] [--root PATH] [--policy baseline|continuation|reversal|regime|control | --all-policies] [--max-events N] [--prime-only] [--continuous | --daemon]")
+                print("ForwardTest [--benchmark | --stats | --bootstrap | --replay | --experiment] [--root PATH] [--policy baseline|continuation|reversal|regime|control | --all-policies] [--max-events N] [--prime-only] [--continuous | --daemon]")
                 return
             }
             let runner = ResearchRunner(options: options)
+            if options.experiment { try await runner.runExperiment(); return }
             if options.stats { try await runner.printStats(); return }
             if options.replay { try await runner.replay(); return }
             if options.synthetic { try await runner.runSynthetic(); return }

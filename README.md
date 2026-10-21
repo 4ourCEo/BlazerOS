@@ -38,8 +38,17 @@ manual and confirmed against the venue.
 
 Reliability work in this tree covers entry gating, full-input scan identity, synthetic/reference
 isolation, pending-settlement recovery, widget/Live Activity expiry, and Siri consumption. See
-[the reliability release notes](reports/RELIABILITY_RELEASE.md) for the verification results and
-the remaining physical-device checklist.
+[the reliability release notes](reports/RELIABILITY_RELEASE.md) and
+[Foundation Models evidence](reports/FOUNDATION_MODELS_EVIDENCE.md).
+
+## On-device assistant
+
+`DeskAssistant` uses Apple’s on-device system model (`FoundationModels`) for grounded scan
+explanations, a conversational coach, a session debrief, scan comparisons, journal drafts, and
+bounded research suggestions. It has read-only local tools, guided generation, semantic
+validation, request serialization, timeouts, cancellation, and a clearly-labelled deterministic
+fallback. It never writes engine direction, score, strike, veto, deadlines, stake, or confirmed
+outcomes. No API key, remote model, or Private Cloud Compute is used.
 
 ## Scan research
 

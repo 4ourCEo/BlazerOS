@@ -6,6 +6,7 @@ struct DeskScreen: View {
     var reduceMotion: Bool
     @State private var showingPrimeSchedule = false
     @State private var showingStrikeSheet = false
+    @State private var showingEntryDetails = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -59,6 +60,9 @@ struct DeskScreen: View {
         }
         .sheet(isPresented: $showingStrikeSheet) {
             StrikeTradeSheet(model: model)
+        }
+        .sheet(isPresented: $showingEntryDetails) {
+            ManualEntryDetailsSheet(model: model)
         }
         .onChange(of: model.marketMode) { _, _ in
             Task { await model.scan() }
@@ -676,6 +680,16 @@ struct DeskScreen: View {
                     }
 
                     Spacer()
+
+                    Button {
+                        showingEntryDetails = true
+                    } label: {
+                        Text(trade.brokerEntryPrice == nil ? "Add broker details" : "Edit broker details")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(DeskInk.electric)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Add optional broker entry price, stake, and payout")
 
                     // Dynamic Live Pip Cushion Pill
                     HStack(spacing: 4) {

@@ -73,16 +73,51 @@ server, CloudKit, or broker automation is required. Broker execution remains man
 - The Explore Demo desk suppresses the missing-credential cover without pretending a
   Keychain session exists.
 
+### On-device Foundation Models
+
+- `DeskAssistant` uses `SystemLanguageModel` only. No remote model, Private Cloud Compute,
+  API key, or third-party fallback.
+- Availability, serialization, cancellation, timeout, guided generation, bounded diagnostics,
+  and deterministic fallback are implemented.
+- Grounded explanations, conversational coach, journal drafts, debrief, comparison, and
+  research suggestions all pass through semantic validation before display.
+- Read-only tools expose scans, comparisons, confirmed entries, deterministic performance,
+  observation gaps, and journal search. They cannot write, confirm outcomes, trade, or read
+  credentials.
+- Authoritative numbers are rendered from code; model text is labelled `APPLE ON-DEVICE` or
+  `BASIC FALLBACK`.
+
 ## Verification performed
 
-- `swift build`
-- `swift test` — 122 tests
-- `swift run -c release Parity` — 43 checks
-- `swift run Persist` — 59 checks
-- `xcodebuild ... -scheme BlazerOS test` on iPhone 16 simulator — passed, including
-  `ExecutionFlowTests` (armed entry, pair-switch refusal, stale/historical refusal, and
-  relaunch restore) and the all-tabs canvas test
-- Widget, Live Activity, and Intents schemes build
+- `swift build` and `swift build -c release` — pass
+- `swift test` — **136 tests pass**
+- `swift run -c release Parity` — 43 checks pass
+- `swift run Persist` — 59 checks pass
+- `swift run Soak` — 10/10 soak checks pass
+- `swift run ForwardTest --benchmark --root <tmp> --max-events 30` — synthetic archive
+- `swift run ForwardTest --experiment --root <tmp>` — chronological train/test report with
+  HIGH/LOW coverage flags
+- `swift run ForwardTest --replay --root <tmp>` — 30 frozen events replay exactly
+- Real Apple on-device generation on this Mac:
+  `FM_EVIDENCE availability=ready origin=appleOnDevice decision=WAIT score=44 latencyMs=12181.59 issues=[]`
+- iPhone 16 simulator `xcodebuild ... test` — pass, including `ExecutionFlowTests` (armed
+  entry, pair-switch refusal, stale/historical refusal, relaunch restore, Siri flag
+  consumption) and the all-tabs canvas test
+- Widget, Live Activity, Intents, Debug, Release simulator, and unsigned Release arm64 device
+  builds — pass
+- Built app/extension privacy manifests present; generated simulator `.xcent` shows
+  `group.com.blazer.os` on app, widget, and Live Activity with team `A2N63PR6N6`
+
+## Release-candidate blocker: Apple signing
+
+Generic iOS archive is **not** verified. The only local signing identity is
+`Apple Development: … (A2N63PR6N6)`; there is no iOS Development certificate or provisioning
+profile for `com.blazer.os`, `com.blazer.os.widgets`, or `com.blazer.os.liveactivity`.
+`xcodebuild archive` fails with “No profiles … were found” and “No signing certificate …”.
+
+The project and `exportOptions.plist` now agree on team `A2N63PR6N6`, and app-group
+entitlements are present in all three targets. Creating/downloading profiles and archiving
+requires Apple account access; it has not been done without approval.
 
 ## Remaining gate (physical device)
 
@@ -91,10 +126,16 @@ These are simulator-independent and require the actual phone:
 1. OANDA credentials present; scan FX and confirm a fresh TAP HIGH and TAP LOW.
 2. Switch pairs and markets while an entry is active; the entry's price and countdown must
    not change identity or pair.
-3. Open Pocket Option (app switch), return after 60s/3m/5m, confirm one venue result.
+3. Open Pocket Option (app switch), return after 60s/3m/5m, add optional broker details,
+   confirm one venue result.
 4. Force quit after entry, relaunch, and confirm the position and its expiry state restore.
 5. Enable Airplane Mode during an armed beam; entry must be refused and TAP must disappear.
 6. Deny notification/Live Activity permission and confirm the desk still functions.
 7. Confirm the widget shows `HISTORICAL` after the beam, and the Live Activity shows
    `EXPIRED` after the horizon without a foreground update.
 8. Repeat Siri "Scan with Blazer" while the app is already open.
+9. Coach: confirm `Apple on-device model ready`, generated explanations, the `APPLE
+   ON-DEVICE` origin label, cited record ID, and that disabling Apple Intelligence produces
+   the honest unavailable reason plus `BASIC FALLBACK`.
+10. Start a long generation, background the app, and confirm scan/quote/countdown/entry are
+    unaffected.

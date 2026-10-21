@@ -35,6 +35,8 @@ struct CoachScreen: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 14) {
+                    CoachAssistantPanel(model: model)
+
                     if let explanation = model.latestCoachExplanation {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Latest Session Analysis")

@@ -106,4 +106,14 @@ final class ExecutionFlowTests: XCTestCase {
         XCTAssertEqual(second.activeTrade?.pair, "EUR/USD")
         XCTAssertEqual(second.activeTrade?.durationSec, 180)
     }
+
+    func testPendingSiriRequestIsConsumedOnce() {
+        let root = root()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = LightningDeskModel(storageRoot: root)
+        let defaults = UserDefaults(suiteName: PhoneTarget.appGroup)
+        defaults?.set(true, forKey: PhoneTarget.pendingScanKey)
+        XCTAssertTrue(model.takePendingScanRequest())
+        XCTAssertFalse(model.takePendingScanRequest())
+    }
 }

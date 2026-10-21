@@ -1,4 +1,5 @@
 import BlazerActivity
+import BlazerCore
 import SwiftUI
 import WidgetKit
 
@@ -241,7 +242,7 @@ struct DeskLiveActivity: Widget {
 
     /// The activity is historical once its timer has closed or ActivityKit marks it stale.
     private func isExpired(_ context: ActivityViewContext<DeskActivityAttributes>) -> Bool {
-        context.isStale || context.state.endsAt <= Date()
+        LiveActivityPresentation.isExpired(endsAt: context.state.endsAt, isStale: context.isStale)
     }
 
     private func displayVerb(_ context: ActivityViewContext<DeskActivityAttributes>) -> String {
