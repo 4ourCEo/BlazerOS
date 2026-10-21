@@ -182,7 +182,7 @@ struct GeneratedScanExplanation: Codable, Sendable {
     var decision: String
     @Guide(description: "Must exactly equal the sealed engine score.")
     var score: Int
-    @Guide(description: "Quote exact evidence lines from the frozen record only.")
+    @Guide(description: "Quote the recorded evidence verbatim: individual evidence lines or the complete evidence string. Never paraphrase.")
     var evidenceUsed: [String]
     @Guide(description: "The recorded veto or gate that blocked action. Empty when the scan was actionable.")
     var blockingGate: String

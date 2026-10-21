@@ -141,6 +141,38 @@ private func scanExplanationData(
     #endif
 }
 
+@Test func fullRecordedEvidenceStringIsAccepted() async throws {
+    #if canImport(FoundationModels)
+    if #available(macOS 26.0, iOS 26.0, *) {
+        let scan = sampleScan()
+        let engine = FakeEngine(
+            data: try scanExplanationData(evidence: ["Trend is up (+18) · Sweep"])
+        )
+        let assistant = DeskAssistant(engine: engine)
+        let result = await assistant.explainScan(scan, context: sampleContext(scan: scan))
+        #expect(result.origin == .appleOnDevice)
+        #expect(result.diagnostic.validationIssues.isEmpty)
+    }
+    #endif
+}
+
+@Test func inventedEvidenceIsStillRejected() async throws {
+    #if canImport(FoundationModels)
+    if #available(macOS 26.0, iOS 26.0, *) {
+        let scan = sampleScan()
+        let engine = FakeEngine(
+            data: try scanExplanationData(evidence: ["Trend is up (+18) · Invented"])
+        )
+        let assistant = DeskAssistant(engine: engine)
+        let result = await assistant.explainScan(scan, context: sampleContext(scan: scan))
+        #expect(result.origin == .deterministicFallback)
+        #expect(result.diagnostic.validationIssues.contains {
+            $0.contains("evidence is not in the frozen record")
+        })
+    }
+    #endif
+}
+
 @Test func unavailableModelReturnsLabelledFallback() async {
     let scan = sampleScan()
     let engine = FakeEngine(availabilityValue: .unavailable(.appleIntelligenceNotEnabled))

@@ -2111,7 +2111,7 @@ extension LightningDeskModel {
             pair: "EUR/USD",
             engineCall: "WAIT",
             score: 44,
-            evidence: "Range is tight",
+            evidence: "Trend is up (+18) · Range is tight",
             veto: nil,
             evaluationTime: Date(),
             quoteMid: 1.1,

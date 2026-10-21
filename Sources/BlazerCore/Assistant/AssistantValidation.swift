@@ -82,7 +82,13 @@ public enum AssistantValidation {
             issues.append("score \(explanation.score) does not match sealed \(scan.score)")
         }
         let allowedEvidence = Set(scan.evidenceLines)
-        for cited in explanation.evidenceUsed where !allowedEvidence.contains(cited) {
+        let fullEvidence = scan.evidence.trimmingCharacters(in: .whitespacesAndNewlines)
+        let joinedEvidence = scan.evidenceLines.joined(separator: " · ")
+        for cited in explanation.evidenceUsed {
+            let value = cited.trimmingCharacters(in: .whitespacesAndNewlines)
+            if allowedEvidence.contains(value) || value == fullEvidence || value == joinedEvidence {
+                continue
+            }
             issues.append("evidence is not in the frozen record: \(cited)")
         }
         if !scan.evidenceLines.isEmpty && explanation.evidenceUsed.isEmpty {

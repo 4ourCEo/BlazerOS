@@ -12,7 +12,9 @@
   credentials.
 - Semantic validation rejects contradictory decision/score, non-recorded evidence, invented
   numbers/percentages, unknown citations, unsupported performance claims, and research that
-  proposes live activation.
+  proposes live activation. A verbatim quote of the complete recorded `evidence` string is
+  accepted, as are individual evidence lines; only evidence absent from the frozen record is
+  rejected.
 - Diagnostics are local and bounded (`model_diagnostics.jsonl`): request ID, feature, origin,
   availability/failure, latency, schema/prompt version, record IDs, validation issues. No
   prompt, response, or credential is retained.
@@ -116,6 +118,10 @@ reports the request outcome (`completed`, `contextTooLarge`, `cancelled`, `timed
   limit=4096 method=exact retries=0 omitted=0 issues=[] failure=none`, citing both supplied
   scan IDs. The same harness on the Mac completed in 11.6 s with the same 1,617/4,096 token
   count. The harness is DEBUG-only: `BLAZER_FM_COACH_SELFTEST=1`.
+- Re-ran the explanation harness with the exact evidence string that was falsely rejected on
+  the phone (`Trend is up (+18) · Range is tight`): `PHONE_FM_RESULT origin=appleOnDevice
+  decision=WAIT score=44 latencyMs=7754.1 issues=[]`. Whole-record evidence quotes now pass
+  validation; invented evidence is still rejected.
 - The app now defaults to FX/OANDA for Pocket Option handoff; crypto remains selectable.
 - Extension app-group provisioning is fixed: the widget and Live Activity profiles were
   refreshed with `group.com.blazer.os`, and the signed archive/IPA carry it on the app and both
