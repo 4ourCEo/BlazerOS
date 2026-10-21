@@ -89,9 +89,11 @@ final class ExecutionFlowTests: XCTestCase {
             ["hit", "miss", "tie"].contains(model.referenceHistory.first?.resolution.rawValue ?? "")
         )
         let referenceFile = root
-            .appendingPathComponent("Research/oanda-proxy/outcomes")
-            .appendingPathComponent("\(armID ?? "missing")-60.json")
+            .appendingPathComponent("Research/oanda-proxy")
+            .appendingPathComponent(ReferenceOutcomeStore.fileName)
         XCTAssertTrue(FileManager.default.fileExists(atPath: referenceFile.path))
+        let contents = (try? String(contentsOf: referenceFile, encoding: .utf8)) ?? ""
+        XCTAssertTrue(contents.contains(armID ?? "missing"))
     }
 
     func testStaleSignalCannotBecomeAnEntry() async {

@@ -15,7 +15,7 @@ public final class LightningDeskModel: ObservableObject {
     public init(storageRoot: URL? = nil) {
         let root = storageRoot ?? FileLocations.applicationSupport()
         persistence = PersistenceCoordinator(root: root)
-        referenceStore = ResearchStore(
+        referenceStore = ReferenceOutcomeStore(
             root: root.appendingPathComponent("Research", isDirectory: true)
                 .appendingPathComponent("oanda-proxy", isDirectory: true)
         )
@@ -380,7 +380,7 @@ public final class LightningDeskModel: ObservableObject {
     }
 
     private let persistence: PersistenceCoordinator
-    private let referenceStore: ResearchStore
+    private let referenceStore: ReferenceOutcomeStore
     private var session: OandaSession?
     private var armID: String?
     private var commit: ScanCommit?
@@ -1431,10 +1431,7 @@ public final class LightningDeskModel: ObservableObject {
 
     private func recordReference(_ observation: ResearchOutcome) async {
         do {
-            try await referenceStore.record(observation)
-            if !referenceOutcomes.contains(where: {
-                $0.eventID == observation.eventID && $0.horizon == observation.horizon
-            }) {
+            if try await referenceStore.record(observation) {
                 referenceOutcomes.append(observation)
             }
         } catch {
@@ -1895,7 +1892,7 @@ public final class LightningDeskModel: ObservableObject {
         journal = restored.entries.map {
             replay($0, bars: restored.bars(for: $0.fullFingerprint ?? $0.fingerprint))
         }
-        referenceOutcomes = (try? await referenceStore.outcomes()) ?? []
+        referenceOutcomes = await referenceStore.outcomes()
         for entry in journal {
             if candlesByAsset[entry.pair] == nil && !entry.candles.isEmpty {
                 candlesByAsset[entry.pair] = entry.candles
