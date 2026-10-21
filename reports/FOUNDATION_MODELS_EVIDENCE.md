@@ -85,13 +85,32 @@ An oversized request retries **once** with a compact context, preserving the sel
 identity; a second overflow returns `Context too large` and the deterministic fallback. No
 retry loops. The fallback label no longer says the model is unavailable.
 
-A device re-test of the bounded request is pending the phone being unlocked.
+A device re-test of the bounded request is pending the phone being unlocked. Earlier, before
+the budget fix, the physical iPhone did generate successfully twice:
+
+```text
+PHONE_FM_AVAIL ready
+PHONE_FM_RESULT origin=appleOnDevice decision=WAIT score=44 latencyMs=5210.10 issues=[]
+```
+
+Those calls used the small self-test context, not the oversized Coach context that produced
+the 7,750-token error.
 
 ## Request states versus capability
 
 `AssistantAvailability` reports capability only (`ready` / reason). `AssistantRequestState`
 reports the request outcome (`completed`, `contextTooLarge`, `cancelled`, `timedOut`,
 `refusedOrFailed`, `invalidOutput`, `unavailable`, `basicFallback`). The Coach panel shows both.
+
+## Physical iPhone status
+
+- Real on-device generation succeeded on the phone (Apple A18 / iOS 27) with the self-test
+  context.
+- The Coach screen reproduced the 7,750-token overflow; the budget fix is committed and the
+  bounded-context re-test is pending unlock.
+- The app now defaults to FX/OANDA for Pocket Option handoff; crypto remains selectable.
+- Extension app-group provisioning is still missing from the widget/Live Activity profiles,
+  so the device test build uses empty extension entitlements.
 
 ## Physical iPhone verification gap
 
