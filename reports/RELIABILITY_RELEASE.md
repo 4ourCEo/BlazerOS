@@ -117,6 +117,10 @@ Generic iOS archive is **not** verified. The only local signing identity is
 profile for `com.blazer.os`, `com.blazer.os.widgets`, or `com.blazer.os.liveactivity`.
 `xcodebuild archive` fails with “No profiles … were found” and “No signing certificate …”.
 
+The physical iPhone `Gilbert’s iPhone` is visible to `devicectl` but currently **offline**.
+No install, on-device run, or TestFlight upload was attempted. Foundation Models was verified
+with real on-device generation on this Mac (macOS 27), not on the phone.
+
 The project and `exportOptions.plist` now agree on team `A2N63PR6N6`, and app-group
 entitlements are present in all three targets. Creating/downloading profiles and archiving
 requires Apple account access; it has not been done without approval.
