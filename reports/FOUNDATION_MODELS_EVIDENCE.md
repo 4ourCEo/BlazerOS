@@ -56,6 +56,22 @@ the same sealed decision and score.
 - deterministic comparison differences
 - confirmed-only context accounting
 
+## Physical iPhone finding: context-window overflow
+
+The first physical-device Coach run showed:
+
+```text
+generation failed: Provided 7,750 tokens, but the maximum allowed is 4,096.
+```
+
+The model was available; the context was not bounded. `AssistantContext.bounded(...)` now
+uses feature-specific slices (one scan for explanation, 4 scans / 8 entries / 8 gaps / 3 notes
+for chat, smaller slices for debrief and research) with truncated evidence and notes. The
+fallback label no longer says the model is unavailable.
+
+A device re-test is pending the phone being unlocked; the simulator/unit suite includes a
+bounded-context size regression test.
+
 ## Physical iPhone verification gap
 
 The iPhone simulator does not prove Apple Intelligence availability or generation. On the
