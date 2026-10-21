@@ -56,12 +56,16 @@ struct CoachAssistantPanel: View {
                     .padding(.horizontal, 7)
                     .padding(.vertical, 3)
                     .background(originColor.opacity(0.12), in: Capsule())
+                Toggle("", isOn: $model.assistantEnabled)
+                    .labelsHidden()
+                    .tint(DeskInk.violet)
+                    .accessibilityLabel("Enable on-device assistant")
             }
             Text(model.assistantAvailability.detail)
                 .font(.system(size: 11, weight: .regular))
                 .foregroundStyle(DeskInk.slate)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(model.assistantStatus.label)
+            Text(model.assistantRequestState?.label ?? model.assistantStatus.label)
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(DeskInk.slate.opacity(0.85))
         }
@@ -97,7 +101,7 @@ struct CoachAssistantPanel: View {
                     .foregroundStyle(question.trimmingCharacters(in: .whitespaces).isEmpty ? DeskInk.slate : DeskInk.electric)
             }
             .buttonStyle(.plain)
-            .disabled(question.trimmingCharacters(in: .whitespaces).isEmpty)
+            .disabled(question.trimmingCharacters(in: .whitespaces).isEmpty || !model.assistantEnabled)
             .accessibilityLabel("Ask the on-device coach")
         }
     }
@@ -316,7 +320,7 @@ struct CoachAssistantPanel: View {
             .background(DeskInk.electric.opacity(0.1), in: Capsule())
         }
         .buttonStyle(.plain)
-        .disabled(isGenerating)
+        .disabled(isGenerating || !model.assistantEnabled)
     }
 
     private var isGenerating: Bool {

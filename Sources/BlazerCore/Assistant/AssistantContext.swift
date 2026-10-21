@@ -235,6 +235,24 @@ public struct AssistantContext: Codable, Sendable, Equatable {
         }
         return copy
     }
+
+    /// Describes what a bounded context omitted. Used in diagnostics, never as model facts.
+    public func selectionNotes(after bounded: AssistantContext) -> [String] {
+        var notes: [String] = []
+        if bounded.scans.count < scans.count {
+            notes.append("scans \(bounded.scans.count)/\(scans.count)")
+        }
+        if bounded.confirmedEntries.count < confirmedEntries.count {
+            notes.append("entries \(bounded.confirmedEntries.count)/\(confirmedEntries.count)")
+        }
+        if bounded.gaps.count < gaps.count {
+            notes.append("gaps \(bounded.gaps.count)/\(gaps.count)")
+        }
+        if bounded.notes.count < notes.count {
+            notes.append("notes \(bounded.notes.count)/\(notes.count)")
+        }
+        return notes
+    }
 }
 
 public enum AssistantContextBuilder {

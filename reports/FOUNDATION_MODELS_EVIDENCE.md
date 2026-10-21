@@ -64,13 +64,34 @@ The first physical-device Coach run showed:
 generation failed: Provided 7,750 tokens, but the maximum allowed is 4,096.
 ```
 
-The model was available; the context was not bounded. `AssistantContext.bounded(...)` now
-uses feature-specific slices (one scan for explanation, 4 scans / 8 entries / 8 gaps / 3 notes
-for chat, smaller slices for debrief and research) with truncated evidence and notes. The
-fallback label no longer says the model is unavailable.
+The model was available; the context was not bounded. The fix now has two layers:
 
-A device re-test is pending the phone being unlocked; the simulator/unit suite includes a
-bounded-context size regression test.
+1. **Feature slices** — one scan for explanations, 4 scans / 8 entries / 8 gaps / 3 notes
+   for chat, smaller debrief/research slices, with truncated evidence and notes.
+2. **Central request budget** — `SystemLanguageModel.contextSize` is read at runtime
+   (4,096 on this runtime), and Apple’s `tokenCount(for:)` API is used when available
+   (iOS/macOS 26.4+). The count includes system instructions, user prompt, tool definitions,
+   and the guided-output schema. Output reserve and a 256-token safety margin are subtracted.
+   If the exact tokenizer is unavailable, a conservative character estimate is used and
+   labelled `estimated`.
+
+Exact measurement on this Mac:
+
+```text
+FM_BUDGET inputTokens=941 contextSize=4096 outputReserve=420 safetyMargin=256 method=exact
+```
+
+An oversized request retries **once** with a compact context, preserving the selected record
+identity; a second overflow returns `Context too large` and the deterministic fallback. No
+retry loops. The fallback label no longer says the model is unavailable.
+
+A device re-test of the bounded request is pending the phone being unlocked.
+
+## Request states versus capability
+
+`AssistantAvailability` reports capability only (`ready` / reason). `AssistantRequestState`
+reports the request outcome (`completed`, `contextTooLarge`, `cancelled`, `timedOut`,
+`refusedOrFailed`, `invalidOutput`, `unavailable`, `basicFallback`). The Coach panel shows both.
 
 ## Physical iPhone verification gap
 

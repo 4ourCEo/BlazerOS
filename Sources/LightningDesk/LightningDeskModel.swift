@@ -101,6 +101,25 @@ public final class LightningDeskModel: ObservableObject {
     @Published public private(set) var assistantComparison: ScanComparison?
     @Published public private(set) var assistantResearch: [ResearchSuggestion] = []
     @Published public private(set) var assistantError: String?
+    @Published public private(set) var assistantRequestState: AssistantRequestState?
+    /// Optional AI surfaces. The execution workflow remains usable when this is off.
+    @Published public var assistantEnabled: Bool = UserDefaults.standard.object(forKey: "blazer.assistant_enabled") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(assistantEnabled, forKey: "blazer.assistant_enabled")
+            if !assistantEnabled {
+                assistantStatus = .idle
+                assistantAnswer = nil
+                assistantScanExplanation = nil
+                assistantJournalDraft = nil
+                assistantDebrief = nil
+                assistantComparison = nil
+                assistantResearch = []
+                assistantError = nil
+                assistantOrigin = nil
+                assistantRequestState = nil
+            }
+        }
+    }
     /// Whether spoken audio debriefing plays when a 60s binary position expires.
     @Published public var voiceDebriefEnabled: Bool = UserDefaults.standard.object(forKey: "blazer.voice_debrief_enabled") as? Bool ?? true {
         didSet {
@@ -1532,7 +1551,11 @@ public final class LightningDeskModel: ObservableObject {
         voiceSession.start(
             seal: seal,
             evidence: entry.why,
-            using: FoundationCoachService(assistant: assistant, context: assistantContext())
+            using: FoundationCoachService(
+                allowsModel: assistantEnabled,
+                assistant: assistant,
+                context: assistantContext()
+            )
         )
     }
 
@@ -1563,6 +1586,7 @@ public final class LightningDeskModel: ObservableObject {
     }
 
     public func askAssistant(_ question: String) async {
+        guard assistantEnabled else { assistantError = "On-device assistant is off."; return }
         let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         let context = assistantContext()
@@ -1573,11 +1597,13 @@ public final class LightningDeskModel: ObservableObject {
         guard generation == assistantGeneration else { return }
         assistantAnswer = result.value
         assistantOrigin = result.origin
+        assistantRequestState = result.requestState
         assistantStatus = result.isModelGenerated ? .idle : .basicFallback
         assistantError = result.isModelGenerated ? nil : result.diagnostic.failure
     }
 
     public func explainLatestScan() async {
+        guard assistantEnabled else { assistantError = "On-device assistant is off."; return }
         let context = assistantContext()
         guard let scan = context.scans.first else {
             assistantError = "No saved scan is available to explain."
@@ -1590,11 +1616,13 @@ public final class LightningDeskModel: ObservableObject {
         guard generation == assistantGeneration else { return }
         assistantScanExplanation = result.value
         assistantOrigin = result.origin
+        assistantRequestState = result.requestState
         assistantStatus = result.isModelGenerated ? .idle : .basicFallback
         assistantError = result.isModelGenerated ? nil : result.diagnostic.failure
     }
 
     public func requestSessionDebrief() async {
+        guard assistantEnabled else { assistantError = "On-device assistant is off."; return }
         let context = assistantContext()
         let generation = nextAssistantGeneration()
         assistantStatus = .generating(.sessionDebrief)
@@ -1603,11 +1631,13 @@ public final class LightningDeskModel: ObservableObject {
         guard generation == assistantGeneration else { return }
         assistantDebrief = result.value
         assistantOrigin = result.origin
+        assistantRequestState = result.requestState
         assistantStatus = result.isModelGenerated ? .idle : .basicFallback
         assistantError = result.isModelGenerated ? nil : result.diagnostic.failure
     }
 
     public func compareLatestScans() async {
+        guard assistantEnabled else { assistantError = "On-device assistant is off."; return }
         let context = assistantContext()
         guard context.scans.count >= 2 else {
             assistantError = "At least two saved scans are required for a comparison."
@@ -1620,11 +1650,13 @@ public final class LightningDeskModel: ObservableObject {
         guard generation == assistantGeneration else { return }
         assistantComparison = result.value
         assistantOrigin = result.origin
+        assistantRequestState = result.requestState
         assistantStatus = result.isModelGenerated ? .idle : .basicFallback
         assistantError = result.isModelGenerated ? nil : result.diagnostic.failure
     }
 
     public func requestResearchSuggestions() async {
+        guard assistantEnabled else { assistantError = "On-device assistant is off."; return }
         let context = assistantContext()
         let generation = nextAssistantGeneration()
         assistantStatus = .generating(.researchSuggestions)
@@ -1633,11 +1665,13 @@ public final class LightningDeskModel: ObservableObject {
         guard generation == assistantGeneration else { return }
         assistantResearch = result.value
         assistantOrigin = result.origin
+        assistantRequestState = result.requestState
         assistantStatus = result.isModelGenerated ? .idle : .basicFallback
         assistantError = result.isModelGenerated ? nil : result.diagnostic.failure
     }
 
     public func draftJournalNote(_ note: String) async {
+        guard assistantEnabled else { assistantError = "On-device assistant is off."; return }
         let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         let context = assistantContext()
@@ -1648,6 +1682,7 @@ public final class LightningDeskModel: ObservableObject {
         guard generation == assistantGeneration else { return }
         assistantJournalDraft = result.value
         assistantOrigin = result.origin
+        assistantRequestState = result.requestState
         assistantStatus = result.isModelGenerated ? .idle : .basicFallback
         assistantError = result.isModelGenerated ? nil : result.diagnostic.failure
     }
@@ -1706,6 +1741,7 @@ public final class LightningDeskModel: ObservableObject {
             hash: entry.fingerprint
         )
         coachExplanation = PromptBuilder.sealedCard(brief)
+        guard assistantEnabled else { return }
         let context = assistantContext()
         guard let scan = context.scans.first(where: { $0.id == id }) else { return }
         assistantStatus = .generating(.scanExplanation)
@@ -1713,6 +1749,7 @@ public final class LightningDeskModel: ObservableObject {
         guard openReplayID == id else { return }
         assistantScanExplanation = result.value
         assistantOrigin = result.origin
+        assistantRequestState = result.requestState
         assistantStatus = result.isModelGenerated ? .idle : .basicFallback
         assistantError = result.isModelGenerated ? nil : result.diagnostic.failure
         if result.isModelGenerated {

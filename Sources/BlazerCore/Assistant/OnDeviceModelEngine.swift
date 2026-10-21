@@ -11,6 +11,25 @@ public protocol OnDeviceModelEngine: Sendable {
         context: AssistantContext,
         timeout: TimeInterval
     ) async throws -> Data
+
+    /// Exact counts when Apple’s tokenizer is available; nil when the engine cannot count.
+    func estimate(
+        feature: AssistantFeature,
+        instructions: String,
+        prompt: String,
+        context: AssistantContext
+    ) async -> ModelTokenEstimate?
+}
+
+public extension OnDeviceModelEngine {
+    func estimate(
+        feature: AssistantFeature,
+        instructions: String,
+        prompt: String,
+        context: AssistantContext
+    ) async -> ModelTokenEstimate? {
+        nil
+    }
 }
 
 #if canImport(FoundationModels)
@@ -99,13 +118,55 @@ public struct SystemModelEngine: OnDeviceModelEngine {
     }
 
     private func tokenBudget(for feature: AssistantFeature) -> Int {
+        ModelBudgetPolicy.outputReserve(for: feature)
+    }
+
+    public func estimate(
+        feature: AssistantFeature,
+        instructions: String,
+        prompt: String,
+        context: AssistantContext
+    ) async -> ModelTokenEstimate? {
+        let model = SystemLanguageModel.default
+        let contextSize = model.contextSize
+        let output = ModelBudgetPolicy.outputReserve(for: feature)
+        let safety = ModelBudgetPolicy.safetyMargin
+        if #available(iOS 26.4, macOS 26.4, visionOS 26.4, *) {
+            do {
+                let promptTokens = try await model.tokenCount(for: prompt)
+                let instructionTokens = try await model.tokenCount(for: Instructions(instructions))
+                let tools = ModelToolkit.tools(for: feature, context: context)
+                let toolTokens = tools.isEmpty ? 0 : try await model.tokenCount(for: tools)
+                let schemaTokens = try await model.tokenCount(for: generationSchema(for: feature))
+                return ModelTokenEstimate(
+                    inputTokens: promptTokens + instructionTokens + toolTokens + schemaTokens,
+                    contextSize: contextSize,
+                    outputReserve: output,
+                    safetyMargin: safety,
+                    method: "exact"
+                )
+            } catch {
+                // Fall through to a conservative character estimate.
+            }
+        }
+        let characters = prompt.count + instructions.count + 800
+        return ModelTokenEstimate(
+            inputTokens: max(1, characters / 4) + ModelBudgetPolicy.toolReserve(for: feature),
+            contextSize: contextSize,
+            outputReserve: output,
+            safetyMargin: safety,
+            method: "estimated"
+        )
+    }
+
+    private func generationSchema(for feature: AssistantFeature) -> GenerationSchema {
         switch feature {
-        case .scanExplanation: return 420
-        case .coachAnswer: return 420
-        case .journalDraft: return 360
-        case .sessionDebrief: return 500
-        case .scanComparison: return 420
-        case .researchSuggestions: return 700
+        case .scanExplanation: return GeneratedScanExplanation.generationSchema
+        case .coachAnswer: return GeneratedCoachAnswer.generationSchema
+        case .journalDraft: return GeneratedJournalDraft.generationSchema
+        case .sessionDebrief: return GeneratedSessionDebrief.generationSchema
+        case .scanComparison: return GeneratedComparison.generationSchema
+        case .researchSuggestions: return GeneratedResearchSuggestions.generationSchema
         }
     }
 }

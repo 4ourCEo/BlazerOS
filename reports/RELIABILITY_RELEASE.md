@@ -84,6 +84,12 @@ server, CloudKit, or broker automation is required. Broker execution remains man
 - Read-only tools expose scans, comparisons, confirmed entries, deterministic performance,
   observation gaps, and journal search. They cannot write, confirm outcomes, trade, or read
   credentials.
+- The request budget reads the runtime context size and, on supported runtimes, counts the
+  whole request with Apple’s tokenizer (instructions, prompt, tools, schema). It reserves
+  generated output plus 256 tokens, retries once with a compact context, then returns
+  `Context too large` rather than mislabelling the model unavailable.
+- Capability and request state are separate. The optional assistant has a persisted feature
+  flag; the execution workflow is unchanged when it is off.
 - Authoritative numbers are rendered from code; model text is labelled `APPLE ON-DEVICE` or
   `BASIC FALLBACK`.
 - The remote Strike-audit UI (DeepSeek/Gemini API key) is disabled. The only reachable AI
@@ -92,7 +98,7 @@ server, CloudKit, or broker automation is required. Broker execution remains man
 ## Verification performed
 
 - `swift build` and `swift build -c release` — pass
-- `swift test` — **137 tests pass**
+- `swift test` — **143 tests pass**
 - `swift run -c release Parity` — 43 checks pass
 - `swift run Persist` — 59 checks pass
 - `swift run Soak` — 10/10 soak checks pass

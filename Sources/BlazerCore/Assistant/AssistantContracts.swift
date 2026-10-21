@@ -73,6 +73,7 @@ public enum AssistantFailure: Error, Equatable, Sendable {
     case timedOut
     case cancelled
     case unavailable(AssistantAvailability.Reason)
+    case contextTooLarge
     case invalidOutput([String])
     case generationFailed(String)
 
@@ -81,11 +82,71 @@ public enum AssistantFailure: Error, Equatable, Sendable {
         case .timedOut: return "timed out"
         case .cancelled: return "cancelled"
         case .unavailable(let reason): return "unavailable: \(reason)"
+        case .contextTooLarge: return "context too large"
         case .invalidOutput(let issues): return "rejected output: \(issues.joined(separator: "; "))"
         case .generationFailed(let message): return "generation failed: \(message)"
         }
     }
 }
+
+/// Conservative accounting for one model request. `method` is "exact" only when Apple’s
+/// tokenizer API returned a count; otherwise it is "estimated".
+public struct ModelTokenEstimate: Sendable, Equatable {
+    public var inputTokens: Int
+    public var contextSize: Int
+    public var outputReserve: Int
+    public var safetyMargin: Int
+    public var method: String
+    public var omitted: [String]
+
+    public init(
+        inputTokens: Int,
+        contextSize: Int,
+        outputReserve: Int,
+        safetyMargin: Int,
+        method: String,
+        omitted: [String] = []
+    ) {
+        self.inputTokens = inputTokens
+        self.contextSize = contextSize
+        self.outputReserve = outputReserve
+        self.safetyMargin = safetyMargin
+        self.method = method
+        self.omitted = omitted
+    }
+
+    public var required: Int { inputTokens + outputReserve + safetyMargin }
+    public var fits: Bool { required <= contextSize }
+}
+
+public enum ModelBudgetPolicy {
+    /// Runtime fallback only. The production engine reads `SystemLanguageModel.contextSize`.
+    public static let fallbackContextSize = 4_096
+    public static let safetyMargin = 256
+
+    public static func outputReserve(for feature: AssistantFeature) -> Int {
+        switch feature {
+        case .scanExplanation: return 420
+        case .coachAnswer: return 420
+        case .journalDraft: return 360
+        case .sessionDebrief: return 500
+        case .scanComparison: return 420
+        case .researchSuggestions: return 700
+        }
+    }
+
+    public static func toolReserve(for feature: AssistantFeature) -> Int {
+        switch feature {
+        case .scanExplanation: return 120
+        case .coachAnswer: return 480
+        case .journalDraft: return 180
+        case .sessionDebrief: return 420
+        case .scanComparison: return 240
+        case .researchSuggestions: return 480
+        }
+    }
+}
+
 
 public struct AssistantDiagnostic: Codable, Equatable, Sendable, Identifiable {
     public var id: String
@@ -98,6 +159,11 @@ public struct AssistantDiagnostic: Codable, Equatable, Sendable, Identifiable {
     public var promptVersion: String
     public var recordIDs: [String]
     public var validationIssues: [String]
+    public var contextTokens: Int?
+    public var contextLimit: Int?
+    public var contextMethod: String?
+    public var omitted: [String]?
+    public var retryCount: Int?
     public var createdAt: Date
 
     public init(
@@ -111,6 +177,11 @@ public struct AssistantDiagnostic: Codable, Equatable, Sendable, Identifiable {
         promptVersion: String,
         recordIDs: [String],
         validationIssues: [String] = [],
+        contextTokens: Int? = nil,
+        contextLimit: Int? = nil,
+        contextMethod: String? = nil,
+        omitted: [String]? = nil,
+        retryCount: Int? = nil,
         createdAt: Date = Date()
     ) {
         self.id = id
@@ -123,7 +194,36 @@ public struct AssistantDiagnostic: Codable, Equatable, Sendable, Identifiable {
         self.promptVersion = promptVersion
         self.recordIDs = recordIDs
         self.validationIssues = validationIssues
+        self.contextTokens = contextTokens
+        self.contextLimit = contextLimit
+        self.contextMethod = contextMethod
+        self.omitted = omitted
+        self.retryCount = retryCount
         self.createdAt = createdAt
+    }
+}
+
+public enum AssistantRequestState: String, Sendable, Equatable {
+    case completed
+    case contextTooLarge
+    case cancelled
+    case timedOut
+    case refusedOrFailed
+    case invalidOutput
+    case unavailable
+    case basicFallback
+
+    public var label: String {
+        switch self {
+        case .completed: return "Completed using Apple on-device model"
+        case .contextTooLarge: return "Context too large"
+        case .cancelled: return "Cancelled"
+        case .timedOut: return "Timed out"
+        case .refusedOrFailed: return "Generation refused or failed"
+        case .invalidOutput: return "Output failed validation"
+        case .unavailable: return "On-device model unavailable"
+        case .basicFallback: return "Basic fallback — deterministic explanation"
+        }
     }
 }
 
@@ -139,6 +239,17 @@ public struct AssistantResult<Value: Sendable>: Sendable {
     }
 
     public var isModelGenerated: Bool { origin == .appleOnDevice }
+
+    public var requestState: AssistantRequestState {
+        if origin == .appleOnDevice { return .completed }
+        guard let failure = diagnostic.failure?.lowercased() else { return .basicFallback }
+        if failure.contains("context") { return .contextTooLarge }
+        if failure.contains("cancel") { return .cancelled }
+        if failure.contains("timed out") { return .timedOut }
+        if failure.contains("rejected") { return .invalidOutput }
+        if failure.contains("unavailable") { return .unavailable }
+        return .refusedOrFailed
+    }
 }
 
 public enum AssistantStatus: Equatable, Sendable {

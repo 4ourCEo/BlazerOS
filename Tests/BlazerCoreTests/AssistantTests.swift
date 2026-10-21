@@ -147,7 +147,7 @@ private func scanExplanationData(
     let assistant = DeskAssistant(engine: engine)
     let result = await assistant.explainScan(scan, context: sampleContext(scan: scan))
     #expect(result.origin == .deterministicFallback)
-    #expect(result.diagnostic.failure == "unavailable")
+    #expect(result.diagnostic.failure?.contains("unavailable") == true)
     #expect(result.value.decision == scan.engineCall)
 }
 
@@ -267,6 +267,38 @@ private func scanExplanationData(
     #expect(context.gaps.contains { $0.kind == .missingConfirmation })
 }
 
+@Test func selectionNotesDescribeOmittedRecords() {
+    let scan = sampleScan()
+    let context = AssistantContext(
+        scans: (0..<10).map { index in var s = scan; s.id = "\(index)"; return s },
+        confirmedEntries: [], performance: .empty, gaps: [], notes: []
+    )
+    let bounded = context.bounded(maxScans: 2, maxEntries: 0, maxGaps: 0, maxNotes: 0)
+    let notes = context.selectionNotes(after: bounded)
+    #expect(notes.contains { $0.hasPrefix("scans 2/10") })
+}
+
+@Test func requestStateSeparatesCapabilityFromRequestFailure() {
+    let scan = sampleScan()
+    let fallback = ScanExplanation.fallback(for: scan)
+    func result(_ failure: String?) -> AssistantResult<ScanExplanation> {
+        AssistantResult(
+            value: fallback,
+            origin: .deterministicFallback,
+            diagnostic: AssistantDiagnostic(
+                feature: .scanExplanation, origin: .deterministicFallback,
+                availability: "ready", failure: failure, latencyMs: 1,
+                schemaVersion: "s", promptVersion: "p", recordIDs: [scan.id]
+            )
+        )
+    }
+    #expect(result("context too large").requestState == .contextTooLarge)
+    #expect(result("cancelled").requestState == .cancelled)
+    #expect(result("timed out").requestState == .timedOut)
+    #expect(result("rejected output: score").requestState == .invalidOutput)
+    #expect(result(nil).requestState == .basicFallback)
+}
+
 @Test func boundedContextFitsTheModelWindow() throws {
     let scan = sampleScan(evidence: String(repeating: "Trend is up (+18) · ", count: 12))
     let scans = (0..<40).map { index in
@@ -302,6 +334,102 @@ private func scanExplanationData(
     encoder.dateEncodingStrategy = .iso8601
     let data = try encoder.encode(bounded)
     #expect(data.count < 12_000)
+}
+
+private struct BudgetEngine: OnDeviceModelEngine {
+    let data: Data
+    var alwaysOver = false
+
+    func availability() async -> AssistantAvailability { .ready }
+
+    func estimate(
+        feature: AssistantFeature, instructions: String, prompt: String,
+        context: AssistantContext
+    ) async -> ModelTokenEstimate? {
+        let fits = !alwaysOver && context.scans.count <= 1 && context.confirmedEntries.count <= 4
+        return ModelTokenEstimate(
+            inputTokens: fits ? 400 : 5_000,
+            contextSize: 4_096,
+            outputReserve: ModelBudgetPolicy.outputReserve(for: feature),
+            safetyMargin: ModelBudgetPolicy.safetyMargin,
+            method: "test"
+        )
+    }
+
+    func generate(
+        feature: AssistantFeature, instructions: String, prompt: String,
+        context: AssistantContext, timeout: TimeInterval
+    ) async throws -> Data { data }
+}
+
+@Test func oversizedContextRetriesOnceWithCompactedContext() async throws {
+    #if canImport(FoundationModels)
+    if #available(macOS 26.0, iOS 26.0, *) {
+        let dto = GeneratedCoachAnswer(
+            answer: "The latest saved scan is WAIT.", citations: ["scan-0"],
+            limitations: "Single frozen record."
+        )
+        let engine = BudgetEngine(data: try JSONEncoder().encode(dto))
+        let assistant = DeskAssistant(engine: engine)
+        let scans = (0..<4).map { index in
+            var scan = sampleScan()
+            scan.id = "scan-\(index)"
+            return scan
+        }
+        let context = AssistantContext(
+            generatedAt: Date(), scans: scans,
+            performance: .empty, gaps: [], notes: []
+        )
+        let result = await assistant.answer("Explain the latest WAIT.", context: context)
+        #expect(result.origin == .appleOnDevice)
+        #expect(result.diagnostic.retryCount == 1)
+        #expect(result.diagnostic.omitted?.isEmpty == false)
+        #expect(result.diagnostic.contextTokens != nil)
+    }
+    #endif
+}
+
+@Test func contextThatCannotFitReturnsContextFailure() async throws {
+    let engine = BudgetEngine(data: Data("{}".utf8), alwaysOver: true)
+    let assistant = DeskAssistant(engine: engine)
+    let scan = sampleScan()
+    let context = sampleContext(scan: scan)
+    // explainScan has no smaller context: the selected record is mandatory.
+    // The budget engine reports over-limit even for one scan only when entries exceed 4.
+    var wide = context
+    wide.confirmedEntries = (0..<10).map { index in
+        ConfirmedEntryContext(
+            id: "entry-\(index)", pair: "EUR/USD", side: "CALL", outcome: "HIT",
+            recordedAt: Date(), enteredAt: Date(), horizonSeconds: 60,
+            entryQuote: 1.1, expiryPrice: 1.1001, stake: nil, payout: nil,
+            lateEntry: false, recordID: "entry-\(index)"
+        )
+    }
+    let result = await assistant.answer("Explain.", context: wide)
+    #expect(result.origin == .deterministicFallback)
+    #expect(result.requestState == .contextTooLarge)
+}
+
+@Test func realEngineReportsExactTokenCountWhenAvailable() async {
+    #if canImport(FoundationModels)
+    if #available(macOS 26.4, iOS 26.4, *) {
+        let engine = SystemModelEngine()
+        guard await engine.availability() == .ready else { return }
+        let scan = sampleScan()
+        let context = sampleContext(scan: scan)
+        let estimate = await engine.estimate(
+            feature: .scanExplanation,
+            instructions: AssistantPrompts.instructions(for: .scanExplanation),
+            prompt: AssistantPrompts.records(context),
+            context: context
+        )
+        print("FM_BUDGET \(String(describing: estimate))")
+        #expect(estimate != nil)
+        #expect(estimate?.method == "exact")
+        #expect((estimate?.contextSize ?? 0) >= 4_096)
+        #expect(estimate?.fits == true)
+    }
+    #endif
 }
 
 @Test func realAppleOnDeviceEngineGenerates() async throws {
