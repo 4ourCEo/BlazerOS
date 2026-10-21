@@ -116,6 +116,9 @@ server, CloudKit, or broker automation is required. Broker execution remains man
 - Widget, Live Activity, Intents, Debug, Release simulator, and unsigned Release arm64 device
   builds — pass
 - Signed Debug device build for `Gilbert’s iPhone` — build and install succeed
+- Release archive for `generic/platform=iOS` — **archive succeeded** with temporary empty
+  extension entitlements; app group verified on the app, absent from the widget/Live Activity
+  profiles
 - Built app/extension privacy manifests present; generated simulator `.xcent` shows
   `group.com.blazer.os` on app, widget, and Live Activity with team `8GZ3352QQB`
 
@@ -130,11 +133,12 @@ server, CloudKit, or broker automation is required. Broker execution remains man
 - The app profile includes `group.com.blazer.os`. The widget and Live Activity profiles do
   **not**, so a signed build with app-group entitlements on those extensions fails with
   “doesn’t include the App Groups capability.”
-- A Debug build with extension entitlements temporarily empty installs successfully. iOS
-  refuses to launch it until the Developer App certificate is trusted on the phone:
-  **Settings → General → VPN & Device Management → Developer App → trust the certificate**.
-- No archive or TestFlight upload was attempted. Refreshing the extension profiles to include
-  the app group requires Apple account access/approval.
+- A Debug build with extension entitlements temporarily empty installs successfully. The
+  Developer App certificate was trusted on the phone; real on-device generation succeeded.
+- A local archive was produced for inspection, but it is **not** release-ready because the
+  extensions lack the app group. No TestFlight upload was attempted.
+- Refreshing the extension profiles to include the app group requires Apple account
+  access/approval.
 
 ## Remaining gate (physical device)
 
