@@ -23,6 +23,13 @@ struct BlazerOSPhoneApp: App {
                 .onChange(of: model.activeTrade) { _, trade in
                     LiveActivityController.shared.update(with: model.frame, trade: trade)
                 }
+                .task {
+                    #if DEBUG
+                    if ProcessInfo.processInfo.environment["BLAZER_FM_SELFTEST"] == "1" {
+                        await model.runAssistantSelfTestForTesting()
+                    }
+                    #endif
+                }
         }
     }
 }

@@ -2042,6 +2042,40 @@ extension LightningDeskModel {
         await reloadFromDisk()
     }
 
+    /// Device-only diagnostic: prove Apple’s on-device model is available and generating.
+    /// No execution state is touched. Invoked only with BLAZER_FM_SELFTEST=1 in DEBUG.
+    public func runAssistantSelfTestForTesting() async {
+        let availability = await assistant.availability(force: true)
+        print("PHONE_FM_AVAIL \(availability)")
+        guard availability.isReady else { return }
+        let scan = ScanRecordContext(
+            id: "phone-selftest",
+            fullFingerprint: String(repeating: "A", count: 40),
+            pair: "EUR/USD",
+            engineCall: "WAIT",
+            score: 44,
+            evidence: "Range is tight",
+            veto: nil,
+            evaluationTime: Date(),
+            quoteMid: 1.1,
+            spread: 0.0002,
+            m1Count: 80,
+            m5Count: 40,
+            engineSHA: "phone-selftest",
+            expirySeconds: 60,
+            isActionable: false,
+            blockingReason: "Range is tight",
+            recordedVerb: "WAIT"
+        )
+        let context = AssistantContext(
+            generatedAt: Date(),
+            scans: [scan],
+            performance: .empty
+        )
+        let result = await assistant.explainScan(scan, context: context, timeout: 30)
+        print("PHONE_FM_RESULT origin=\(result.origin.rawValue) decision=\(result.value.decision) score=\(result.value.score) latencyMs=\(result.diagnostic.latencyMs) issues=\(result.diagnostic.validationIssues)")
+    }
+
     /// Test-only seam: persist the frozen scan exactly as a real scan does.
     public func rememberForTesting() async -> Bool {
         guard let commit, let frame else { return false }
