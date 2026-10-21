@@ -568,6 +568,16 @@ public final class LightningDeskModel: ObservableObject {
                 Task { await self.loadCandles(for: self.pair) }
             }
         }
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["BLAZER_START_TAB"] == "coach" {
+            activeTab = .coach
+        }
+        if ProcessInfo.processInfo.environment["BLAZER_ASSISTANT_DEMO"] == "1" {
+            activeTab = .coach
+            await explainLatestScan()
+            await askAssistant("Why did this scan return WAIT?")
+        }
+        #endif
         await withTaskGroup(of: Void.self) { group in
             group.addTask { await self.quoteLoop() }
             group.addTask { await self.beamLoop() }

@@ -200,6 +200,41 @@ public struct AssistantContext: Codable, Sendable, Equatable {
     public var allRecordIDs: Set<String> {
         Set(scans.map(\.id) + confirmedEntries.map(\.recordID) + gaps.map(\.recordID) + notes.map(\.id))
     }
+
+    /// Bounds context to the on-device model window. Evidence and notes are truncated;
+    /// authoritative numbers remain in `performance` and the selected record.
+    public func bounded(
+        maxScans: Int,
+        maxEntries: Int,
+        maxGaps: Int,
+        maxNotes: Int,
+        maxText: Int = 180
+    ) -> AssistantContext {
+        func trim(_ value: String) -> String {
+            guard value.count > maxText else { return value }
+            return String(value.prefix(maxText)) + "…"
+        }
+        var copy = self
+        copy.scans = scans.prefix(maxScans).map { scan in
+            var item = scan
+            item.evidence = trim(item.evidence)
+            if let veto = item.veto { item.veto = trim(veto) }
+            if let blocking = item.blockingReason { item.blockingReason = trim(blocking) }
+            return item
+        }
+        copy.confirmedEntries = Array(confirmedEntries.prefix(maxEntries))
+        copy.gaps = gaps.prefix(maxGaps).map { gap in
+            var item = gap
+            item.detail = trim(item.detail)
+            return item
+        }
+        copy.notes = notes.prefix(maxNotes).map { note in
+            var item = note
+            item.note = trim(item.note)
+            return item
+        }
+        return copy
+    }
 }
 
 public enum AssistantContextBuilder {

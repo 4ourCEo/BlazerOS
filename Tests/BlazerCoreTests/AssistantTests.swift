@@ -267,6 +267,43 @@ private func scanExplanationData(
     #expect(context.gaps.contains { $0.kind == .missingConfirmation })
 }
 
+@Test func boundedContextFitsTheModelWindow() throws {
+    let scan = sampleScan(evidence: String(repeating: "Trend is up (+18) · ", count: 12))
+    let scans = (0..<40).map { index in
+        var copy = scan
+        copy.id = "scan-\(index)"
+        return copy
+    }
+    let entries = (0..<60).map { index in
+        ConfirmedEntryContext(
+            id: "entry-\(index)", pair: "EUR/USD", side: "CALL", outcome: "HIT",
+            recordedAt: Date(), enteredAt: Date(), horizonSeconds: 60,
+            entryQuote: 1.1, expiryPrice: 1.1001, stake: nil, payout: nil,
+            lateEntry: false, recordID: "entry-\(index)"
+        )
+    }
+    let gaps = (0..<60).map { index in
+        ObservationGap(
+            id: "gap-\(index)", pair: "EUR/USD", kind: .missingConfirmation,
+            detail: String(repeating: "reference observation ", count: 12),
+            recordID: "entry-\(index)"
+        )
+    }
+    let notes = (0..<20).map { index in
+        JournalNoteContext(id: "note-\(index)", pair: "EUR/USD",
+                           note: String(repeating: "reflection ", count: 30), createdAt: Date())
+    }
+    let context = AssistantContext(
+        scans: scans, confirmedEntries: entries,
+        performance: .empty, gaps: gaps, notes: notes
+    )
+    let bounded = context.bounded(maxScans: 4, maxEntries: 8, maxGaps: 8, maxNotes: 3)
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let data = try encoder.encode(bounded)
+    #expect(data.count < 12_000)
+}
+
 @Test func realAppleOnDeviceEngineGenerates() async throws {
     #if canImport(FoundationModels)
     if #available(macOS 26.0, iOS 26.0, *) {

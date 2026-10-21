@@ -153,7 +153,7 @@ public enum AssistantStatus: Equatable, Sendable {
         case .idle: return "Assistant idle"
         case .checking: return "Checking Apple on-device model…"
         case .generating(let feature): return "Generating \(feature.rawValue)…"
-        case .basicFallback: return "Basic explanation (on-device model unavailable)"
+        case .basicFallback: return "Basic fallback — deterministic explanation"
         case .unavailable(let reason): return "Unavailable: \(reason)"
         }
     }

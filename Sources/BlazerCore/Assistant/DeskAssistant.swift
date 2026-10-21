@@ -54,6 +54,11 @@ public actor DeskAssistant {
         timeout: TimeInterval = 30
     ) async -> AssistantResult<ScanExplanation> {
         let fallback = ScanExplanation.fallback(for: scan)
+        let modelContext = AssistantContext(
+            generatedAt: context.generatedAt,
+            scans: [scan],
+            performance: context.performance
+        )
         let prompt = """
         \(AssistantPrompts.preamble)
 
@@ -62,12 +67,12 @@ public actor DeskAssistant {
         Do not output any other numbers, prices, probabilities, or performance claims.
         The 8-second action window is the only timing contract.
 
-        \(AssistantPrompts.records(context))
+        \(AssistantPrompts.records(modelContext))
         """
         return await perform(
             feature: .scanExplanation,
             recordIDs: [scan.id],
-            context: context,
+            context: modelContext,
             fallback: fallback,
             timeout: timeout,
             instructions: AssistantPrompts.instructions(for: .scanExplanation),
@@ -85,6 +90,9 @@ public actor DeskAssistant {
         timeout: TimeInterval = 30
     ) async -> AssistantResult<CoachAnswer> {
         let fallback = CoachAnswer.fallback(question: question, context: context)
+        let modelContext = context.bounded(
+            maxScans: 4, maxEntries: 8, maxGaps: 8, maxNotes: 3, maxText: 180
+        )
         let prompt = """
         \(AssistantPrompts.preamble)
 
@@ -93,12 +101,12 @@ public actor DeskAssistant {
         an answer, say what is missing. Never predict price or claim broker execution.
         Rendered numeric fields are authoritative; do not invent different numbers.
 
-        \(AssistantPrompts.records(context))
+        \(AssistantPrompts.records(modelContext))
         """
         return await perform(
             feature: .coachAnswer,
             recordIDs: Array(context.allRecordIDs).sorted().prefix(20).map { $0 },
-            context: context,
+            context: modelContext,
             fallback: fallback,
             timeout: timeout,
             instructions: AssistantPrompts.instructions(for: .coachAnswer),
@@ -116,6 +124,9 @@ public actor DeskAssistant {
         timeout: TimeInterval = 30
     ) async -> AssistantResult<JournalDraft> {
         let fallback = JournalDraft.fallback(note: note)
+        let modelContext = context.bounded(
+            maxScans: 2, maxEntries: 0, maxGaps: 0, maxNotes: 3, maxText: 180
+        )
         let prompt = """
         \(AssistantPrompts.preamble)
 
@@ -125,12 +136,12 @@ public actor DeskAssistant {
         Produce an editable draft. Do not infer an emotion the user did not state. Do not claim
         discipline conclusions unsupported by the records. Preserve the user's meaning.
 
-        \(AssistantPrompts.records(context))
+        \(AssistantPrompts.records(modelContext))
         """
         return await perform(
             feature: .journalDraft,
             recordIDs: Array(context.scans.prefix(5).map(\.id)),
-            context: context,
+            context: modelContext,
             fallback: fallback,
             timeout: timeout,
             instructions: AssistantPrompts.instructions(for: .journalDraft),
@@ -147,18 +158,21 @@ public actor DeskAssistant {
         timeout: TimeInterval = 30
     ) async -> AssistantResult<SessionDebrief> {
         let fallback = SessionDebrief.fallback(context: context)
+        let modelContext = context.bounded(
+            maxScans: 0, maxEntries: 8, maxGaps: 8, maxNotes: 0, maxText: 140
+        )
         let prompt = """
         \(AssistantPrompts.preamble)
 
         Narrate this deterministic session summary. Copy every metric exactly; do not recompute
         or invent values. Distinguish small samples from dependable evidence. Cite record IDs.
 
-        \(AssistantPrompts.records(context))
+        \(AssistantPrompts.records(modelContext))
         """
         return await perform(
             feature: .sessionDebrief,
             recordIDs: Array(context.allRecordIDs).sorted().prefix(30).map { $0 },
-            context: context,
+            context: modelContext,
             fallback: fallback,
             timeout: timeout,
             instructions: AssistantPrompts.instructions(for: .sessionDebrief),
@@ -188,10 +202,12 @@ public actor DeskAssistant {
         RIGHT:
         \(AssistantPrompts.scan(right))
         """
+        let modelContext = AssistantContext(generatedAt: Date(), scans: [left, right])
+            .bounded(maxScans: 2, maxEntries: 0, maxGaps: 0, maxNotes: 0, maxText: 400)
         return await perform(
             feature: .scanComparison,
             recordIDs: [left.id, right.id],
-            context: AssistantContext(generatedAt: Date(), scans: [left, right]),
+            context: modelContext,
             fallback: fallback,
             timeout: timeout,
             instructions: AssistantPrompts.instructions(for: .scanComparison),
@@ -207,6 +223,9 @@ public actor DeskAssistant {
         context: AssistantContext,
         timeout: TimeInterval = 40
     ) async -> AssistantResult<[ResearchSuggestion]> {
+        let modelContext = context.bounded(
+            maxScans: 0, maxEntries: 8, maxGaps: 8, maxNotes: 0, maxText: 140
+        )
         let prompt = """
         \(AssistantPrompts.preamble)
 
@@ -215,12 +234,12 @@ public actor DeskAssistant {
         experiment with acceptance and rejection criteria. Never propose live changes,
         automatic promotion, or activating a strategy.
 
-        \(AssistantPrompts.records(context))
+        \(AssistantPrompts.records(modelContext))
         """
         return await perform(
             feature: .researchSuggestions,
             recordIDs: Array(context.allRecordIDs).sorted().prefix(30).map { $0 },
-            context: context,
+            context: modelContext,
             fallback: [],
             timeout: timeout,
             instructions: AssistantPrompts.instructions(for: .researchSuggestions),
@@ -483,7 +502,11 @@ enum AssistantPrompts {
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(context) else { return "<records unavailable/>" }
-        return "<records>\(String(decoding: data, as: UTF8.self))</records>"
+        let raw = String(decoding: data, as: UTF8.self)
+        guard raw.count <= 12_000 else {
+            return "<records>{\"note\":\"context exceeds the local model budget\"}</records>"
+        }
+        return "<records>\(raw)</records>"
     }
 
     static func scan(_ scan: ScanRecordContext) -> String {
