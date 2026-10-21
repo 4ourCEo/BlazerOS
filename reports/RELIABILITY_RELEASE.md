@@ -103,7 +103,8 @@ server, CloudKit, or broker automation is required. Broker execution remains man
   and `FM_SERVICE availability=ready origin=appleOnDevice decision=WAIT score=44 latencyMs=20713.61 issues=[]`
 - iPhone 16 simulator `xcodebuild ... test` — pass, including `ExecutionFlowTests` (armed
   entry, pair-switch refusal, stale/historical refusal, relaunch restore, Siri flag
-  consumption) and the all-tabs canvas test
+  consumption) and all-tabs canvas tests at default and largest Dynamic Type
+  (`.accessibilityExtraExtraExtraLarge`)
 - Widget, Live Activity, Intents, Debug, Release simulator, and unsigned Release arm64 device
   builds — pass
 - Built app/extension privacy manifests present; generated simulator `.xcent` shows

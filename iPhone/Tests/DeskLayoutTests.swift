@@ -51,6 +51,31 @@ final class DeskLayoutTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
+    func testAllTabsFitAtLargestDynamicType() {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("blazer-layout-large-type-\(UUID().uuidString)", isDirectory: true)
+        let model = LightningDeskModel(storageRoot: root)
+        model.showingLaunch = false
+        let host = UIHostingController(rootView: LightningDeskView(model: model))
+        let canvas = CGRect(x: 0, y: 0, width: CGFloat(PhoneTarget.width), height: CGFloat(PhoneTarget.height))
+        let window = UIWindow(frame: canvas)
+        window.rootViewController = host
+        window.isHidden = false
+        host.view.frame = canvas
+        host.traitOverrides.preferredContentSizeCategory = .accessibilityExtraExtraExtraLarge
+        host.view.setNeedsLayout()
+        host.view.layoutIfNeeded()
+
+        for tab in DeskTab.allCases {
+            model.activeTab = tab
+            host.view.setNeedsLayout()
+            host.view.layoutIfNeeded()
+            let overflow = firstOverflow(host.view, of: host.view)
+            XCTAssertNil(overflow, "Tab \(tab.rawValue) overflows at largest Dynamic Type: \(overflow ?? "")")
+        }
+        try? FileManager.default.removeItem(at: root)
+    }
+
     private func extendsOutside(_ view: UIView, of root: UIView) -> Bool {
         firstOverflow(view, of: root) != nil
     }

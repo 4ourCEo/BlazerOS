@@ -75,7 +75,7 @@ public final class VoiceSession: NSObject, ObservableObject {
         if SFSpeechRecognizer.authorizationStatus() == .denied {
             recognitionAvailability = .permissionDenied
         } else if let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US")), recognizer.isAvailable {
-            recognitionAvailability = recognizer.supportsOnDeviceRecognition ? .onDevice : .network
+            recognitionAvailability = recognizer.supportsOnDeviceRecognition ? .onDevice : .unavailable("on-device speech unavailable")
         } else {
             recognitionAvailability = .unavailable("recognizer unavailable")
         }
@@ -125,7 +125,7 @@ public final class VoiceSession: NSObject, ObservableObject {
             return
         }
         if let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US")), recognizer.isAvailable {
-            recognitionAvailability = recognizer.supportsOnDeviceRecognition ? .onDevice : .network
+            recognitionAvailability = recognizer.supportsOnDeviceRecognition ? .onDevice : .unavailable("on-device speech unavailable")
         } else {
             recognitionAvailability = .unavailable("recognizer unavailable")
         }
@@ -169,13 +169,18 @@ public final class VoiceSession: NSObject, ObservableObject {
             state = .error("Speech recognition unavailable.")
             return
         }
+        guard recognizer.supportsOnDeviceRecognition else {
+            recognitionAvailability = .unavailable("on-device speech unavailable")
+            state = .error("On-device speech recognition is unavailable. Type your question instead.")
+            return
+        }
         self.recognizer = recognizer
         recognizer.defaultTaskHint = .search
 
         let request = SFSpeechAudioBufferRecognitionRequest()
-        if recognizer.supportsOnDeviceRecognition {
-            request.requiresOnDeviceRecognition = true
-        }
+        // Keep audio local. If on-device recognition is unavailable, the session fails
+        // visibly instead of silently uploading speech.
+        request.requiresOnDeviceRecognition = true
         request.shouldReportPartialResults = true
         recognitionRequest = request
 
