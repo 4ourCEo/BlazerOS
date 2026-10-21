@@ -91,7 +91,7 @@ public actor DeskAssistant {
     ) async -> AssistantResult<CoachAnswer> {
         let fallback = CoachAnswer.fallback(question: question, context: context)
         let modelContext = context.bounded(
-            maxScans: 4, maxEntries: 8, maxGaps: 8, maxNotes: 3, maxText: 180
+            maxScans: 2, maxEntries: 4, maxGaps: 4, maxNotes: 1, maxText: 120
         )
         let promptHead = """
         \(AssistantPrompts.preamble)
@@ -102,7 +102,7 @@ public actor DeskAssistant {
         Rendered numeric fields are authoritative; do not invent different numbers.
         """
         let compactContext = context.bounded(
-            maxScans: 1, maxEntries: 4, maxGaps: 4, maxNotes: 1, maxText: 100
+            maxScans: 1, maxEntries: 2, maxGaps: 2, maxNotes: 1, maxText: 80
         )
         let prompt = promptHead + "\n\n" + AssistantPrompts.records(modelContext)
         let compactPrompt = promptHead + "\n\n" + AssistantPrompts.records(compactContext)

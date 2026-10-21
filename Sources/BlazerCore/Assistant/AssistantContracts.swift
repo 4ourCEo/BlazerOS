@@ -122,7 +122,7 @@ public struct ModelTokenEstimate: Sendable, Equatable {
 public enum ModelBudgetPolicy {
     /// Runtime fallback only. The production engine reads `SystemLanguageModel.contextSize`.
     public static let fallbackContextSize = 4_096
-    public static let safetyMargin = 256
+    public static let safetyMargin = 640
 
     public static func outputReserve(for feature: AssistantFeature) -> Int {
         switch feature {

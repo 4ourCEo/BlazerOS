@@ -278,7 +278,10 @@ private enum ModelToolkit {
         case .scanExplanation:
             return [fetch]
         case .coachAnswer:
-            return [fetch, compare, entries, performance, gaps, notes]
+            // The bounded context already carries the relevant records. Keeping chat tool-free
+            // avoids multi-turn tool latency on the 4,096-token on-device model; tools remain
+            // available for debrief, comparison, and research suggestions.
+            return []
         case .journalDraft:
             return [notes]
         case .sessionDebrief:

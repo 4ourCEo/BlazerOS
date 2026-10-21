@@ -432,6 +432,44 @@ private struct BudgetEngine: OnDeviceModelEngine {
     #endif
 }
 
+@Test func realModelCompactsAnOversizedContextOnce() async throws {
+    #if canImport(FoundationModels)
+    if #available(macOS 26.4, iOS 26.4, *) {
+        let assistant = DeskAssistant.appleOnDevice()
+        guard await assistant.availability() == .ready else { return }
+        let scans = (0..<30).map { index in
+            var scan = sampleScan(evidence: String(repeating: "Trend is up (+18) · ", count: 8))
+            scan.id = "scan-\(index)"
+            return scan
+        }
+        let entries = (0..<40).map { index in
+            ConfirmedEntryContext(
+                id: "entry-\(index)", pair: "EUR/USD", side: "CALL", outcome: "HIT",
+                recordedAt: Date(), enteredAt: Date(), horizonSeconds: 60,
+                entryQuote: 1.1, expiryPrice: 1.1001, stake: nil, payout: nil,
+                lateEntry: false, recordID: "entry-\(index)"
+            )
+        }
+        let context = AssistantContext(
+            scans: scans, confirmedEntries: entries,
+            performance: .empty, gaps: [], notes: []
+        )
+        let fullPrompt = AssistantPrompts.records(context)
+        let fullEstimate = await SystemModelEngine().estimate(
+            feature: .coachAnswer,
+            instructions: AssistantPrompts.instructions(for: .coachAnswer),
+            prompt: fullPrompt,
+            context: context
+        )
+        print("FM_COMPACT_FULL \(String(describing: fullEstimate)) chars=\(fullPrompt.count)")
+        let result = await assistant.answer("Summarize the latest saved scan.", context: context, timeout: 40)
+        print("FM_COMPACT state=\(result.requestState.rawValue) retry=\(result.diagnostic.retryCount ?? -1) tokens=\(result.diagnostic.contextTokens ?? -1) omitted=\(result.diagnostic.omitted ?? [])")
+        #expect(result.requestState != .contextTooLarge)
+        #expect((result.diagnostic.retryCount ?? 0) <= 1)
+    }
+    #endif
+}
+
 @Test func realAppleOnDeviceEngineGenerates() async throws {
     #if canImport(FoundationModels)
     if #available(macOS 26.0, iOS 26.0, *) {

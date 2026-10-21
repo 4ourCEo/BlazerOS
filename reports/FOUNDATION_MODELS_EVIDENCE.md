@@ -78,12 +78,16 @@ The model was available; the context was not bounded. The fix now has two layers
 Exact measurement on this Mac:
 
 ```text
-FM_BUDGET inputTokens=941 contextSize=4096 outputReserve=420 safetyMargin=256 method=exact
+FM_BUDGET inputTokens=941 contextSize=4096 outputReserve=420 safetyMargin=640 method=exact
 ```
 
 An oversized request retries **once** with a compact context, preserving the selected record
 identity; a second overflow returns `Context too large` and the deterministic fallback. No
 retry loops. The fallback label no longer says the model is unavailable.
+
+Chat runs without tool definitions to avoid multi-turn tool latency; tools remain active for
+scan fetch, comparison, debrief, and research. A real oversized-context test compacted and
+completed in ~10.4s (`state=completed retry=0 tokens=1316`).
 
 A device re-test of the bounded request is pending the phone being unlocked. Earlier, before
 the budget fix, the physical iPhone did generate successfully twice:

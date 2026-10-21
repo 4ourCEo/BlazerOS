@@ -98,7 +98,7 @@ server, CloudKit, or broker automation is required. Broker execution remains man
 ## Verification performed
 
 - `swift build` and `swift build -c release` — pass
-- `swift test` — **143 tests pass**
+- `swift test` — **144 tests pass**
 - `swift run -c release Parity` — 43 checks pass
 - `swift run Persist` — 59 checks pass
 - `swift run Soak` — 10/10 soak checks pass
