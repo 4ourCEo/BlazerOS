@@ -90,7 +90,7 @@ server, CloudKit, or broker automation is required. Broker execution remains man
 ## Verification performed
 
 - `swift build` and `swift build -c release` — pass
-- `swift test` — **136 tests pass**
+- `swift test` — **137 tests pass**
 - `swift run -c release Parity` — 43 checks pass
 - `swift run Persist` — 59 checks pass
 - `swift run Soak` — 10/10 soak checks pass
@@ -99,7 +99,8 @@ server, CloudKit, or broker automation is required. Broker execution remains man
   HIGH/LOW coverage flags
 - `swift run ForwardTest --replay --root <tmp>` — 30 frozen events replay exactly
 - Real Apple on-device generation on this Mac:
-  `FM_EVIDENCE availability=ready origin=appleOnDevice decision=WAIT score=44 latencyMs=12181.59 issues=[]`
+  `FM_RAW availability=ready decision=WAIT score=44 summary=The sealed decision was recorded as WAIT because the engine flagged a tight range.`
+  and `FM_SERVICE availability=ready origin=appleOnDevice decision=WAIT score=44 latencyMs=20713.61 issues=[]`
 - iPhone 16 simulator `xcodebuild ... test` — pass, including `ExecutionFlowTests` (armed
   entry, pair-switch refusal, stale/historical refusal, relaunch restore, Siri flag
   consumption) and the all-tabs canvas test

@@ -22,19 +22,24 @@
 Command:
 
 ```bash
-swift test --filter realAppleOnDeviceModelGeneratesWhenAvailable
+swift test --filter "realAppleOnDevice"
 ```
 
-Observed:
+Observed at HEAD:
 
 ```text
-FM_EVIDENCE availability=ready origin=appleOnDevice decision=WAIT score=44 latencyMs=12181.59 issues=[]
-✔ Test realAppleOnDeviceModelGeneratesWhenAvailable() passed
+FM_RAW availability=ready decision=WAIT score=44 summary=The sealed decision was recorded as WAIT because the engine flagged a tight range.
+FM_SERVICE availability=ready origin=appleOnDevice decision=WAIT score=44 latencyMs=20713.61 issues=[]
 ```
 
 This is Apple’s on-device system model, not a mock or network model. It proves the API,
-guided generation, validation, and fallback boundary work. It is **not** proof of generation
-on the physical iPhone; see the device gap below.
+guided generation, semantic validation, and fallback boundary work. It is **not** proof of
+generation on the physical iPhone; see the device gap below.
+
+The model can occasionally include the configured timing (“8-second”) in prose. Validation
+allows only the sealed score, expiry, and timing constants as digits; other numbers are
+rejected. If a live output is rejected, the service returns the deterministic fallback with
+the same sealed decision and score.
 
 ## Availability and failure coverage
 

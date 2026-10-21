@@ -23,6 +23,24 @@ public enum AssistantValidation {
         text.contains { $0.isNumber }
     }
 
+    /// Digits are allowed only for the sealed score, the configured expiry, and the
+    /// eight-second window. Everything else is treated as an invented number.
+    public static func containsUnsupportedNumber(_ text: String, allowed: [Int] = []) -> Bool {
+        var value = text.lowercased()
+        let timingPhrases = [
+            "8-second", "8 second", "eight-second", "eight second",
+            "60-second", "60 second", "3-minute", "3 minute", "5-minute", "5 minute",
+        ]
+        for phrase in timingPhrases {
+            value = value.replacingOccurrences(of: phrase, with: "")
+        }
+        for number in allowed {
+            value = value.replacingOccurrences(of: "score \(number)", with: "")
+            value = value.replacingOccurrences(of: "\(number)", with: "")
+        }
+        return containsDigit(value)
+    }
+
     /// Allows a percentage only when it matches a deterministic performance value.
     public static func containsUnsupportedPercentage(_ text: String, performance: PerformanceSummary) -> Bool {
         guard text.contains("%") else { return false }
@@ -77,14 +95,20 @@ public enum AssistantValidation {
         } else if (explanation.blockingGate ?? "").isEmpty {
             issues.append("blocked scan has no blocking gate")
         }
-        if containsDigit(explanation.summary) { issues.append("summary contains an invented number") }
-        if containsDigit(explanation.coachNote) { issues.append("coach note contains an invented number") }
+        if containsUnsupportedNumber(
+            explanation.summary,
+            allowed: [scan.score, scan.expirySeconds, Int(Timing.liveMs / 1000)]
+        ) { issues.append("summary contains an invented number") }
+        if containsUnsupportedNumber(
+            explanation.coachNote,
+            allowed: [scan.score, scan.expirySeconds, Int(Timing.liveMs / 1000)]
+        ) { issues.append("coach note contains an invented number") }
         for text in [explanation.summary, explanation.coachNote] {
             if let claim = containsForbiddenClaim(text) {
                 issues.append("unsupported claim: \(claim)")
             }
         }
-        for missing in explanation.missingEvidence where containsDigit(missing) {
+        for missing in explanation.missingEvidence where containsUnsupportedNumber(missing) {
             issues.append("missing evidence contains an invented number")
         }
         return issues
