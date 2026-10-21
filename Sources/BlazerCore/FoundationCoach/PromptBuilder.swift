@@ -92,6 +92,12 @@ public enum PromptBuilder {
     }
 
     public static func accepts(_ card: CoachExplanation) -> Bool {
+        accepts(card, brief: nil)
+    }
+
+    /// Explanation-only validation. With a brief, any restated engine score must match it,
+    /// and performance/probability claims are refused outright.
+    public static func accepts(_ card: CoachExplanation, brief: CoachBrief?) -> Bool {
         guard allowedConfidence.contains(card.confidence) else { return false }
         guard !card.summary.isEmpty, !card.bullets.isEmpty else { return false }
         let joined = ([card.summary, card.confidence] + card.bullets).joined(separator: "\n")
@@ -99,7 +105,27 @@ public enum PromptBuilder {
         if joined.localizedCaseInsensitiveContains("bid") || joined.localizedCaseInsensitiveContains("ask") {
             return false
         }
+        // The coach may explain recorded facts; it may not invent performance evidence.
+        for forbidden in ["win rate", "probability", "expectancy", "guaranteed", "positive edge", "%"] {
+            if joined.localizedCaseInsensitiveContains(forbidden) { return false }
+        }
+        if let brief, let mentioned = scoreNumbers(in: joined), mentioned.contains(where: { $0 != brief.score }) {
+            return false
+        }
         return true
+    }
+
+    /// Extracts integers that follow the word "score" within a short distance.
+    public static func scoreNumbers(in text: String) -> [Int]? {
+        let pattern = "(?i)score[^0-9]{0,12}([0-9]{1,3})"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        let matches = regex.matches(in: text, range: range)
+        guard !matches.isEmpty else { return nil }
+        return matches.compactMap { match in
+            guard let numberRange = Range(match.range(at: 1), in: text) else { return nil }
+            return Int(text[numberRange])
+        }
     }
 }
 

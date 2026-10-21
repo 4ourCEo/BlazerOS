@@ -16,6 +16,9 @@ public struct PairEdgeStats: Sendable, Equatable {
     public let statusBadge: String
     public let isProvenEdge: Bool
     public let caveat: String
+    /// Observations that were never confirmed against the venue. Never part of `sampleSize`.
+    public let referenceSampleSize: Int
+    public let referenceWins: Int
 
     public init(
         pair: String,
@@ -24,7 +27,9 @@ public struct PairEdgeStats: Sendable, Equatable {
         wins: Int,
         payoutRatio: Double = 0.88,
         priorCalibratedRate: Double? = nil,
-        verifiedOutcomes: Bool = false
+        verifiedOutcomes: Bool = false,
+        referenceSampleSize: Int = 0,
+        referenceWins: Int = 0
     ) {
         self.pair = pair
         self.window = window
@@ -33,6 +38,8 @@ public struct PairEdgeStats: Sendable, Equatable {
         self.losses = max(0, sampleSize - wins)
         self.payoutRatio = payoutRatio
         self.breakEvenRate = 1.0 / (1.0 + payoutRatio)
+        self.referenceSampleSize = referenceSampleSize
+        self.referenceWins = referenceWins
 
         if sampleSize > 0 {
             let wr = Double(wins) / Double(sampleSize)
@@ -62,7 +69,19 @@ public struct PairEdgeStats: Sendable, Equatable {
             let lowerPct = String(format: "%.1f%%", lower * 100)
             let upperPct = String(format: "%.1f%%", upper * 100)
             let bePct = String(format: "%.1f%%", breakEvenRate * 100)
-            self.caveat = "Recorded ledger: \(wins)/\(sampleSize) wins. Nominal independent-trial 95% Wilson CI: [\(lowerPct), \(upperPct)]. Break-even: \(bePct) at assumed \(Int(payoutRatio * 100))% payout. \(verifiedOutcomes ? "Venue labels recorded; independence and policy stability still require validation." : "Venue settlement is unverified; these labels do not certify a trading edge.")"
+            self.caveat = "Confirmed ledger: \(wins)/\(sampleSize) venue-confirmed wins. Nominal independent-trial 95% Wilson CI: [\(lowerPct), \(upperPct)]. Break-even: \(bePct) at assumed \(Int(payoutRatio * 100))% payout. Independence and policy stability still require validation."
+        } else if referenceSampleSize > 0 {
+            // Reference observations are shown, but they are not broker outcomes
+            // and can never promote a pair.
+            let rwr = Double(referenceWins) / Double(referenceSampleSize)
+            self.winRate = rwr
+            let (lower, upper) = EdgeEvidence.wilsonScoreInterval(wins: referenceWins, total: referenceSampleSize)
+            self.lower95 = lower
+            self.upper95 = upper
+            self.expectancy = (rwr * payoutRatio) - ((1.0 - rwr) * 1.0)
+            self.statusBadge = "UNVERIFIED REFERENCE (n=\(referenceSampleSize))"
+            self.isProvenEdge = false
+            self.caveat = "OANDA reference observations only: \(referenceWins)/\(referenceSampleSize) suggested wins. These are not venue-confirmed broker results and do not count toward measured performance."
         } else {
             // Prior benchmark fallback (372 contracts forward-test calibration)
             let prior = priorCalibratedRate ?? 0.50
@@ -91,19 +110,24 @@ public enum LedgerStatsEngine {
         "XAU/USD": 0.500,
     ]
 
-    /// Tallies all ledger rows for a specific pair and returns empirical stats.
+    /// Tallies confirmed ledger rows for a specific pair. Reference observations are
+    /// reported separately and never enter the measured sample.
     public static func evaluate(pair: String, rows: [LedgerRow], payoutRatio: Double = 0.88) -> PairEdgeStats {
         let pairRows = rows.filter { $0.pair == pair && ($0.outcome == "HIT" || $0.outcome == "MISS") }
-        let sampleSize = pairRows.count
-        let wins = pairRows.filter { $0.outcome == "HIT" }.count
+        let confirmed = pairRows.filter { $0.labelSource == "venue-confirmed" }
+        let reference = pairRows.filter { $0.labelSource != "venue-confirmed" }
+        let wins = confirmed.filter { $0.outcome == "HIT" }.count
+        let referenceWins = reference.filter { $0.outcome == "HIT" }.count
 
         return PairEdgeStats(
             pair: pair,
-            sampleSize: sampleSize,
+            sampleSize: confirmed.count,
             wins: wins,
             payoutRatio: payoutRatio,
             priorCalibratedRate: priors[pair],
-            verifiedOutcomes: !pairRows.isEmpty && pairRows.allSatisfy { $0.labelSource == "venue-confirmed" }
+            verifiedOutcomes: !confirmed.isEmpty,
+            referenceSampleSize: reference.count,
+            referenceWins: referenceWins
         )
     }
 

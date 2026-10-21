@@ -530,7 +530,21 @@ struct PersistCheck {
             check("stats engine marks missing calibration provenance", statsEmpty.statusBadge == "UNVERIFIED PRIOR" && statsEmpty.sampleSize == 0, statsEmpty.statusBadge)
 
             let statsGBP = LedgerStatsEngine.evaluate(pair: "GBP/USD", rows: loaded)
-            check("stats engine measures local GBP/USD trade", statsGBP.sampleSize == 1 && statsGBP.wins == 1 && statsGBP.winRate == 1.0, statsGBP.statusBadge)
+            check(
+                "unlabelled row is reference, not measured performance",
+                statsGBP.sampleSize == 0 && statsGBP.referenceSampleSize == 1 && statsGBP.wins == 0,
+                statsGBP.statusBadge
+            )
+
+            var confirmedRow = rowV2
+            confirmedRow.outcomeEventID = "arm-v2-2"
+            confirmedRow.labelSource = "venue-confirmed"
+            let measured = LedgerStatsEngine.evaluate(pair: "GBP/USD", rows: loaded + [confirmedRow])
+            check(
+                "venue-confirmed row is measured",
+                measured.sampleSize == 1 && measured.wins == 1 && measured.winRate == 1.0,
+                measured.statusBadge
+            )
 
             var syntheticRows: [LedgerRow] = []
             for i in 0..<50 {

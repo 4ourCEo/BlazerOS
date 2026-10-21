@@ -30,6 +30,17 @@ swift run BlazerOS
 
 `EngineIdentity.pinnedSHA1` is the SHA-1 of `Sources/BlazerCore/scan-engine.js`. If that file changes, update the pin in the same commit on every app that ships the package.
 
+## Reliability release
+
+The iPhone app is the execution desk. OANDA/Binance data, the pinned scan engine, and history
+are local to the phone; no Mac, server, CloudKit, or broker automation is required. Entry is
+manual and confirmed against the venue.
+
+Reliability work in this tree covers entry gating, full-input scan identity, synthetic/reference
+isolation, pending-settlement recovery, widget/Live Activity expiry, and Siri consumption. See
+[the reliability release notes](reports/RELIABILITY_RELEASE.md) for the verification results and
+the remaining physical-device checklist.
+
 ## Scan research
 
 The default desk uses the repaired baseline policy. The directional score is separate from symmetric conviction and neither is a calibrated win probability. Gold uses the same $0.10 normalization unit in Swift and JavaScript. Freshness, spread and entry displacement are checked before entry. Unverified expiry observations and ties require manual venue reconciliation; a failed save retains the outcome for retry.

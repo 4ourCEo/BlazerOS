@@ -90,19 +90,38 @@ public struct ScanEnvelope: Decodable, Sendable {
     public var source: String?
     /// Completed bars actually passed to scan-engine.js. Chart refreshes must not replace these.
     public var snapshotBars: [Candle]?
+    /// M5 bars the engine evaluated, frozen with the snapshot.
+    public var snapshotM5Bars: [Candle]?
+    public var bid: Double?
+    public var ask: Double?
+    public var spread: Double?
+    public var expirySeconds: Int?
+    public var engineSHA: String?
 
     public init(
         signal: EngineSignal?,
         error: String?,
         candles: [Candle]?,
         source: String?,
-        snapshotBars: [Candle]? = nil
+        snapshotBars: [Candle]? = nil,
+        snapshotM5Bars: [Candle]? = nil,
+        bid: Double? = nil,
+        ask: Double? = nil,
+        spread: Double? = nil,
+        expirySeconds: Int? = nil,
+        engineSHA: String? = nil
     ) {
         self.signal = signal
         self.error = error
         self.candles = candles
         self.source = source
         self.snapshotBars = snapshotBars
+        self.snapshotM5Bars = snapshotM5Bars
+        self.bid = bid
+        self.ask = ask
+        self.spread = spread
+        self.expirySeconds = expirySeconds
+        self.engineSHA = engineSHA
     }
 }
 
@@ -234,6 +253,7 @@ public enum Assets {
     public static func pipScale(for asset: String) -> Double {
         if asset.contains("XAU") { return 0.10 } // $0.10 = 1 pip for Gold
         if asset.contains("JPY") { return 0.01 }  // 0.01 = 1 pip for JPY pairs
+        if asset.contains("USDT") { return 1.0 }  // $1.00 = 1 pip for crypto (BTC/ETH/SOL/DOGE)
         return 0.0001                            // 0.0001 = 1 pip for standard FX
     }
 

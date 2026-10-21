@@ -5,10 +5,18 @@ import SwiftUI
 @main
 struct BlazerOSPhoneApp: App {
     @StateObject private var model = LightningDeskModel()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
             LightningDeskView(model: model)
+                .onChange(of: scenePhase) { _, phase in
+                    switch phase {
+                    case .active: model.handleAppForegrounded()
+                    case .background: model.handleAppBackgrounded()
+                    default: break
+                    }
+                }
                 .onChange(of: model.frame) { _, next in
                     LiveActivityController.shared.update(with: next, trade: model.activeTrade)
                 }

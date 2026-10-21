@@ -30,6 +30,17 @@ public enum FileLocations {
     public static func journal(in root: URL) -> URL {
         root.appendingPathComponent(journalFileName)
     }
+
+    public static let activePositionFileName = "active_position.json"
+    public static let pendingSettlementsFileName = "pending_settlements.jsonl"
+
+    public static func activePosition(in root: URL) -> URL {
+        root.appendingPathComponent(activePositionFileName)
+    }
+
+    public static func pendingSettlements(in root: URL) -> URL {
+        root.appendingPathComponent(pendingSettlementsFileName)
+    }
 }
 
 enum AtomicFile {

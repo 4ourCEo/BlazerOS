@@ -23,10 +23,16 @@ public struct OutcomeStats: Equatable, Sendable {
             misses: rows.filter { $0.outcome == DeskOutcome.miss.rawValue }.count
         )
     }
+
+    /// Only rows the user confirmed against the venue. Reference/synthetic rows never
+    /// contribute to the performance shown as confirmed.
+    public static func confirmedTally(_ rows: [LedgerRow]) -> OutcomeStats {
+        tally(rows.filter { $0.labelSource == "venue-confirmed" })
+    }
 }
 
 /// One ledger row. `outcomeEventID` is the arm id and is not a CSV column.
-public struct LedgerRow: Equatable, Sendable {
+public struct LedgerRow: Equatable, Sendable, Codable {
     public var timestamp: Date
     public var pair: String
     public var hash: String
@@ -50,6 +56,15 @@ public struct LedgerRow: Equatable, Sendable {
     public var enteredAt: Date?
     public var expiryObservedMs: Double?
 
+    /// Schema version this row was written with. Nil for rows read from v1/v2 files.
+    public var schemaVersion: Int?
+
+    /// Storage identity. Full pair-and-bars digest when present, short hash otherwise.
+    public var identity: String {
+        if let fullFingerprint, !fullFingerprint.isEmpty { return fullFingerprint }
+        return hash
+    }
+
     public init(
         timestamp: Date,
         pair: String,
@@ -70,7 +85,8 @@ public struct LedgerRow: Equatable, Sendable {
         labelSource: String? = nil,
         horizonSeconds: Int? = nil,
         enteredAt: Date? = nil,
-        expiryObservedMs: Double? = nil
+        expiryObservedMs: Double? = nil,
+        schemaVersion: Int? = nil
     ) {
         self.timestamp = timestamp
         self.pair = pair
@@ -92,15 +108,43 @@ public struct LedgerRow: Equatable, Sendable {
         self.horizonSeconds = horizonSeconds
         self.enteredAt = enteredAt
         self.expiryObservedMs = expiryObservedMs
+        self.schemaVersion = schemaVersion
     }
 }
 
-/// Append-only scan ledger. One outcome per fingerprint. A repeat claim does not add a row.
+/// Outcome of a ledger read. Malformed lines are counted, never silently rewritten away.
+public struct LedgerReadResult: Sendable, Equatable {
+    public var rows: [LedgerRow]
+    public var damagedLines: Int
+
+    public init(rows: [LedgerRow], damagedLines: Int = 0) {
+        self.rows = rows
+        self.damagedLines = damagedLines
+    }
+}
+
+/// Append-only scan ledger. One outcome per identity. A repeat claim does not add a row.
+///
+/// Schema history:
+/// - v1: eight columns, identity is the 4-byte display hash.
+/// - v2: eleven measurement columns appended under the v1 header. Ambiguous to readers.
+/// - v3: every column declared in the header, explicit `schemaVersion`, full identity.
+///
+/// v3 keeps every v1/v2 column at its original index so existing files still parse.
 public actor LedgerStore {
-    public static let csvHeader = "timestamp,pair,hash,score,side,veto,drift,outcome"
+    public static let schemaVersion = 3
+
+    /// v1 header, kept so older files and readers can still recognise the file.
+    public static let legacyHeader = "timestamp,pair,hash,score,side,veto,drift,outcome"
+
+    public static let csvHeader = "timestamp,pair,hash,score,side,veto,drift,outcome,"
+        + "payout,stake,marketWindow,engineSHA,fullFingerprint,entryQuote,expiryPrice,"
+        + "labelSource,horizonSeconds,enteredAt,expiryObservedMs,outcomeEventID,schemaVersion"
+
+    public static let columnCount = 21
 
     private let url: URL
-    private var claimedHashes: Set<String> = []
+    private var claimedIdentities: Set<String> = []
     private var claimedArms: Set<String> = []
     private var loaded = false
 
@@ -111,15 +155,32 @@ public actor LedgerStore {
     /// `true` only when a new row was appended.
     @discardableResult
     public func record(_ row: LedgerRow) throws -> Bool {
-        guard !row.hash.isEmpty, !row.outcomeEventID.isEmpty else { return false }
+        guard !row.identity.isEmpty, !row.outcomeEventID.isEmpty else { return false }
         try loadClaims()
-        if claimedHashes.contains(row.hash) || claimedArms.contains(row.outcomeEventID) {
+        if claimedIdentities.contains(Self.identityKey(row)) || claimedArms.contains(row.outcomeEventID) {
             return false
         }
-        claimedHashes.insert(row.hash)
+        claimedIdentities.insert(Self.identityKey(row))
         claimedArms.insert(row.outcomeEventID)
         do {
             var existing = FileManager.default.fileExists(atPath: url.path) ? try Data(contentsOf: url) : Data()
+            // Upgrade legacy header to v3 if needed. Keep the original bytes so a migration
+            // never destroys evidence that a reader might still need.
+            if !existing.isEmpty, let text = String(data: existing, encoding: .utf8) {
+                if let firstNewline = text.firstIndex(of: "\n") {
+                    let firstLine = String(text[..<firstNewline])
+                    if firstLine != Self.csvHeader {
+                        try Self.backupLegacyFileIfNeeded(url: url, data: existing)
+                        let rest = String(text[text.index(after: firstNewline)...])
+                        let upgraded = Self.csvHeader + "\n" + rest
+                        existing = Data(upgraded.utf8)
+                    }
+                } else if text != Self.csvHeader {
+                    try Self.backupLegacyFileIfNeeded(url: url, data: existing)
+                    existing = Data((Self.csvHeader + "\n").utf8)
+                }
+            }
+
             if existing.isEmpty {
                 existing.append(Data((Self.csvHeader + "\n").utf8))
             } else if existing.last != 0x0A {
@@ -129,13 +190,18 @@ public actor LedgerStore {
             try AtomicFile.write(existing, to: url)
             return true
         } catch {
-            claimedHashes.remove(row.hash)
+            claimedIdentities.remove(Self.identityKey(row))
             claimedArms.remove(row.outcomeEventID)
             throw error
         }
     }
 
     public func rows() throws -> [LedgerRow] {
+        try read().rows
+    }
+
+    /// Reads every valid row and reports how many lines could not be parsed.
+    public func read() throws -> LedgerReadResult {
         try loadClaims()
         return parse(try text())
     }
@@ -144,10 +210,20 @@ public actor LedgerStore {
         OutcomeStats.tally(try rows())
     }
 
+    /// True when this arm already has a row. Used to reconcile interrupted settlements.
+    public func contains(outcomeEventID: String) throws -> Bool {
+        try loadClaims()
+        return claimedArms.contains(outcomeEventID)
+    }
+
+    private static func identityKey(_ row: LedgerRow) -> String {
+        "\(row.identity)|\(row.pair)"
+    }
+
     private func loadClaims() throws {
         if loaded { return }
-        for row in parse(try text()) {
-            claimedHashes.insert(row.hash)
+        for row in parse(try text()).rows {
+            claimedIdentities.insert(Self.identityKey(row))
             claimedArms.insert(row.outcomeEventID)
         }
         loaded = true
@@ -158,27 +234,46 @@ public actor LedgerStore {
         return try String(contentsOf: url, encoding: .utf8)
     }
 
-    private func parse(_ text: String) -> [LedgerRow] {
+    private func parse(_ text: String) -> LedgerReadResult {
         var parsed: [LedgerRow] = []
-        for (index, raw) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+        var damaged = 0
+        for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
             let line = String(raw)
             if line.isEmpty { continue }
-            if index == 0, line == Self.csvHeader { continue }
-            guard let fields = Self.fields(in: line), fields.count >= 8 else { continue }
+            // Any header generation starts with the v1 column names.
+            if line.hasPrefix("timestamp,pair,hash,"), line.contains("score") { continue }
+            guard let fields = Self.fields(in: line), fields.count >= 8 else {
+                damaged += 1
+                continue
+            }
             guard let timestamp = Self.iso8601.date(from: fields[0]),
                 let score = Int(fields[3]),
                 fields[5] == "true" || fields[5] == "false",
                 let drift = Double(fields[6]),
                 !fields[2].isEmpty
-            else { continue }
+            else {
+                damaged += 1
+                continue
+            }
 
-            let payout = fields.count > 8 ? Double(fields[8]) : nil
+            // The original Mac ledger had nine columns and its ninth was `theirPrice`,
+            // not the v2 `payout`. Never reinterpret a legacy price as a payout.
+            let isLegacyNineColumn = fields.count == 9
+            let payout = fields.count > 8 && !isLegacyNineColumn ? Double(fields[8]) : nil
             let stake = fields.count > 9 ? Double(fields[9]) : nil
             let marketWindow = fields.count > 10 && !fields[10].isEmpty ? fields[10] : nil
             let engineSHA = fields.count > 11 && !fields[11].isEmpty ? fields[11] : nil
             let fullFingerprint = fields.count > 12 && !fields[12].isEmpty ? fields[12] : nil
-            let entryQuote = fields.count > 13 ? Double(fields[13]) : nil
+            let entryQuote = fields.count > 13
+                ? Double(fields[13])
+                : (isLegacyNineColumn ? Double(fields[8]) : nil)
             let expiryPrice = fields.count > 14 ? Double(fields[14]) : nil
+            let version = fields.count > 20 ? Int(fields[20]) : nil
+            // Pre-v3 rows have no arm id. Preserve one distinct event per historical row
+            // instead of collapsing every outcome on a hash into the same pseudo-arm.
+            let armID = fields.count > 19 && !fields[19].isEmpty
+                ? fields[19]
+                : "\(fields[2])-\(fields[0])"
 
             parsed.append(
                 LedgerRow(
@@ -190,7 +285,7 @@ public actor LedgerStore {
                     veto: fields[5] == "true",
                     drift: drift,
                     outcome: fields[7],
-                    outcomeEventID: fields.count > 19 && !fields[19].isEmpty ? fields[19] : fields[2],
+                    outcomeEventID: armID,
                     payout: payout,
                     stake: stake,
                     marketWindow: marketWindow,
@@ -201,15 +296,25 @@ public actor LedgerStore {
                     labelSource: fields.count > 15 && !fields[15].isEmpty ? fields[15] : nil,
                     horizonSeconds: fields.count > 16 ? Int(fields[16]) : nil,
                     enteredAt: fields.count > 17 ? Self.iso8601.date(from: fields[17]) : nil,
-                    expiryObservedMs: fields.count > 18 ? Double(fields[18]) : nil
+                    expiryObservedMs: fields.count > 18 ? Double(fields[18]) : nil,
+                    schemaVersion: version
                 )
             )
         }
-        return parsed
+        return LedgerReadResult(rows: parsed, damagedLines: damaged)
     }
 
+    /// Copies a pre-v3 ledger exactly once before the header is rewritten in place.
+    private static func backupLegacyFileIfNeeded(url: URL, data: Data) throws {
+        let backup = url.deletingLastPathComponent()
+            .appendingPathComponent("\(url.lastPathComponent).pre-v3.bak")
+        guard !FileManager.default.fileExists(atPath: backup.path) else { return }
+        try AtomicFile.write(data, to: backup)
+    }
+
+    /// Always writes a fixed-width v3 row so the header is truthful.
     private func line(for row: LedgerRow) -> String {
-        var parts = [
+        let parts = [
             csv(Self.iso8601.string(from: row.timestamp)),
             csv(row.pair),
             csv(row.hash),
@@ -218,21 +323,20 @@ public actor LedgerStore {
             csv(row.veto ? "true" : "false"),
             csv(String(format: "%.4f", row.drift)),
             csv(row.outcome),
+            csv(row.payout.map { String($0) } ?? ""),
+            csv(row.stake.map { String($0) } ?? ""),
+            csv(row.marketWindow ?? ""),
+            csv(row.engineSHA ?? ""),
+            csv(row.fullFingerprint ?? ""),
+            csv(row.entryQuote.map { String($0) } ?? ""),
+            csv(row.expiryPrice.map { String($0) } ?? ""),
+            csv(row.labelSource ?? ""),
+            csv(row.horizonSeconds.map { String($0) } ?? ""),
+            csv(row.enteredAt.map { Self.iso8601.string(from: $0) } ?? ""),
+            csv(row.expiryObservedMs.map { String($0) } ?? ""),
+            csv(row.outcomeEventID),
+            csv(String(Self.schemaVersion)),
         ]
-        if row.payout != nil || row.stake != nil || row.marketWindow != nil || row.engineSHA != nil || row.fullFingerprint != nil || row.entryQuote != nil || row.expiryPrice != nil || row.labelSource != nil || row.horizonSeconds != nil || row.enteredAt != nil || row.expiryObservedMs != nil {
-            parts.append(csv(row.payout.map { String($0) } ?? ""))
-            parts.append(csv(row.stake.map { String($0) } ?? ""))
-            parts.append(csv(row.marketWindow ?? ""))
-            parts.append(csv(row.engineSHA ?? ""))
-            parts.append(csv(row.fullFingerprint ?? ""))
-            parts.append(csv(row.entryQuote.map { String($0) } ?? ""))
-            parts.append(csv(row.expiryPrice.map { String($0) } ?? ""))
-            parts.append(csv(row.labelSource ?? ""))
-            parts.append(csv(row.horizonSeconds.map { String($0) } ?? ""))
-            parts.append(csv(row.enteredAt.map { Self.iso8601.string(from: $0) } ?? ""))
-            parts.append(csv(row.expiryObservedMs.map { String($0) } ?? ""))
-            parts.append(csv(row.outcomeEventID))
-        }
         return parts.joined(separator: ",") + "\n"
     }
 

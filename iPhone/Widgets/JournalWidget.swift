@@ -59,7 +59,12 @@ struct JournalTimelineProvider: TimelineProvider {
     func getTimeline(in context: Context, completion: @escaping (Timeline<JournalWidgetEntry>) -> Void) {
         Task {
             let entry = await loadLatest()
-            let nextUpdate = Calendar.current.date(byAdding: .minute, value: 15, to: Date()) ?? Date().addingTimeInterval(900)
+            let fifteenMinutes = Date().addingTimeInterval(15 * 60)
+            // Refresh when a saved TAP instruction stops being live, not only every 15 minutes.
+            let beamEnd = entry.journal.map {
+                $0.scannedAt.addingTimeInterval(Timing.liveMs / 1000 + 1)
+            }
+            let nextUpdate = min(fifteenMinutes, beamEnd.flatMap { $0 > Date() ? $0 : nil } ?? fifteenMinutes)
             let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
             completion(timeline)
         }
@@ -115,9 +120,9 @@ struct JournalWidgetView: View {
                     Text(scan.pair)
                         .font(.system(size: 18, weight: .bold))
                         .foregroundStyle(Color.white)
-                    Text(scan.outcome ?? scan.verb)
+                    Text(word(for: scan))
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(verbColor(scan.outcome ?? scan.verb))
+                        .foregroundStyle(verbColor(word(for: scan)))
                 }
                 .padding(.top, 2)
 
@@ -158,9 +163,9 @@ struct JournalWidgetView: View {
                     Text("\(scan.score)")
                         .font(.headline)
                 }
-                Text(scan.outcome ?? scan.verb)
+                Text(word(for: scan))
                     .font(.subheadline)
-                    .foregroundStyle(verbColor(scan.outcome ?? scan.verb))
+                    .foregroundStyle(verbColor(word(for: scan)))
                 Text("Strike \(PriceFormat.px(scan.strike))")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -175,7 +180,7 @@ struct JournalWidgetView: View {
 
     private var accessoryInlineView: some View {
         if let scan = entry.journal {
-            Text("\(scan.pair) \(scan.outcome ?? scan.verb) (\(scan.score))")
+            Text("\(scan.pair) \(word(for: scan)) (\(scan.score))")
         } else {
             Text("Blazer: Ready")
         }
@@ -206,6 +211,15 @@ struct JournalWidgetView: View {
         default:
             return Color.white.opacity(0.6)
         }
+    }
+
+    /// A saved instruction is only actionable inside the live beam. Older rows are history.
+    private func word(for scan: JournalEntry) -> String {
+        SavedScanPresentation.word(
+            outcome: scan.outcome,
+            verb: scan.verb,
+            scannedAt: scan.scannedAt
+        )
     }
 }
 

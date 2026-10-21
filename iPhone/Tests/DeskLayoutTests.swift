@@ -42,20 +42,30 @@ final class DeskLayoutTests: XCTestCase {
             host.view.setNeedsLayout()
             host.view.layoutIfNeeded()
 
-            XCTAssertFalse(
-                extendsOutside(host.view, of: host.view),
-                "Tab \(tab.rawValue) has views extending outside the iPhone 16 canvas"
+            let overflow = firstOverflow(host.view, of: host.view)
+            XCTAssertNil(
+                overflow,
+                "Tab \(tab.rawValue) has views outside the canvas: \(overflow ?? "")"
             )
         }
         try? FileManager.default.removeItem(at: root)
     }
 
     private func extendsOutside(_ view: UIView, of root: UIView) -> Bool {
+        firstOverflow(view, of: root) != nil
+    }
+
+    private func firstOverflow(_ view: UIView, of root: UIView) -> String? {
         let frame = view.convert(view.bounds, to: root)
         let canvas = root.bounds.insetBy(dx: -1, dy: -1)
         if view !== root, !frame.isNull, !frame.isEmpty, !canvas.contains(frame) {
-            return true
+            return "\(type(of: view)) frame=\(frame) canvas=\(root.bounds)"
         }
-        return view.subviews.contains { extendsOutside($0, of: root) }
+        // Content inside a scroll view is intentionally larger than its viewport.
+        if view is UIScrollView { return nil }
+        for subview in view.subviews {
+            if let found = firstOverflow(subview, of: root) { return found }
+        }
+        return nil
     }
 }

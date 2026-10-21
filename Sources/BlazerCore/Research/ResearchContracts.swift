@@ -23,6 +23,36 @@ public struct ScanFeatures: Codable, Sendable {
     public var sweep: String?
     public var structureBreak: String?
     public var regime: String
+
+    public init(
+        atr1m: Double,
+        atr5m: Double,
+        efficiency: Double,
+        slopeATR: Double,
+        spreadATR: Double,
+        rangeATR: Double,
+        bodyATR: Double,
+        upperWickShare: Double,
+        lowerWickShare: Double,
+        twoSidedSweep: Bool,
+        sweep: String?,
+        structureBreak: String?,
+        regime: String
+    ) {
+        self.atr1m = atr1m
+        self.atr5m = atr5m
+        self.efficiency = efficiency
+        self.slopeATR = slopeATR
+        self.spreadATR = spreadATR
+        self.rangeATR = rangeATR
+        self.bodyATR = bodyATR
+        self.upperWickShare = upperWickShare
+        self.lowerWickShare = lowerWickShare
+        self.twoSidedSweep = twoSidedSweep
+        self.sweep = sweep
+        self.structureBreak = structureBreak
+        self.regime = regime
+    }
 }
 
 /// Mechanical entry quality, shared by the desk and research runner; never picks a side.

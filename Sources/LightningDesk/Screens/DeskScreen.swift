@@ -5,6 +5,7 @@ struct DeskScreen: View {
     @ObservedObject var model: LightningDeskModel
     var reduceMotion: Bool
     @State private var showingPrimeSchedule = false
+    @State private var showingStrikeSheet = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -27,10 +28,40 @@ struct DeskScreen: View {
                 Task { await model.scan() }
             }
             .padding(.horizontal, 20)
+            .padding(.bottom, 6)
+
+            Picker("Market", selection: $model.marketMode) {
+                Text("Crypto").tag(DeskMarket.crypto)
+                Text("FX").tag(DeskMarket.fx)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(maxWidth: 220)
+            .disabled(model.activeTrade != nil || model.awaitingOutcome || model.isSettlementInFlight)
+            .padding(.bottom, 8)
+
+            Button {
+                DeskHaptics.tabSwitch()
+                showingStrikeSheet = true
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "target")
+                    Text("Track Strike Contract")
+                }
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(DeskInk.electric)
+            }
+            .buttonStyle(.plain)
             .padding(.bottom, 10)
         }
         .sheet(isPresented: $showingPrimeSchedule) {
             PrimeScheduleSheet()
+        }
+        .sheet(isPresented: $showingStrikeSheet) {
+            StrikeTradeSheet(model: model)
+        }
+        .onChange(of: model.marketMode) { _, _ in
+            Task { await model.scan() }
         }
     }
 
@@ -45,8 +76,13 @@ struct DeskScreen: View {
                 DeskHaptics.tabSwitch()
                 model.activeTab = .intel
             } label: {
-                let sessionColor: Color = edgeWindow.isSupremePrime ? DeskInk.emerald : (edgeWindow.isTactical ? DeskInk.electric : (isOpen ? DeskInk.violet : DeskInk.coral))
-                let sessionLabel: String = edgeWindow.isSupremePrime ? "⚡ SUPREME PRIME" : (edgeWindow.isTactical ? "🌙 TACTICAL (BURSTS)" : "⚡ OFF-PEAK · \(FxSession.activeSessionName())")
+                let cryptoMode = model.marketMode == .crypto
+                let sessionColor: Color = cryptoMode
+                    ? cryptoFeedTint(model.feed)
+                    : (edgeWindow.isSupremePrime ? DeskInk.emerald : (edgeWindow.isTactical ? DeskInk.electric : (isOpen ? DeskInk.violet : DeskInk.coral)))
+                let sessionLabel: String = cryptoMode
+                    ? "₿ \(model.feed.rawValue)"
+                    : (edgeWindow.isSupremePrime ? "⚡ SUPREME PRIME" : (edgeWindow.isTactical ? "🌙 TACTICAL (BURSTS)" : "⚡ OFF-PEAK · \(FxSession.activeSessionName())"))
 
                 HStack(spacing: 5) {
                     Circle()
@@ -143,6 +179,15 @@ struct DeskScreen: View {
         }
     }
 
+    private func cryptoFeedTint(_ status: FeedStatus) -> Color {
+        switch status {
+        case .live: return DeskInk.emerald
+        case .stale: return DeskInk.electric
+        case .connecting: return DeskInk.violet
+        case .disconnected, .error: return DeskInk.coral
+        }
+    }
+
     private var hero: some View {
         VStack(alignment: .leading, spacing: 14) {
             pairRow
@@ -214,7 +259,7 @@ struct DeskScreen: View {
         .accessibilityElement(children: .contain)
         .onTapGesture {
             if model.activeTrade == nil && isArmed {
-                model.lockInTrade()
+                Task { await model.lockInTrade() }
             }
         }
         .gesture(
@@ -488,7 +533,7 @@ struct DeskScreen: View {
                 .padding(.top, 2)
 
                 Button {
-                    model.lockInTrade()
+                    Task { await model.lockInTrade() }
                 } label: {
                     HStack(spacing: 10) {
                         ZStack {
@@ -500,11 +545,11 @@ struct DeskScreen: View {
                                 .foregroundStyle(verbColor)
                         }
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("LOCK IN \(horizonLabel(model.selectedHorizonSec)) POSITION")
+                            Text("RECORD \(horizonLabel(model.selectedHorizonSec)) MANUAL ENTRY")
                                 .font(.system(size: 13, weight: .bold))
                                 .tracking(0.6)
                                 .foregroundStyle(DeskInk.ink)
-                            Text("Anchors live strike · Tap before beam expires")
+                            Text("Place it in Pocket Option first · Anchors live strike")
                                 .font(.system(size: 10, weight: .medium))
                                 .foregroundStyle(DeskInk.slate)
                         }
@@ -543,17 +588,37 @@ struct DeskScreen: View {
                         tint: DeskInk.emerald,
                         isHighlighted: model.predictedOutcome == .hit
                     ) {
-                        Task { await model.settle(.hit) }
+                        Task { await model.confirmVenueOutcome(.hit) }
                     }
                     outcomeChoice(
                         model.predictedOutcome == .miss ? "MISS (LOSS)" : "MISS",
                         tint: DeskInk.coral,
                         isHighlighted: model.predictedOutcome == .miss
                     ) {
-                        Task { await model.settle(.miss) }
+                        Task { await model.confirmVenueOutcome(.miss) }
                     }
                 }
                 .padding(.top, 6)
+            }
+
+            if model.pendingSaveCount > 0 {
+                Button {
+                    Task { await model.retryPendingSettlement() }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 10, weight: .bold))
+                        Text("RETRY SAVING OUTCOME (\(model.pendingSaveCount))")
+                            .font(.system(size: 10, weight: .heavy))
+                            .tracking(0.4)
+                    }
+                    .foregroundStyle(DeskInk.coral)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(DeskInk.coral.opacity(0.14), in: Capsule())
+                }
+                .buttonStyle(SpringPressButtonStyle())
+                .padding(.top, 4)
             }
         }
     }
@@ -587,7 +652,7 @@ struct DeskScreen: View {
     private var isArmed: Bool {
         if model.activeTrade != nil { return true }
         guard let frame = model.frame else { return false }
-        return frame.remainingMs > 0
+        return frame.isActionable
     }
 
     private var rail: some View {

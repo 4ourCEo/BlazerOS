@@ -39,6 +39,8 @@ public struct Tag: Codable, Equatable, Sendable {
 public struct JournalEntry: Codable, Equatable, Sendable, Identifiable {
     public var id: String
     public var fingerprint: String
+    /// Full frozen-input identity. Absent on entries written before schema v3.
+    public var fullFingerprint: String?
     public var pair: String
     public var score: Int
     public var side: String
@@ -56,6 +58,7 @@ public struct JournalEntry: Codable, Equatable, Sendable, Identifiable {
     public init(
         id: String,
         fingerprint: String,
+        fullFingerprint: String? = nil,
         pair: String,
         score: Int,
         side: String,
@@ -72,6 +75,7 @@ public struct JournalEntry: Codable, Equatable, Sendable, Identifiable {
     ) {
         self.id = id
         self.fingerprint = fingerprint
+        self.fullFingerprint = fullFingerprint
         self.pair = pair
         self.score = score
         self.side = side

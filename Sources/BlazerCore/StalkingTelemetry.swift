@@ -45,13 +45,14 @@ public struct StalkingTelemetry: Sendable, Equatable {
                 tier: .pairWarning,
                 badgeLabel: "CHOP RISK",
                 telemetryHeadline: "\(asset) Quarantined",
-                telemetryDetail: "Empirical forward testing confirms sub-breakeven performance on \(asset). Quarantined from active basket.",
-                stakeGuidance: "$0 · Switch to active basket",
+                telemetryDetail: "This build quarantines \(asset) from the active basket. The quarantine is a configuration choice, not a measured edge claim.",
+                stakeGuidance: "No entry · switch to an active pair",
                 isActionable: false
             )
         }
 
         let isSideActionable = side == "HIGH" || side == "LOW"
+        // The commit score is side-neutral conviction (0...100). It is not a win probability.
         let conviction = score
         let dirLabel = side == "LOW" ? "PUT" : (side == "HIGH" ? "CALL" : "WAIT")
 
@@ -61,7 +62,7 @@ public struct StalkingTelemetry: Sendable, Equatable {
                 tier: .apexPrime,
                 badgeLabel: "APEX A+ CONVICTION",
                 telemetryHeadline: "\(dirLabel) Momentum Confirmed",
-                telemetryDetail: "Directional conviction \(conviction) during \(edgeWindow.badgeTitle). Score is not a win probability.",
+                telemetryDetail: "Engine score \(conviction) during \(edgeWindow.badgeTitle). Score is not a win probability.",
                 stakeGuidance: "Use your fixed risk limit",
                 isActionable: true
             )
@@ -73,8 +74,8 @@ public struct StalkingTelemetry: Sendable, Equatable {
                 tier: .tacticalProbe,
                 badgeLabel: "TACTICAL PROBE",
                 telemetryHeadline: "\(dirLabel) Micro-Breakout",
-                telemetryDetail: "Moderate directional impulse detected (Conviction \(conviction)). Market is outside peak liquidity overlap.",
-                stakeGuidance: "Light Stake ($10–$15) · Secondary Edge",
+                telemetryDetail: "Moderate directional impulse detected (engine score \(conviction)). Market is outside peak liquidity overlap.",
+                stakeGuidance: "Use your fixed risk limit",
                 isActionable: true
             )
         }
@@ -86,8 +87,8 @@ public struct StalkingTelemetry: Sendable, Equatable {
                 tier: .stalkingSetup,
                 badgeLabel: "STALKING SETUP",
                 telemetryHeadline: "Stalking \(direction) Pressure",
-                telemetryDetail: "\(evidence). Conviction \(conviction)/72 needed for high-conviction trigger. Monitoring compression.",
-                stakeGuidance: "Stand By · Awaiting Trigger Spike",
+                telemetryDetail: "\(evidence). Engine score \(conviction)/72 needed for the high-conviction tier. Monitoring compression.",
+                stakeGuidance: "Stand by · awaiting a qualifying trigger",
                 isActionable: false
             )
         }
@@ -97,8 +98,8 @@ public struct StalkingTelemetry: Sendable, Equatable {
             tier: .capitalShield,
             badgeLabel: "CAPITAL SHIELD",
             telemetryHeadline: "Chop Filtered · No Trade",
-            telemetryDetail: "Market noise below statistical edge. Skipping low-probability consolidation preserves your bankroll.",
-            stakeGuidance: "No Action · Radar Scanning Other Pairs",
+            telemetryDetail: "No qualifying setup. Standing down preserves capital; this is not a probability claim.",
+            stakeGuidance: "No action · radar scanning other pairs",
             isActionable: false
         )
     }

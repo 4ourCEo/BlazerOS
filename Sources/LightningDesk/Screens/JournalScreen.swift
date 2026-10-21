@@ -203,7 +203,7 @@ struct PerformanceAnalyticsCard: View {
     }
 
     private var netDollarPnL: Double {
-        let winProfit = Double(hits) * (stakeAmount * 0.85)
+        let winProfit = Double(hits) * (stakeAmount * EntryQuality.assumedPayout)
         let lossAmount = Double(misses) * stakeAmount
         return winProfit - lossAmount
     }
@@ -465,7 +465,7 @@ struct EquityCurveView: View {
         var list: [Double] = [0.0]
         for trade in settledTrades {
             if trade.outcome == "HIT" {
-                running += (stakeAmount * 0.85)
+                running += (stakeAmount * EntryQuality.assumedPayout)
             } else {
                 running -= stakeAmount
             }
@@ -490,11 +490,11 @@ struct EquityCurveView: View {
         guard total > 0 else { return 0.0 }
         let winRate = Double(hits) / Double(total)
         let lossRate = Double(misses) / Double(total)
-        return (winRate * (stakeAmount * 0.85)) - (lossRate * stakeAmount)
+        return (winRate * (stakeAmount * EntryQuality.assumedPayout)) - (lossRate * stakeAmount)
     }
 
     private var profitFactor: Double {
-        let grossGains = Double(hits) * (stakeAmount * 0.85)
+        let grossGains = Double(hits) * (stakeAmount * EntryQuality.assumedPayout)
         let grossLosses = Double(misses) * stakeAmount
         guard grossLosses > 0 else { return grossGains > 0 ? 9.9 : 1.0 }
         return min(9.9, grossGains / grossLosses)

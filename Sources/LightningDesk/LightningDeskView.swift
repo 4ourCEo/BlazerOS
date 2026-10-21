@@ -21,27 +21,31 @@ public struct LightningDeskView: View {
             DeskInk.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Active Screen Content
-                ZStack {
-                    switch model.activeTab {
-                    case .desk:
-                        DeskScreen(model: model, reduceMotion: reduceMotion)
-                            .transition(.opacity)
-                    case .radar:
-                        MarketsScreen(model: model)
-                            .transition(.opacity)
-                    case .intel:
-                        IntelScreen(model: model)
-                            .transition(.opacity)
-                    case .coach:
-                        CoachScreen(model: model)
-                            .transition(.opacity)
-                    case .journal:
-                        JournalScreen(model: model)
-                            .transition(.opacity)
+                // Active Screen Content. GeometryReader gives every tab a finite viewport so a
+                // tall ScrollView cannot grow the whole root past the phone canvas.
+                GeometryReader { proxy in
+                    ZStack {
+                        switch model.activeTab {
+                        case .desk:
+                            DeskScreen(model: model, reduceMotion: reduceMotion)
+                                .transition(.opacity)
+                        case .radar:
+                            MarketsScreen(model: model)
+                                .transition(.opacity)
+                        case .intel:
+                            IntelScreen(model: model)
+                                .transition(.opacity)
+                        case .coach:
+                            CoachScreen(model: model)
+                                .transition(.opacity)
+                        case .journal:
+                            JournalScreen(model: model)
+                                .transition(.opacity)
+                        }
                     }
+                    .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+                    .clipped()
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 // Floating Navigation Bar
                 FloatingNavBar(activeTab: $model.activeTab)
@@ -61,8 +65,8 @@ public struct LightningDeskView: View {
                 .transition(.opacity)
             }
 
-            // Credential Settings / Missing Cover
-            if model.showingCredentials || (!model.showingLaunch && model.keychainState == .missing) {
+            // Credential Settings / Missing Cover — FX only. Crypto needs no OANDA key.
+            if model.showingCredentials || (!model.showingLaunch && !model.isDemoDesk && model.marketMode == .fx && model.keychainState == .missing) {
                 CredentialCover(model: model)
                     .modifier(ReferencePhoneInset())
                     .transition(.opacity)

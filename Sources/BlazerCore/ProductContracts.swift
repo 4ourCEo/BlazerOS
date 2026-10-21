@@ -75,6 +75,7 @@ public struct DeskFrame: Sendable, Equatable {
     public var remainingMs: Double
     public var veto: String?
     public var fingerprint: String
+    public var isActionable: Bool
 
     public init(
         pair: String,
@@ -85,7 +86,8 @@ public struct DeskFrame: Sendable, Equatable {
         verb: String,
         remainingMs: Double,
         veto: String?,
-        fingerprint: String
+        fingerprint: String,
+        isActionable: Bool
     ) {
         self.pair = pair
         self.feed = feed
@@ -96,31 +98,42 @@ public struct DeskFrame: Sendable, Equatable {
         self.remainingMs = remainingMs
         self.veto = veto
         self.fingerprint = fingerprint
+        self.isActionable = isActionable
     }
 
     public static func make(
         commit: ScanCommit,
         feed: FeedStatus,
         cabinetSide: String,
-        elapsedMs: Double
+        elapsedMs: Double,
+        historical: Bool = false
     ) -> DeskFrame {
-        let vetoed = commit.veto != nil
+        let actionable = !historical && (cabinetSide == "HIGH" || cabinetSide == "LOW") && elapsedMs > 0 && BeamContract.remainingMs(elapsedMs: elapsedMs, historical: historical) > 0 && feed == .live && commit.veto == nil
+        let verb = actionable || historical
+            ? BeamContract.verb(
+                cabinetSide: cabinetSide,
+                elapsedMs: elapsedMs,
+                vetoed: commit.veto != nil,
+                historical: historical
+            )
+            : "WAIT"
         return DeskFrame(
             pair: commit.asset,
             feed: feed,
             score: commit.score,
             why: commit.evidence,
             strike: commit.strike,
-            verb: BeamContract.verb(cabinetSide: cabinetSide, elapsedMs: elapsedMs, vetoed: vetoed),
-            remainingMs: BeamContract.remainingMs(elapsedMs: elapsedMs),
+            verb: verb,
+            remainingMs: actionable ? BeamContract.remainingMs(elapsedMs: elapsedMs, historical: historical) : 0,
             veto: commit.veto,
-            fingerprint: commit.fingerprint
+            fingerprint: commit.fingerprint,
+            isActionable: actionable
         )
     }
 }
 
 /// An executed 60-second binary options trade horizon.
-public struct ActiveTrade: Sendable, Equatable, Identifiable {
+public struct ActiveTrade: Sendable, Equatable, Identifiable, Codable {
     public var id: String
     public var pair: String
     public var side: String
@@ -130,6 +143,8 @@ public struct ActiveTrade: Sendable, Equatable, Identifiable {
     public var expiresAt: Date
     public var durationSec: Double
     public var currentPrice: Double?
+    public var stake: Double?
+    public var payout: Double?
     public var fingerprint: String
 
     public init(
@@ -141,6 +156,8 @@ public struct ActiveTrade: Sendable, Equatable, Identifiable {
         enteredAt: Date = Date(),
         durationSec: Double = 60.0,
         currentPrice: Double? = nil,
+        stake: Double? = nil,
+        payout: Double? = nil,
         fingerprint: String
     ) {
         self.id = id
@@ -152,6 +169,8 @@ public struct ActiveTrade: Sendable, Equatable, Identifiable {
         self.expiresAt = enteredAt.addingTimeInterval(durationSec)
         self.durationSec = durationSec
         self.currentPrice = currentPrice
+        self.stake = stake
+        self.payout = payout
         self.fingerprint = fingerprint
     }
 
@@ -177,6 +196,18 @@ public struct ActiveTrade: Sendable, Equatable, Identifiable {
         guard let pipDiff else { return nil }
         return pipDiff > 0
     }
+}
+
+/// Typed failures for enforcing entry gates at confirmation time.
+public enum EntryGateFailure: Error, Sendable, Equatable {
+    case expiredBeam
+    case staleFeed
+    case vetoed(String)
+    case notDirectional
+    case historical
+    case activePositionExists
+    case noArmedBeam
+    case unsupportedExpiry
 }
 
 /// Spoken note attached to a fingerprint. Tags are annotations. They are not scan inputs.
@@ -237,4 +268,23 @@ public enum DeviceLocal: String, Sendable, Codable, CaseIterable {
 public protocol TradingCoach: Sendable {
     func explain(seal: ParitySeal, evidence: String, question: String) async throws -> String
     func tag(spoken: String, seal: ParitySeal) async throws -> JournalTags
+}
+
+/// Provenance and evidence for an observed outcome. Reference observations are not broker outcomes.
+public struct OutcomeProvenance: Sendable, Equatable, Codable {
+    public enum Kind: String, Codable, Sendable { case reference, confirmedBroker }
+    public enum EvidenceType: String, Codable, Sendable { case completedM1Candle, lastQuote, none }
+    public var kind: Kind
+    public var evidenceType: EvidenceType
+    public var evidenceAt: Date?
+    public var confirmedAt: Date?
+    public var confirmedBy: String?
+
+    public init(kind: Kind, evidenceType: EvidenceType, evidenceAt: Date? = nil, confirmedAt: Date? = nil, confirmedBy: String? = nil) {
+        self.kind = kind
+        self.evidenceType = evidenceType
+        self.evidenceAt = evidenceAt
+        self.confirmedAt = confirmedAt
+        self.confirmedBy = confirmedBy
+    }
 }

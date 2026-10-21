@@ -1,12 +1,21 @@
 import Combine
 import Foundation
 import BlazerCore
+import BlazerCrypto
+
+/// Desk market mode. `.crypto` uses the shared BlazerCrypto engine; `.fx` uses OANDA.
+public enum DeskMarket: String, Sendable, CaseIterable {
+    case crypto
+    case fx
+}
 
 /// One-screen desk state. The frame is derived from the frozen commit. Quotes never rescore it.
 @MainActor
 public final class LightningDeskModel: ObservableObject {
     public init(storageRoot: URL? = nil) {
-        persistence = PersistenceCoordinator(root: storageRoot ?? FileLocations.applicationSupport())
+        let root = storageRoot ?? FileLocations.applicationSupport()
+        persistence = PersistenceCoordinator(root: root)
+        strikeStore = StrikeStore(url: root.appendingPathComponent("strike_positions.json"))
     }
     @Published public var pair: String = "EUR/USD"
     @Published var feed: FeedStatus = .connecting
@@ -15,16 +24,18 @@ public final class LightningDeskModel: ObservableObject {
     /// Walk label, for example "GBP/USD 2/6". Nil when idle.
     @Published var scanStep: String?
     /// Last full-book read. Display only.
-    @Published var book: [BookRow] = Assets.watchlist.map { BookRow(asset: $0, side: "—") }
+    @Published var book: [BookRow] = CTAssets.watchlist.map { BookRow(asset: $0, side: "—") }
     @Published var notice: String?
     @Published public private(set) var frame: DeskFrame?
     /// Active 60-second binary trade execution. Nil when not in an active position.
     @Published public private(set) var activeTrade: ActiveTrade?
     /// Predicted outcome based on live price at trade expiry.
     @Published public private(set) var predictedOutcome: DeskOutcome?
-    /// Live mid quote for telemetry and chart horizon.
+    /// Live mid quote for the selected pair. An entry on another pair never leaks in.
     public var currentPrice: Double? {
-        activeTrade?.currentPrice ?? quote?.mid
+        if let trade = activeTrade, trade.pair == pair { return trade.currentPrice }
+        if let quote, quote.asset == pair { return quote.mid }
+        return nil
     }
     /// Brand cover. Dismisses on a real LIVE feed, otherwise after a short beat. Never invents LIVE.
     @Published public var showingLaunch = true
@@ -33,6 +44,14 @@ public final class LightningDeskModel: ObservableObject {
     /// Brief upward offset after a commit. Display only.
     @Published var heroLift: Double = 0
     @Published public var activeTab: DeskTab = .desk
+    /// Which market the Scan button walks. Crypto is the primary mode.
+    /// The visible watchlist is derived from `pairs`; `book` sides reset on the next scan.
+    /// Never mutate other @Published state here — publishing from inside a SwiftUI view
+    /// update crashes the app.
+    @Published public var marketMode: DeskMarket = .crypto
+    /// True while the offline fixture is being shown. It suppresses the missing-credential cover
+    /// without pretending a live Keychain session exists.
+    @Published public private(set) var isDemoDesk = false
     @Published var showingCredentials = false
     /// Frozen scans. Newest first. Display only; quotes never rewrite the score.
     @Published private(set) var journal: [ReplayEntry] = []
@@ -42,6 +61,10 @@ public final class LightningDeskModel: ObservableObject {
     @Published private(set) var coachExplanation: CoachExplanation?
     /// HIT and MISS are offered only after the beam expires.
     @Published private(set) var awaitingOutcome = false
+    /// Reads that failed at launch. Surfaced, never treated as empty history.
+    @Published public private(set) var restoreIssues: [RestoreIssue] = []
+    /// Outcomes observed but not yet durably written.
+    @Published public private(set) var pendingSaveCount: Int = 0
     @Published private(set) var outcomeStats = OutcomeStats.empty
     @Published public private(set) var ledgerRows: [LedgerRow] = []
     /// Keychain presence only. A saved token is not kept here.
@@ -64,6 +87,199 @@ public final class LightningDeskModel: ObservableObject {
 
     /// Currently selected binary expiry duration (60s, 180s = 3m, 300s = 5m). Default is 60s.
     @Published public var selectedHorizonSec: Double = 60.0
+
+    // MARK: - AI Copilot (advisory only)
+    //
+    // Optional, asynchronous, NON-AUTHORITATIVE. It never gates a trade, never produces numbers
+    // (those come from StrikeMath), and its failure changes nothing about scanning or tracking.
+
+    /// Advisory copilot output for the current candidate contract. Never authoritative.
+    @Published public private(set) var strikeAdvice: StrikeAuditAdvice?
+    @Published public private(set) var isAuditingStrike = false
+    /// Non-nil when the copilot was unavailable. The desk stays fully functional either way.
+    @Published public private(set) var strikeAdviceIssue: String?
+
+    public var copilotProvider: AIProvider = .deepseek
+    public var copilotVault: KeychainVault = SystemKeychainVault()
+    private let strikeAuditor = LLMStrikeAuditor()
+
+    /// Fire an advisory audit. Returns immediately; scan, the 8s beam, and tracking are untouched.
+    public func requestStrikeAudit(_ request: StrikeAuditRequest) {
+        guard !isAuditingStrike else { return }
+        let provider = copilotProvider
+        let storedKey: String?
+        do {
+            storedKey = try copilotVault.get(provider.keychainKeyName)
+        } catch {
+            strikeAdviceIssue = "Copilot key unavailable"
+            return
+        }
+        guard let apiKey = storedKey, !apiKey.isEmpty else {
+            strikeAdviceIssue = "No copilot API key configured"
+            return
+        }
+        isAuditingStrike = true
+        strikeAdviceIssue = nil
+        Task {
+            do {
+                let advice = try await strikeAuditor.audit(
+                    request: request, provider: provider, apiKey: apiKey
+                )
+                self.strikeAdvice = advice
+            } catch {
+                // Fail closed to deterministic-only mode. Never fabricate advice.
+                self.strikeAdviceIssue = "Copilot unavailable — showing local analysis only"
+            }
+            self.isAuditingStrike = false
+        }
+    }
+
+    public func clearStrikeAdvice() {
+        strikeAdvice = nil
+        strikeAdviceIssue = nil
+    }
+
+    /// Convenience: build the deterministic assessment + audit request from raw inputs, using the
+    /// desk's current reference price. All numbers come from `StrikeMath`, never the model.
+    public func requestStrikeAudit(
+        symbol: String,
+        strike: Double,
+        entryPrice: Decimal,
+        secondsRemaining: Int,
+        side: StrikeSide,
+        direction: String,
+        score: Int,
+        spec: StrikeContractSpec = .currentCrypto
+    ) {
+        guard let spot = currentPrice else {
+            strikeAdviceIssue = "No live reference price"
+            return
+        }
+        let assessment = StrikeAssessment.evaluate(
+            spot: spot, strike: strike, entryPrice: entryPrice,
+            secondsRemaining: secondsRemaining, spec: spec
+        )
+        let request = StrikeAuditRequest.make(
+            symbol: symbol, assessment: assessment, spot: spot, strike: strike,
+            entryPrice: entryPrice, secondsRemaining: secondsRemaining,
+            momentumDirection: direction, momentumScore: score, side: side, spec: spec
+        )
+        requestStrikeAudit(request)
+    }
+
+    // MARK: - App lifecycle (foreground resume)
+
+    private var backgroundedAt: Date?
+    /// Increments each time the app returns to the foreground. Telemetry only.
+    @Published public private(set) var foregroundResumeCount = 0
+
+    public func handleAppBackgrounded(now: Date = Date()) {
+        backgroundedAt = now
+    }
+
+    /// Resume after the user returns (e.g., from the Crypto.com app). Never blocks.
+    public func handleAppForegrounded(now: Date = Date()) {
+        let suspendedMs = backgroundedAt.map { max(0, now.timeIntervalSince($0) * 1000) } ?? 0
+        let decision = ForegroundResume.decide(
+            suspendedForMs: suspendedMs,
+            lastPollAgeMs: lastFreshPollAt.map { max(0, now.timeIntervalSince($0) * 1000) },
+            clockSampleAgeMs: nil
+        )
+        backgroundedAt = nil
+        foregroundResumeCount += 1
+        if decision.treatFeedAsDisconnected {
+            feed = .connecting
+        }
+        refreshTrackedStrikePositions()
+        Task {
+            await refreshActiveTradeQuote()
+            await refreshQuote()
+            // A Siri request can arrive while a session is already loaded. Consume it here
+            // instead of waiting for the next Keychain read.
+            await consumePendingScanIfReady()
+        }
+    }
+
+    // MARK: - Local strike tracking (external contracts)
+    //
+    // Records a fill the trader placed in Crypto.com. Local accounting only; no order is placed.
+    private let strikeStore: StrikeStore
+    @Published public private(set) var trackedStrikePositions: [StrikePosition] = []
+
+    public func trackStrikeContract(
+        symbol: String,
+        side: StrikeSide,
+        strike: Double,
+        expiry: Date,
+        entryPrice: Decimal,
+        quantity: Int,
+        spec: StrikeContractSpec = .currentCrypto
+    ) {
+        guard quantity > 0 else { notice = "Contracts must be at least 1"; return }
+        let position = StrikePosition(
+            id: UUID().uuidString, symbol: symbol, side: side, strike: strike,
+            predicate: .aboveStrict, spec: spec, expiry: expiry
+        )
+        let event = StrikeEvent(
+            id: UUID().uuidString, positionID: position.id,
+            kind: .open(
+                quantity: quantity,
+                pricePerContract: entryPrice,
+                fee: spec.totalEntryFee * Decimal(quantity),
+                at: Date()
+            )
+        )
+        Task {
+            do {
+                _ = try await strikeStore.create(position, opening: event)
+                trackedStrikePositions = await strikeStore.all()
+                notice = "Tracked locally — place the order in Crypto.com."
+            } catch {
+                notice = "Could not record trade locally."
+            }
+        }
+    }
+
+    public func refreshTrackedStrikePositions() {
+        Task { trackedStrikePositions = await strikeStore.all() }
+    }
+
+    /// Record a settled outcome (user-reported by default; verified is a separate provenance).
+    public func settleStrikePosition(
+        id: String,
+        result: StrikeResult,
+        provenance: StrikeOutcomeProvenance = .userReported
+    ) {
+        let event = StrikeEvent(
+            id: UUID().uuidString, positionID: id,
+            kind: .settle(result: result, provenance: provenance, at: Date())
+        )
+        Task {
+            do {
+                _ = try await strikeStore.apply(event)
+                trackedStrikePositions = await strikeStore.all()
+            } catch {
+                notice = "Could not record settlement."
+            }
+        }
+    }
+
+    /// Record an early exit (partial or full). Only ever reduces owned quantity.
+    public func exitStrikePosition(id: String, quantity: Int, pricePerContract: Decimal?) {
+        guard quantity > 0 else { notice = "Exit quantity must be at least 1"; return }
+        let event = StrikeEvent(
+            id: UUID().uuidString, positionID: id,
+            kind: .exit(quantity: quantity, pricePerContract: pricePerContract, at: Date())
+        )
+        Task {
+            do {
+                _ = try await strikeStore.apply(event)
+                trackedStrikePositions = await strikeStore.all()
+            } catch {
+                notice = "Could not record exit."
+            }
+        }
+    }
 
     /// The current leader across all scanned pairs based on two-way conviction and score.
     public var radarLeader: (asset: String, score: Int, conviction: Int, side: String)? {
@@ -119,6 +335,8 @@ public final class LightningDeskModel: ObservableObject {
     private var cabinetSide = "WAIT"
     private var armedAt: Date?
     private var quote: LiveQuote?
+    /// Last quote observed for the active manual entry, independent of the browsing pair.
+    private var activeTradeQuote: LiveQuote?
     private var lastFreshPollAt: Date?
     private var now = Date()
     private var expired = false
@@ -126,6 +344,11 @@ public final class LightningDeskModel: ObservableObject {
     private var selectedSignal: EngineSignal?
     private var pendingExpiry: ResearchOutcome?
     private var pendingTrade: ActiveTrade?
+    /// Label source to reuse when a failed settlement is retried.
+    private var pendingLabelSource = "manual-unverified"
+    private var pendingOutcome: DeskOutcome?
+    /// True when the desk is showing a cached scan. A cached scan is history; it never re-arms.
+    private var historical = false
     /// Bumped on every press so a new walk replaces the one in flight.
     private var scanGeneration = 0
 
@@ -140,7 +363,10 @@ public final class LightningDeskModel: ObservableObject {
     /// Per-asset cache of the cabinet side for that pair.
     private var cabinetSideByAsset: [String: String] = [:]
 
-    public let pairs = Assets.watchlist
+    /// Watchlist for the active market mode. Crypto uses the shared BlazerCrypto list.
+    public var pairs: [String] {
+        marketMode == .crypto ? CTAssets.watchlist : Assets.watchlist
+    }
 
     public func select(pair next: String) {
         guard activeTrade == nil, !awaitingOutcome, !settlementInFlight else {
@@ -164,12 +390,15 @@ public final class LightningDeskModel: ObservableObject {
         if let cachedCommit = commitsByAsset[next] {
             commit = cachedCommit
             cabinetSide = cabinetSideByAsset[next] ?? "WAIT"
+            // A cached scan is history. It must never look like a fresh armed beam.
+            historical = true
             expired = false
             armedAt = nil
             publishFrame()
         } else {
             commit = nil
             cabinetSide = "WAIT"
+            historical = false
             armedAt = nil
             expired = false
             publishFrame()
@@ -189,6 +418,7 @@ public final class LightningDeskModel: ObservableObject {
     /// Populates the desk with sample market candles from the golden fixture for offline testing.
     public func loadDemoDesk() {
         guard activeTrade == nil, !awaitingOutcome, !settlementInFlight else { return }
+        isDemoDesk = true
         let fixture = GoldenFixture.market()
         let bars = GoldenFixture.frozenBars(from: fixture)
         candles = bars
@@ -214,6 +444,9 @@ public final class LightningDeskModel: ObservableObject {
     public func side(for asset: String) -> String? {
         book.first(where: { $0.asset == asset })?.side ?? cabinetSideByAsset[asset]
     }
+
+    /// True while a settlement write is in progress. Used to freeze navigation.
+    public var isSettlementInFlight: Bool { settlementInFlight }
 
     public func score(for asset: String) -> Int? {
         commitsByAsset[asset]?.score
@@ -278,18 +511,149 @@ public final class LightningDeskModel: ObservableObject {
     }
 
     public func run() async {
+        #if DEBUG
+        // Diagnostic: boot directly into a market mode to reproduce render issues headlessly.
+        if ProcessInfo.processInfo.environment["BLAZER_START_MARKET"] == "fx" {
+            marketMode = .fx
+        }
+        #endif
         await reloadFromDisk()
-        if candles.isEmpty {
-            Task { await self.loadCandles(for: self.pair) }
+        // Finish any settlement that was interrupted by a crash or a failed write.
+        if pendingSaveCount > 0 {
+            let remaining = await persistence.reconcilePendingSettlements()
+            pendingSaveCount = remaining.count
+            if remaining.isEmpty {
+                await reloadFromDisk()
+                clearDeskIfResolved()
+            } else {
+                awaitingOutcome = true
+                notice = "An outcome is waiting to be saved"
+            }
+        }
+        // Scan immediately on launch so the desk is never empty. A Siri request that was
+        // queued before launch is consumed once, without being overwritten by a second scan.
+        let consumedPendingScan = await consumePendingScanIfReady()
+        if !consumedPendingScan {
+            if marketMode == .crypto {
+                await scanCrypto()
+            } else if candles.isEmpty {
+                Task { await self.loadCandles(for: self.pair) }
+            }
         }
         await withTaskGroup(of: Void.self) { group in
             group.addTask { await self.quoteLoop() }
             group.addTask { await self.beamLoop() }
+            group.addTask { await self.cryptoQuoteLoop() }
         }
     }
 
     /// A fresh six-market walk. Nothing from the previous scan is reused.
     public func scan() async {
+        isDemoDesk = false
+        switch marketMode {
+        case .fx: await scanFx()
+        case .crypto: await scanCrypto()
+        }
+    }
+
+    /// Crypto scan via the shared BlazerCrypto engine. No OANDA credential, no FX session gate.
+    public func scanCrypto(asset: String = "BTC/USDT") async {
+        guard activeTrade == nil, !awaitingOutcome, !settlementInFlight else {
+            notice = "Resolve the current outcome before scanning"
+            return
+        }
+        scanGeneration += 1
+        let generation = scanGeneration
+        scanning = true
+        commit = nil
+        cabinetSide = "WAIT"
+        armedAt = nil
+        historical = false
+        expired = false
+        awaitingOutcome = false
+        activeTrade = nil
+        activeTradeQuote = nil
+        predictedOutcome = nil
+        armID = nil
+        candles = []
+        notice = nil
+        book = CTAssets.watchlist.map { BookRow(asset: $0, side: "—") }
+        publishFrame()
+        scanStep = asset
+        defer {
+            if generation == scanGeneration {
+                scanning = false
+                scanStep = nil
+            }
+        }
+
+        let batch = try? await BinanceClient.fetchCryptoBundle(asset: asset)
+        guard generation == scanGeneration else { return }
+        guard let batch, !batch.candles.isEmpty else {
+            diagLog("CRYPTO_SCAN failed: feed unavailable")
+            feed = .disconnected
+            notice = "Crypto feed unavailable"
+            publishFrame()
+            return
+        }
+
+        let cryptoSignal = CryptoDeskSignal.make(asset: asset, batch: batch)
+        diagLog("CRYPTO_SCAN \(asset) side=\(cryptoSignal.cabinetSide) conv=\(cryptoSignal.confidence ?? 0) candles=\(batch.candles.count) mid=\(batch.mid) source=\(batch.source)")
+        let bars = batch.candles.map { c in
+            Candle(time: c.time, open: c.open, high: c.high, low: c.low, close: c.close)
+        }
+        let started = Date()
+        var next = ScanKernel.commit(
+            from: cryptoSignal,
+            bars: bars,
+            bid: batch.bid,
+            ask: batch.ask,
+            spread: batch.spread,
+            expirySeconds: 60,
+            engineSHA: CryptoDeskSignal.engineIdentity,
+            policy: CryptoDeskSignal.policy,
+            scannedAt: started
+        )
+        next.veto = CryptoDeskSignal.veto(asset: asset, batch: batch, signal: cryptoSignal)
+        if let veto = next.veto {
+            diagLog("CRYPTO_VETO \(asset): \(veto)")
+        }
+        pair = asset
+        commit = next
+        cabinetSide = cryptoSignal.cabinetSide
+        selectedSignal = cryptoSignal
+        candles = bars
+        candlesByAsset[asset] = bars
+        candlesFetchedAt[asset] = Date()
+        commitsByAsset[asset] = next
+        cabinetSideByAsset[asset] = cryptoSignal.cabinetSide
+        book = [BookRow(asset: asset, side: cryptoSignal.cabinetSide)]
+        if batch.source == "kraken-synthetic-spread" {
+            feed = .stale
+        } else {
+            feed = .live
+            lastFreshPollAt = Date()
+        }
+        let armedClock = Date()
+        armedAt = ((cryptoSignal.cabinetSide == "HIGH" || cryptoSignal.cabinetSide == "LOW") && next.veto == nil)
+            ? armedClock.addingTimeInterval(-0.001)
+            : nil
+        now = armedClock
+        notice = next.veto
+        publishFrame()
+        liftHero()
+        if let frame {
+            if !(await remember(next, verb: frame.verb)) {
+                commit?.veto = "Scan was not saved"
+                armedAt = nil
+                armID = nil
+                notice = "Scan was not saved; scan again"
+                publishFrame()
+            }
+        }
+    }
+
+    private func scanFx() async {
         guard activeTrade == nil, !awaitingOutcome, !settlementInFlight else {
             notice = "Resolve the current outcome before scanning"
             return
@@ -306,9 +670,11 @@ public final class LightningDeskModel: ObservableObject {
         commit = nil
         cabinetSide = "WAIT"
         armedAt = nil
+        historical = false
         expired = false
         awaitingOutcome = false
         activeTrade = nil
+        activeTradeQuote = nil
         predictedOutcome = nil
         armID = nil
         candles = []
@@ -344,7 +710,17 @@ public final class LightningDeskModel: ObservableObject {
                     candlesByAsset[asset] = bars
                     candlesFetchedAt[asset] = Date()
                     cabinetSideByAsset[asset] = signal.cabinetSide
-                    let assetCommit = ScanKernel.commit(from: signal, bars: bars, scannedAt: started)
+                    let assetCommit = ScanKernel.commit(
+                        from: signal,
+                        bars: bars,
+                        m5Bars: envelope.snapshotM5Bars ?? [],
+                        bid: envelope.bid,
+                        ask: envelope.ask,
+                        spread: envelope.spread,
+                        expirySeconds: envelope.expirySeconds ?? Timing.expirySec,
+                        engineSHA: envelope.engineSHA ?? EngineIdentity.pinnedSHA1,
+                        scannedAt: Self.evaluationDate(signal.asOfMs, fallback: started)
+                    )
                     commitsByAsset[asset] = assetCommit
                     rows[index] = BookRow(asset: asset, side: signal.cabinetSide)
                     if signal.cabinetSide == "WAIT" {
@@ -373,7 +749,22 @@ public final class LightningDeskModel: ObservableObject {
         let picked = await pickedSignal(from: bag)
         guard generation == scanGeneration else { return }
         let bars = barsByAsset[picked.asset] ?? []
-        var next = ScanKernel.commit(from: picked, bars: bars, scannedAt: Date())
+        var next: ScanCommit
+        if picked.why == DeskPickPolicy.unavailableWhy {
+            // Do not reuse the directional cache when the picker declined. Freeze the WAIT
+            // decision itself so the journal cannot inherit a stale HIGH/LOW commit.
+            next = ScanKernel.commit(
+                from: picked,
+                bars: bars,
+                scannedAt: Self.evaluationDate(picked.asOfMs, fallback: Date())
+            )
+        } else {
+            next = commitsByAsset[picked.asset] ?? ScanKernel.commit(
+                from: picked,
+                bars: bars,
+                scannedAt: Self.evaluationDate(picked.asOfMs, fallback: Date())
+            )
+        }
         let side = picked.cabinetSide
         selectedSignal = picked
         if EngineIdentity.loadedSHA1() != EngineIdentity.pinnedSHA1 {
@@ -400,7 +791,9 @@ public final class LightningDeskModel: ObservableObject {
         cabinetSideByAsset[picked.asset] = side
         expired = false
         let armedClock = Date()
-        armedAt = (side == "HIGH" || side == "LOW") && next.veto == nil ? armedClock : nil
+        armedAt = (side == "HIGH" || side == "LOW") && next.veto == nil
+            ? armedClock.addingTimeInterval(-0.001)
+            : nil
         notice = nil
         now = armedClock
         publishFrame()
@@ -423,68 +816,126 @@ public final class LightningDeskModel: ObservableObject {
         entryQuote: Double? = nil,
         labelSource: String = "manual-unverified"
     ) async {
-        guard !settlementInFlight, let commit, let armID else { return }
+        guard !settlementInFlight,
+              let settleCommit = commit,
+              let settleArmID = armID
+        else { return }
         settlementInFlight = true
         defer { settlementInFlight = false }
         awaitingOutcome = false
-        let windowName = MarketEdgeWindow.current(at: pendingTrade?.enteredAt ?? commit.scannedAt).badgeTitle
+        pendingLabelSource = labelSource
+        pendingOutcome = outcome
+
+        // Capture a fully self-contained settlement record before any await. Nothing below
+        // reads mutable desk state that a later task could change.
+        let trade = pendingTrade
+        let expiry = pendingExpiry
+        let windowName = MarketEdgeWindow.current(at: trade?.enteredAt ?? settleCommit.scannedAt).badgeTitle
         let row = LedgerRow(
             timestamp: Date(),
-            pair: commit.asset,
-            hash: commit.fingerprint,
-            score: commit.score,
-            side: commit.engineCall,
-            veto: commit.veto != nil,
-            drift: commit.driftPips ?? 0,
+            pair: settleCommit.asset,
+            hash: settleCommit.fingerprint,
+            score: settleCommit.score,
+            side: settleCommit.engineCall,
+            veto: settleCommit.veto != nil,
+            drift: settleCommit.driftPips ?? 0,
             outcome: outcome.rawValue,
-            outcomeEventID: armID,
+            outcomeEventID: settleArmID,
             payout: EntryQuality.assumedPayout,
             stake: nil,
             marketWindow: windowName,
-            engineSHA: EngineIdentity.pinnedSHA1,
-            fullFingerprint: commit.fingerprint,
-            entryQuote: entryQuote ?? pendingTrade?.strike ?? commit.strike,
-            expiryPrice: expiryPrice ?? pendingExpiry?.exitPrice,
+            engineSHA: settleCommit.engineSHA,
+            fullFingerprint: settleCommit.fullFingerprint,
+            entryQuote: entryQuote ?? trade?.strike ?? settleCommit.strike,
+            expiryPrice: expiryPrice ?? expiry?.exitPrice,
             labelSource: labelSource,
-            horizonSeconds: pendingTrade.map { Int($0.durationSec) },
-            enteredAt: pendingTrade?.enteredAt,
-            expiryObservedMs: pendingExpiry?.quoteTimeMs
+            horizonSeconds: trade.map { Int($0.durationSec) },
+            enteredAt: trade?.enteredAt,
+            expiryObservedMs: expiry?.quoteTimeMs
         )
         let snapshot = SnapshotRecord(
-            hash: commit.fingerprint,
-            pair: commit.asset,
-            bars: commit.candles,
-            strike: commit.strike,
-            score: commit.score,
-            side: commit.engineCall
+            hash: settleCommit.fingerprint,
+            fullFingerprint: settleCommit.fullFingerprint,
+            pair: settleCommit.asset,
+            bars: settleCommit.candles,
+            m5Bars: settleCommit.m5Candles,
+            bid: settleCommit.bid,
+            ask: settleCommit.ask,
+            spread: settleCommit.spread,
+            expirySeconds: settleCommit.expirySeconds,
+            engineSHA: settleCommit.engineSHA,
+            policy: settleCommit.policy,
+            strike: settleCommit.strike,
+            score: settleCommit.score,
+            side: settleCommit.engineCall
         )
         do {
-            let wrote = try await persistence.settle(armID: armID, row: row, snapshot: snapshot)
+            let wrote = try await persistence.settle(armID: settleArmID, row: row, snapshot: snapshot)
             if !wrote {
                 let restored = await persistence.restore()
-                guard restored.entries.first(where: { $0.id == armID })?.outcome != nil else {
+                guard restored.entries.first(where: { $0.id == settleArmID })?.outcome != nil else {
                     awaitingOutcome = true
+                    pendingSaveCount = await persistence.pendingSettlements().count
                     notice = "Outcome was not saved; retry"
                     return
                 }
             }
+            try? await persistence.clearOpenPosition()
             await reloadFromDisk()
         } catch {
             awaitingOutcome = true
+            pendingSaveCount = await persistence.pendingSettlements().count
             notice = "Outcome was not saved; retry"
             return
         }
+        pendingSaveCount = await persistence.pendingSettlements().count
+        pendingOutcome = nil
+        pendingLabelSource = "manual-unverified"
+        notice = nil
+        guard self.armID == settleArmID else { return }
         self.armID = nil
         self.commit = nil
         cabinetSide = "WAIT"
         armedAt = nil
         expired = false
         activeTrade = nil
+        activeTradeQuote = nil
         pendingTrade = nil
         pendingExpiry = nil
         predictedOutcome = nil
         candles = []
         publishFrame()
+    }
+
+    /// The only path that records a broker outcome: the user confirms the real venue result.
+    /// Reference observations stay labelled as reference.
+    public func confirmVenueOutcome(_ outcome: DeskOutcome) async {
+        await settle(outcome, labelSource: "venue-confirmed")
+    }
+
+    /// Retries a settlement that failed to save. Never invents or changes the outcome.
+    public func retryPendingSettlement() async {
+        guard !settlementInFlight else { return }
+        if let pendingOutcome, let commit {
+            await settle(
+                pendingOutcome,
+                expiryPrice: pendingExpiry?.exitPrice,
+                entryQuote: pendingTrade?.strike ?? commit.strike,
+                labelSource: pendingLabelSource
+            )
+            return
+        }
+        settlementInFlight = true
+        defer { settlementInFlight = false }
+        let issues = await persistence.reconcilePendingSettlements()
+        pendingSaveCount = await persistence.pendingSettlements().count
+        if issues.isEmpty {
+            notice = nil
+            await reloadFromDisk()
+            clearDeskIfResolved()
+        } else {
+            notice = "Outcome still not saved; check storage"
+        }
     }
 
     /// Empirical statistics computed directly from the local ledger for any pair.
@@ -502,6 +953,14 @@ public final class LightningDeskModel: ObservableObject {
 
     /// Engine pick. If the desk pick is unavailable, stay on WAIT. Never invent HIGH or LOW.
     private func pickedSignal(from bag: [EngineSignal]) async -> EngineSignal {
+        guard let base = bag.first else {
+            return DeskPickPolicy.unavailable(
+                asset: "—",
+                price: 0,
+                asOfMs: nil,
+                source: "unavailable"
+            )
+        }
         do {
             let desk = try await StrategyEngine.pickDesk(
                 signals: bag,
@@ -512,25 +971,11 @@ public final class LightningDeskModel: ObservableObject {
             if let asset = desk.asset, let match = bag.first(where: { $0.asset == asset }) {
                 return match
             }
-            if let wait = bag.first(where: { $0.cabinetSide == "WAIT" }) {
-                return wait
-            }
-            return bag[0]
+            // The JS picker declined every candidate (for example, all were stale).
+            // That decision is authoritative: do not recover a direction in Swift.
+            return DeskPickPolicy.unavailable(basedOn: base)
         } catch {
-            let base = bag.first(where: { $0.cabinetSide == "WAIT" }) ?? bag[0]
-            return EngineSignal(
-                asset: base.asset,
-                cabinetSide: "WAIT",
-                call: "WAIT",
-                why: "Scan engine offline.",
-                price: base.price,
-                entryPrice: base.entryPrice ?? base.price,
-                invalidation: nil,
-                confidence: 0,
-                asOfMs: base.asOfMs,
-                printMs: base.printMs,
-                source: base.source
-            )
+            return DeskPickPolicy.unavailable(basedOn: base)
         }
     }
 
@@ -581,6 +1026,7 @@ public final class LightningDeskModel: ObservableObject {
         session = ready
         credentialLookup = .ready(ready)
         keychainState = .ready
+        isDemoDesk = false
         draftToken = ""
         draftAccount = ""
         credentialSaveFailed = false
@@ -600,14 +1046,49 @@ public final class LightningDeskModel: ObservableObject {
     }
 
     /// A Siri scan is a request to open the existing walk. It does not choose a side.
-    private func consumePendingScanIfReady() async {
+    /// Returns true when a pending request was consumed.
+    @discardableResult
+    private func consumePendingScanIfReady() async -> Bool {
         #if os(iOS)
-        guard keychainState == .ready, !scanning else { return }
+        guard !scanning, activeTrade == nil, !awaitingOutcome, !settlementInFlight else { return false }
         let defaults = UserDefaults(suiteName: PhoneTarget.appGroup)
-        guard defaults?.bool(forKey: PhoneTarget.pendingScanKey) == true else { return }
+        guard defaults?.bool(forKey: PhoneTarget.pendingScanKey) == true else { return false }
         defaults?.set(false, forKey: PhoneTarget.pendingScanKey)
         await scan()
+        return true
+        #else
+        return false
         #endif
+    }
+
+    private func diagLog(_ message: String) {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["BLAZER_DIAG"] == "1" {
+            // stderr is unbuffered, so the line survives an abrupt kill.
+            FileHandle.standardError.write(Data((message + "\n").utf8))
+        }
+        #endif
+    }
+
+    /// Journal time is when the engine evaluated, not when a six-pair walk happened to end.
+    /// A future or absent timestamp falls back to the local clock.
+    static func evaluationDate(_ asOfMs: Double?, fallback: Date) -> Date {
+        guard let asOfMs, asOfMs.isFinite, asOfMs > 0 else { return fallback }
+        let date = Date(timeIntervalSince1970: asOfMs / 1000)
+        return date > fallback.addingTimeInterval(5) ? fallback : date
+    }
+
+    static func message(for failure: EntryGateFailure) -> String {
+        switch failure {
+        case .expiredBeam: return "Beam expired; scan again"
+        case .staleFeed: return "Entry quote stale or unavailable"
+        case .vetoed(let reason): return reason
+        case .notDirectional: return "No directional setup"
+        case .historical: return "Historical scan; scan again before entry"
+        case .activePositionExists: return "Resolve the current position before entry"
+        case .noArmedBeam: return "No armed beam to enter"
+        case .unsupportedExpiry: return "Unsupported expiry"
+        }
     }
 
     private func liftHero() {
@@ -621,10 +1102,83 @@ public final class LightningDeskModel: ObservableObject {
     private func quoteLoop() async {
         while !Task.isCancelled {
             if !scanning {
+                await refreshActiveTradeQuote()
                 await refreshQuote()
             }
             try? await Task.sleep(nanoseconds: UInt64(Timing.quotePollMs * 1_000_000))
         }
+    }
+
+    /// Live crypto price loop. Runs while crypto is selected or an entry is still open.
+    private func cryptoQuoteLoop() async {
+        while !Task.isCancelled {
+            if !scanning, marketMode == .crypto || activeTrade != nil {
+                await refreshActiveTradeQuote()
+                if marketMode == .crypto {
+                    await refreshCryptoQuote()
+                }
+            }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+    }
+
+    /// The active manual entry owns its pair. It keeps updating while the user browses,
+    /// switches markets, or returns from another app.
+    private func refreshActiveTradeQuote() async {
+        guard let trade = activeTrade else {
+            activeTradeQuote = nil
+            return
+        }
+        let fresh: LiveQuote?
+        if CTAssets.watchlist.contains(trade.pair) {
+            fresh = await BinanceClient.fetchQuote(asset: trade.pair)
+        } else if let session = await loadSession(allowPrompt: false) {
+            let batch = await OandaClient.fetchQuoteBatch(assets: [trade.pair], session: session)
+            fresh = batch.transport == .ok
+                ? batch.quotes.first(where: { $0.asset == trade.pair })
+                : nil
+        } else {
+            fresh = nil
+        }
+        guard let fresh, fresh.asset == trade.pair, fresh.bid.isFinite, fresh.ask.isFinite else {
+            return
+        }
+        activeTradeQuote = fresh
+        activeTrade?.currentPrice = fresh.mid
+    }
+
+    private func refreshCryptoQuote() async {
+        guard marketMode == .crypto, CTAssets.watchlist.contains(pair) else { return }
+        let clock = Date()
+        guard let fresh = await BinanceClient.fetchQuote(asset: pair) else {
+            // A failed poll must never leave a stale LIVE badge on screen.
+            let state = CryptoFeedHealth.state(
+                connected: false,
+                everReceivedTick: lastFreshPollAt != nil,
+                lastTickAt: lastFreshPollAt,
+                now: clock
+            )
+            feed = CryptoFeedHealth.feedStatus(for: state)
+            publishFrame()
+            return
+        }
+        if fresh.asset == pair {
+            quote = fresh
+            if QuoteFreshness.isFresh(fresh, now: clock) {
+                lastFreshPollAt = clock
+            }
+        }
+        let state = CryptoFeedHealth.state(
+            connected: true,
+            everReceivedTick: lastFreshPollAt != nil,
+            lastTickAt: lastFreshPollAt,
+            now: clock
+        )
+        feed = CryptoFeedHealth.feedStatus(for: state)
+        if let trade = activeTrade, fresh.asset == trade.pair {
+            activeTrade?.currentPrice = fresh.mid
+        }
+        publishFrame()
     }
 
     private func beamLoop() async {
@@ -641,24 +1195,30 @@ public final class LightningDeskModel: ObservableObject {
     }
 
     /// Locks in an active binary trade horizon on the armed setup (60s, 3m, or 5m).
-    public func lockInTrade(duration: Double? = nil) {
-        guard !scanning, activeTrade == nil, !settlementInFlight, !awaitingOutcome else { return }
-        guard let commit, commit.veto == nil, armedAt != nil, armID != nil else {
+    /// The recovery copy is written before the desk treats the entry as tracked.
+    public func lockInTrade(duration: Double? = nil) async {
+        let context = DeskEntryGate.Context(
+            commit: commit,
+            frame: frame,
+            signal: selectedSignal,
+            quote: quote,
+            lastFreshPollAt: lastFreshPollAt,
+            activeTrade: activeTrade,
+            awaitingOutcome: awaitingOutcome,
+            settlementInFlight: settlementInFlight,
+            scanning: scanning,
+            historical: historical,
+            armedAt: armedAt,
+            armID: armID
+        )
+        if let failure = DeskEntryGate.veto(context) {
+            notice = Self.message(for: failure)
             return
         }
-        guard cabinetSide == "HIGH" || cabinetSide == "LOW" else { return }
-        guard let selectedSignal else { notice = "Scan again before entry"; return }
-        if let veto = EntryQuality.veto(signal: selectedSignal, quote: quote) {
-            notice = veto
-            return
-        }
-        guard QuoteFreshness.isPollFresh(lastFreshPollAt: lastFreshPollAt) else {
-            notice = "Entry quote stale"
-            return
-        }
+        guard let commit, let selectedSignal, let quote else { return }
         let tradeID = armID ?? "\(commit.fingerprint)-\(Int(Date().timeIntervalSince1970 * 1000))"
         armID = tradeID
-        let liveStrike = quote!.mid
+        let liveStrike = quote.mid
         let durationSec = duration ?? selectedHorizonSec
         guard [60.0, 180.0, 300.0].contains(durationSec) else { notice = "Unsupported expiry"; return }
         let trade = ActiveTrade(
@@ -669,10 +1229,15 @@ public final class LightningDeskModel: ObservableObject {
             score: commit.score,
             enteredAt: Date(),
             durationSec: durationSec,
-            currentPrice: quote?.mid ?? liveStrike,
+            currentPrice: quote.mid,
             fingerprint: commit.fingerprint
         )
+        guard await persistOpenPosition(trade, commit: commit, armID: tradeID) else {
+            notice = "Could not save the entry; position not tracked"
+            return
+        }
         activeTrade = trade
+        activeTradeQuote = quote
         pendingTrade = trade
         pendingExpiry = nil
         armedAt = nil
@@ -680,45 +1245,92 @@ public final class LightningDeskModel: ObservableObject {
         publishFrame()
     }
 
+    /// The position is durable before the desk treats it as tracked. A write failure is
+    /// reported and the entry is refused rather than tracked without a recovery copy.
+    private func persistOpenPosition(_ trade: ActiveTrade, commit: ScanCommit, armID: String) async -> Bool {
+        let record = ActivePositionRecord(
+            armID: armID,
+            trade: trade,
+            fullFingerprint: commit.fullFingerprint,
+            scanInput: commit.inputSnapshot
+        )
+        do {
+            try await persistence.saveOpenPosition(record)
+            return true
+        } catch {
+            return false
+        }
+    }
+
     private func handleTradeExpiry(_ trade: ActiveTrade) async {
+        let matchingQuote: LiveQuote?
+        if let activeTradeQuote, activeTradeQuote.asset == trade.pair {
+            matchingQuote = activeTradeQuote
+        } else if let quote, quote.asset == trade.pair {
+            matchingQuote = quote
+        } else {
+            matchingQuote = nil
+        }
         let observation = ResearchOutcome.resolve(eventID: trade.id, horizon: Int(trade.durationSec),
             entryTime: trade.enteredAt, strike: trade.strike, side: trade.side,
-            quote: quote, observedAt: Date())
+            quote: matchingQuote, observedAt: Date())
         if observation.resolution == .unresolved && Date().timeIntervalSince(trade.expiresAt) <= 5 { return }
         pendingExpiry = observation
-        guard observation.resolution == .hit || observation.resolution == .miss else {
-            predictedOutcome = nil
-            activeTrade = nil
-            expired = true
-            awaitingOutcome = true
-            notice = observation.resolution == .tie ? "Expiry tied; confirm the venue result" : "Expiry unverified; confirm the venue result"
-            publishFrame()
-            return
-        }
-        let isWin = observation.resolution == .hit
-        let outcome: DeskOutcome = isWin ? .hit : .miss
-        predictedOutcome = outcome
-        expired = true
-        let finalExitPrice = observation.exitPrice
+
+        // Reference observation only. The OANDA midpoint is not the venue's settlement,
+        // so it can never be recorded as a broker outcome on its own.
+        let referenceIsHit = observation.resolution == .hit
+        let referenceAvailable = referenceIsHit || observation.resolution == .miss
+        predictedOutcome = referenceAvailable ? (referenceIsHit ? .hit : .miss) : nil
         activeTrade = nil
-        awaitingOutcome = false
+        activeTradeQuote = nil
+        expired = true
+        awaitingOutcome = true
         DeskHaptics.settleAlert()
 
+        if referenceAvailable {
+            notice = "Reference: OANDA mid suggests \(referenceIsHit ? "HIT" : "MISS"). Confirm the venue result."
+        } else if observation.resolution == .tie {
+            notice = "Expiry tied; confirm the venue result"
+        } else {
+            notice = "Expiry unverified; confirm the venue result"
+        }
+
         if voiceDebriefEnabled {
-            let announcement = isWin
-                ? "Position settled in the money on \(trade.pair)."
-                : "Position settled out of the money on \(trade.pair). Capital preservation active."
-            voiceSession.speakAnnouncement(announcement)
+            voiceSession.speakAnnouncement("Expiry reached on \(trade.pair). Confirm the venue result.")
         }
 
         publishFrame()
+    }
 
-        // Phase 2 Auto-Settle: verified binary expiry logged directly to Ledger v2
-        await settle(outcome, expiryPrice: finalExitPrice, entryQuote: trade.strike, labelSource: "oanda-midpoint-proxy")
+    /// Clears the desk only when the current arm's outcome is durably in the journal.
+    /// An unresolved arm stays on screen.
+    private func clearDeskIfResolved() {
+        guard activeTrade == nil else { return }
+        guard let armID,
+            let outcome = journal.first(where: { $0.id == armID })?.outcome,
+            !outcome.isEmpty
+        else { return }
+        awaitingOutcome = false
+        expired = false
+        commit = nil
+        self.armID = nil
+        cabinetSide = "WAIT"
+        armedAt = nil
+        pendingTrade = nil
+        pendingExpiry = nil
+        pendingOutcome = nil
+        predictedOutcome = nil
+        candles = []
+        publishFrame()
     }
 
     private func refreshQuote() async {
         if notice == "Demo Desk (Offline)" {
+            return
+        }
+        // Crypto mode has its own feed; the OANDA quote loop must not clobber its state.
+        if marketMode == .crypto {
             return
         }
         let clock = Date()
@@ -744,12 +1356,16 @@ public final class LightningDeskModel: ObservableObject {
             if QuoteFreshness.isFresh(fresh, now: clock) {
                 lastFreshPollAt = clock
             }
-            if activeTrade != nil {
-                let wasITM = activeTrade?.isInTheMoney
-                activeTrade?.currentPrice = fresh.mid
-                if let wasITM, let isITM = activeTrade?.isInTheMoney, wasITM != isITM {
-                    if isITM {
-                        DeskHaptics.flipITM()
+            if let trade = activeTrade {
+                // A manual entry is bound to its own immutable pair. A browsing change or a
+                // mismatched feed response must never write another pair's price into it.
+                if fresh.asset == trade.pair {
+                    let wasITM = trade.isInTheMoney
+                    activeTrade?.currentPrice = fresh.mid
+                    if let isITM = activeTrade?.isInTheMoney, wasITM != isITM {
+                        if isITM {
+                            DeskHaptics.flipITM()
+                        }
                     }
                 }
             } else {
@@ -898,6 +1514,7 @@ public final class LightningDeskModel: ObservableObject {
         let entry = JournalEntry(
             id: id,
             fingerprint: commit.fingerprint,
+            fullFingerprint: commit.fullFingerprint,
             pair: commit.asset,
             score: commit.score,
             side: commit.engineCall,
@@ -909,8 +1526,16 @@ public final class LightningDeskModel: ObservableObject {
         )
         let snapshot = SnapshotRecord(
             hash: commit.fingerprint,
+            fullFingerprint: commit.fullFingerprint,
             pair: commit.asset,
             bars: commit.candles,
+            m5Bars: commit.m5Candles,
+            bid: commit.bid,
+            ask: commit.ask,
+            spread: commit.spread,
+            expirySeconds: commit.expirySeconds,
+            engineSHA: commit.engineSHA,
+            policy: commit.policy,
             strike: commit.strike,
             score: commit.score,
             side: commit.engineCall
@@ -934,9 +1559,13 @@ public final class LightningDeskModel: ObservableObject {
 
     private func reloadFromDisk() async {
         let restored = await persistence.restore()
-        outcomeStats = restored.stats
+        outcomeStats = restored.confirmedStats
         ledgerRows = restored.ledgerRows
-        journal = restored.entries.map { replay($0, bars: restored.bars(for: $0.fingerprint)) }
+        restoreIssues = restored.issues
+        pendingSaveCount = restored.pendingSettlements.count
+        journal = restored.entries.map {
+            replay($0, bars: restored.bars(for: $0.fullFingerprint ?? $0.fingerprint))
+        }
         for entry in journal {
             if candlesByAsset[entry.pair] == nil && !entry.candles.isEmpty {
                 candlesByAsset[entry.pair] = entry.candles
@@ -945,6 +1574,62 @@ public final class LightningDeskModel: ObservableObject {
         if candles.isEmpty, let saved = candlesByAsset[pair], !saved.isEmpty {
             candles = saved
         }
+        if let issue = restored.issues.first, notice == nil {
+            notice = issue.userMessage
+        }
+
+        // A position that survived the app being killed is restored, never dropped.
+        // A position whose journal entry already has an outcome is not resurrected.
+        if let position = restored.activePosition, activeTrade == nil,
+           let entry = journal.first(where: { $0.id == position.armID }) {
+            if entry.outcome != nil {
+                Task { try? await persistence.clearOpenPosition() }
+            } else {
+                restoreOpenPosition(position, entry: entry)
+            }
+        }
+    }
+
+    /// Rebuilds the frozen commit for a restored position so settlement keeps the same identity.
+    private func restoreOpenPosition(_ position: ActivePositionRecord, entry: ReplayEntry) {
+        armID = position.armID
+        historical = false
+        commit = ScanCommit(
+            asset: entry.pair,
+            engineCall: position.trade.side,
+            score: entry.score,
+            evidence: entry.why,
+            strike: entry.strike,
+            fingerprint: entry.fingerprint,
+            fullFingerprint: position.fullFingerprint,
+            candleCount: entry.candles.count,
+            candles: entry.candles,
+            m5Candles: position.scanInput?.m5 ?? [],
+            bid: position.scanInput?.bid,
+            ask: position.scanInput?.ask,
+            spread: position.scanInput?.spread,
+            expirySeconds: position.scanInput?.expirySeconds ?? Timing.expirySec,
+            engineSHA: position.scanInput?.engineSHA ?? EngineIdentity.pinnedSHA1,
+            policy: position.scanInput?.policy ?? "baseline",
+            scannedAt: entry.scannedAt,
+            veto: entry.veto
+        )
+        cabinetSide = position.trade.side
+        selectedSignal = nil
+        pendingTrade = position.trade
+        if position.trade.isExpired {
+            activeTrade = nil
+        activeTradeQuote = nil
+            expired = true
+            awaitingOutcome = true
+            notice = "Position expired while closed; confirm the venue result"
+        } else {
+            activeTrade = position.trade
+            expired = false
+            awaitingOutcome = false
+            notice = "Tracking position opened before relaunch"
+        }
+        publishFrame()
     }
 
     private func replay(_ entry: JournalEntry, bars: [Candle]) -> ReplayEntry {
@@ -984,7 +1669,8 @@ public final class LightningDeskModel: ObservableObject {
                 verb: verb,
                 remainingMs: trade.remainingMs,
                 veto: nil,
-                fingerprint: trade.fingerprint
+                fingerprint: trade.fingerprint,
+                isActionable: false
             )
             return
         }
@@ -1005,7 +1691,8 @@ public final class LightningDeskModel: ObservableObject {
             commit: commit,
             feed: feed,
             cabinetSide: cabinetSide,
-            elapsedMs: elapsed
+            elapsedMs: elapsed,
+            historical: historical
         )
         if next.verb == "EXPIRED" {
             expired = true
@@ -1014,7 +1701,7 @@ public final class LightningDeskModel: ObservableObject {
             awaitingOutcome = true
             return
         }
-        let armed = next.verb == "TAP HIGH" || next.verb == "TAP LOW"
+        let armed = next.isActionable
         frame = armed ? next : frozen(commit, verb: next.verb, remainingMs: 0)
     }
 
@@ -1028,7 +1715,8 @@ public final class LightningDeskModel: ObservableObject {
             verb: verb,
             remainingMs: remainingMs,
             veto: commit.veto,
-            fingerprint: commit.fingerprint
+            fingerprint: commit.fingerprint,
+            isActionable: false
         )
     }
 }
@@ -1085,3 +1773,43 @@ public enum DeskTab: String, CaseIterable, Identifiable, Sendable {
         }
     }
 }
+
+#if DEBUG
+extension LightningDeskModel {
+    /// Test-only seam: install a frozen armed scan without a network or Keychain.
+    /// Compiled out of Release builds.
+    public func installArmedScanForTesting(
+        commit: ScanCommit,
+        signal: EngineSignal,
+        quote: LiveQuote,
+        armedAt: Date = Date().addingTimeInterval(-1),
+        historical: Bool = false
+    ) {
+        self.commit = commit
+        self.selectedSignal = signal
+        self.quote = quote
+        self.cabinetSide = signal.cabinetSide
+        self.feed = .live
+        self.lastFreshPollAt = Date()
+        self.historical = historical
+        self.armedAt = historical ? nil : armedAt
+        self.armID = "arm-test"
+        self.scanning = false
+        self.activeTrade = nil
+        self.activeTradeQuote = nil
+        self.now = Date()
+        self.publishFrame()
+    }
+
+    /// Test-only seam: run the same on-disk restore path used at launch.
+    public func restoreForTesting() async {
+        await reloadFromDisk()
+    }
+
+    /// Test-only seam: persist the frozen scan exactly as a real scan does.
+    public func rememberForTesting() async -> Bool {
+        guard let commit, let frame else { return false }
+        return await remember(commit, verb: frame.verb)
+    }
+}
+#endif

@@ -10,8 +10,9 @@ struct DeskLiveActivity: Widget {
             lockScreenBanner(context: context)
                 .activityBackgroundTint(Color(red: 12.0 / 255, green: 16.0 / 255, blue: 24.0 / 255))
         } dynamicIsland: { context in
-            let tint = verbColor(context.state.verb)
-            let isHigh = isCall(context.state.verb)
+            let expired = isExpired(context)
+            let tint = expired ? Color.gray : verbColor(context.state.verb)
+            let isHigh = !expired && isCall(context.state.verb)
 
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
@@ -41,7 +42,7 @@ struct DeskLiveActivity: Widget {
 
                 DynamicIslandExpandedRegion(.trailing) {
                     VStack(alignment: .trailing, spacing: 3) {
-                        Text(displayVerb(context.state.verb))
+                        Text(displayVerb(context))
                             .font(.system(size: 12, weight: .bold))
                             .foregroundStyle(tint)
                             .padding(.horizontal, 8)
@@ -80,7 +81,7 @@ struct DeskLiveActivity: Widget {
                                     .font(.system(size: 10, weight: .bold))
                                     .foregroundStyle(Color(red: 240.0 / 255, green: 113.0 / 255, blue: 103.0 / 255))
                             } else {
-                                Text(context.state.verb.contains("60s") ? "60s BINARY HORIZON" : "ACTION WINDOW")
+                                Text(expired ? "WINDOW CLOSED" : "BINARY HORIZON")
                                     .font(.system(size: 9, weight: .bold))
                                     .tracking(0.8)
                                     .foregroundStyle(tint.opacity(0.9))
@@ -97,7 +98,7 @@ struct DeskLiveActivity: Widget {
                 }
             } compactLeading: {
                 HStack(spacing: 4) {
-                    Image(systemName: isHigh ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
+                    Image(systemName: expired ? "clock.fill" : (isHigh ? "arrow.up.circle.fill" : "arrow.down.circle.fill"))
                         .font(.system(size: 10, weight: .bold))
                         .foregroundStyle(tint)
                     Text(context.attributes.pair)
@@ -110,7 +111,7 @@ struct DeskLiveActivity: Widget {
                     .foregroundStyle(tint)
                     .frame(minWidth: 32, alignment: .trailing)
             } minimal: {
-                Image(systemName: isHigh ? "arrow.up" : "arrow.down")
+                Image(systemName: expired ? "clock" : (isHigh ? "arrow.up" : "arrow.down"))
                     .font(.system(size: 10, weight: .black))
                     .foregroundStyle(tint)
             }
@@ -118,8 +119,9 @@ struct DeskLiveActivity: Widget {
     }
 
     private func lockScreenBanner(context: ActivityViewContext<DeskActivityAttributes>) -> some View {
-        let tint = verbColor(context.state.verb)
-        let isHigh = isCall(context.state.verb)
+        let expired = isExpired(context)
+        let tint = expired ? Color.gray : verbColor(context.state.verb)
+        let isHigh = !expired && isCall(context.state.verb)
 
         return VStack(alignment: .leading, spacing: 10) {
             // Header: Branding + Countdown
@@ -135,7 +137,7 @@ struct DeskLiveActivity: Widget {
                         .foregroundStyle(Color.white.opacity(0.75))
                     Text("·")
                         .foregroundStyle(Color.white.opacity(0.3))
-                    Text(context.state.verb.contains("60s") ? "60s BINARY HORIZON" : "ENTRY BEAM")
+                    Text("BINARY HORIZON")
                         .font(.system(size: 10, weight: .bold))
                         .tracking(0.6)
                         .foregroundStyle(tint)
@@ -181,7 +183,7 @@ struct DeskLiveActivity: Widget {
                     HStack(spacing: 4) {
                         Image(systemName: isHigh ? "arrow.up.right" : "arrow.down.right")
                             .font(.system(size: 12, weight: .bold))
-                        Text(displayVerb(context.state.verb))
+                        Text(displayVerb(context))
                             .font(.system(size: 14, weight: .bold))
                     }
                     .foregroundStyle(tint)
@@ -203,8 +205,16 @@ struct DeskLiveActivity: Widget {
             )
             .tint(tint)
 
-            // Veto or Footer
-            if let veto = context.state.veto {
+            // Veto, expiry, or footer
+            if expired {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text("EXPIRED · CONFIRM THE VENUE RESULT")
+                        .font(.system(size: 11, weight: .bold))
+                }
+                .foregroundStyle(Color.white.opacity(0.7))
+            } else if let veto = context.state.veto {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.shield.fill")
                         .font(.system(size: 11, weight: .semibold))
@@ -229,9 +239,19 @@ struct DeskLiveActivity: Widget {
         verb.contains("HIGH") || verb.contains("CALL")
     }
 
+    /// The activity is historical once its timer has closed or ActivityKit marks it stale.
+    private func isExpired(_ context: ActivityViewContext<DeskActivityAttributes>) -> Bool {
+        context.isStale || context.state.endsAt <= Date()
+    }
+
+    private func displayVerb(_ context: ActivityViewContext<DeskActivityAttributes>) -> String {
+        isExpired(context) ? "EXPIRED" : displayVerb(context.state.verb)
+    }
+
     private func displayVerb(_ verb: String) -> String {
-        if verb.contains("60s") {
-            return isCall(verb) ? "CALL 60s" : "PUT 60s"
+        let parts = verb.split(separator: " ")
+        if let duration = parts.last, duration.hasSuffix("s"), duration.dropLast().allSatisfy(\.isNumber) {
+            return "\(isCall(verb) ? "CALL" : "PUT") \(duration)"
         }
         if verb.contains("HIGH") { return "TAP HIGH" }
         if verb.contains("LOW") { return "TAP LOW" }

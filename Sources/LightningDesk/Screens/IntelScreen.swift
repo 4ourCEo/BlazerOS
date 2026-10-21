@@ -58,8 +58,13 @@ public struct IntelScreen: View {
             let currentWindow = MarketEdgeWindow.current(at: now)
             let isSupreme = currentWindow.isSupremePrime
             let isTactical = currentWindow.isTactical
-            let headerColor: Color = isSupreme ? DeskInk.emerald : (isTactical ? DeskInk.electric : DeskInk.violet)
-            let headerText: String = isSupreme ? "SUPREME PRIME" : (isTactical ? "TACTICAL" : "OFF-PEAK")
+            let cryptoMode = model.marketMode == .crypto
+            let headerColor: Color = cryptoMode
+                ? cryptoFeedTint(model.feed)
+                : (isSupreme ? DeskInk.emerald : (isTactical ? DeskInk.electric : DeskInk.violet))
+            let headerText: String = cryptoMode
+                ? "₿ \(model.feed.rawValue)"
+                : (isSupreme ? "SUPREME PRIME" : (isTactical ? "TACTICAL" : "OFF-PEAK"))
 
             HStack(spacing: 6) {
                 Circle()
@@ -80,13 +85,24 @@ public struct IntelScreen: View {
 
     // MARK: - Current Live Status Card
 
+    private func cryptoFeedTint(_ status: FeedStatus) -> Color {
+        switch status {
+        case .live: return DeskInk.emerald
+        case .stale: return DeskInk.electric
+        case .connecting: return DeskInk.violet
+        case .disconnected, .error: return DeskInk.coral
+        }
+    }
+
     private var currentStatusCard: some View {
         let currentWindow = MarketEdgeWindow.current(at: now)
         let isSupreme = currentWindow.isSupremePrime
         let isTactical = currentWindow.isTactical
         let cardColor: Color = isSupreme ? DeskInk.emerald : (isTactical ? DeskInk.electric : DeskInk.violet)
 
-        let statusTitle: String = isSupreme ? "👑 SUPREME PRIME ACTIVE" : (isTactical ? "🌙 TACTICAL LATE-NIGHT (BURSTS ONLY)" : "⚠️ OFF-PEAK CONSOLIDATION")
+        let statusTitle: String = model.marketMode == .crypto
+            ? "₿ CRYPTO DESK · \(model.feed.rawValue)"
+            : (isSupreme ? "👑 SUPREME PRIME ACTIVE" : (isTactical ? "🌙 TACTICAL LATE-NIGHT (BURSTS ONLY)" : "⚠️ OFF-PEAK CONSOLIDATION"))
         let statBadge: String = isSupreme ? "MORNING RESEARCH WINDOW" : (isTactical ? "BURSTS ONLY · THIN LIQUIDITY" : "OUTSIDE RESEARCH WINDOW")
         let statColor: Color = isSupreme ? DeskInk.emerald : (isTactical ? DeskInk.electric : DeskInk.coral)
 
@@ -172,6 +188,9 @@ public struct IntelScreen: View {
     }
 
     private func liveCountdownText() -> String {
+        if model.marketMode == .crypto {
+            return "₿ CRYPTO · 24/7 — NO FX SESSION GATE"
+        }
         let currentWindow = MarketEdgeWindow.current(at: now)
         guard let ptZone = TimeZone(identifier: "America/Los_Angeles") else { return "" }
         var cal = Calendar(identifier: .gregorian)
@@ -214,6 +233,9 @@ public struct IntelScreen: View {
     }
 
     private func statusExplanation(_ window: MarketEdgeWindow) -> String {
+        if model.marketMode == .crypto {
+            return "Crypto trades 24/7. No London/New York overlap gate and no weekend closure. Trade when the feed is live and the setup is valid."
+        }
         if window.isSupremePrime {
             return "Active London / New York Overlap. Over 70% of daily global FX volume trades during this window. Directional expansion creates maximum 60s binary continuation."
         } else if window.isTactical {

@@ -14,7 +14,8 @@ public struct FoundationCoachService: TradingCoach, Sendable {
     public func card(for brief: CoachBrief) async -> CoachExplanation {
         let sealed = PromptBuilder.sealedCard(brief)
         guard allowsModel else { return sealed }
-        guard let generated = await generatedCard(for: brief), PromptBuilder.accepts(generated) else {
+        guard let generated = await generatedCard(for: brief),
+              PromptBuilder.accepts(generated, brief: brief) else {
             return sealed
         }
         return generated

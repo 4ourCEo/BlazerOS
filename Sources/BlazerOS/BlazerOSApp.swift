@@ -18,6 +18,7 @@ struct BlazerOSMain: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     #endif
     @StateObject private var model = LightningDeskModel()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup("BlazerOS — Lightning Desk") {
@@ -25,6 +26,13 @@ struct BlazerOSMain: App {
                 #if os(macOS)
                 .frame(width: PhoneTarget.width, height: PhoneTarget.height)
                 #endif
+                .onChange(of: scenePhase) { _, phase in
+                    switch phase {
+                    case .active: model.handleAppForegrounded()
+                    case .background: model.handleAppBackgrounded()
+                    default: break
+                    }
+                }
         }
         #if os(macOS)
         .defaultSize(width: PhoneTarget.width, height: PhoneTarget.height)
@@ -37,7 +45,7 @@ struct BlazerOSMain: App {
                 .keyboardShortcut("r", modifiers: [.command])
 
                 Button("Lock In Trade") {
-                    model.lockInTrade()
+                    Task { await model.lockInTrade() }
                 }
                 .keyboardShortcut(.space, modifiers: [])
 

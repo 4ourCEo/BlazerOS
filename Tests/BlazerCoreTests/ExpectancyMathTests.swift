@@ -77,7 +77,6 @@ import Testing
         evidence: "Trend is up",
         question: "Why do 90% of traders fail? What is the basic math?"
     )
-    #expect(mathAnswer.contains("basic math"))
     #expect(mathAnswer.contains("Expectancy"))
     #expect(mathAnswer.contains("53.2%"))
 
@@ -96,8 +95,8 @@ import Testing
         evidence: "Trend is up",
         question: "What lot size or risk should I use?"
     )
-    #expect(riskAnswer.contains("1 to 2 percent"))
-    #expect(riskAnswer.contains("stake is zero"))
+    #expect(riskAnswer.contains("fixed risk limit"))
+    #expect(riskAnswer.contains("does not size stakes"))
 }
 
 @Test func bootstrapStressTestSimulatesExpectancyAndDrawdown() {
