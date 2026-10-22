@@ -1,9 +1,11 @@
 import Foundation
 
-/// HIT or MISS. The only outcomes the desk is allowed to append.
+/// The outcomes the desk is allowed to append. `unresolved` records that the operator
+/// could not verify the venue result; it is deliberately excluded from confirmed statistics.
 public enum DeskOutcome: String, Codable, Sendable, Equatable {
     case hit = "HIT"
     case miss = "MISS"
+    case unresolved = "UNRESOLVED"
 }
 
 public struct OutcomeStats: Equatable, Sendable {

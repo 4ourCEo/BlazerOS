@@ -753,6 +753,23 @@ struct DeskScreen: View {
                 }
             }
 
+            Button {
+                Task { await model.confirmVenueOutcome(.unresolved) }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "questionmark.circle")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text("NOT SURE · RECORD AS UNVERIFIED")
+                        .font(.system(size: 9, weight: .heavy))
+                        .tracking(0.6)
+                }
+                .foregroundStyle(DeskInk.slate)
+                .frame(maxWidth: .infinity)
+                .frame(height: 28)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Not sure. Record as unverified and exclude from statistics.")
+
             if let note = model.referenceSuggestionNote {
                 Text(note)
                     .font(.system(size: 10, weight: .medium))
@@ -851,13 +868,22 @@ struct DeskScreen: View {
     }
 
     private func settleReceiptCard(_ receipt: SettleReceipt) -> some View {
-        let tint = receipt.outcome == .hit ? DeskInk.emerald : DeskInk.coral
+        let tint: Color = switch receipt.outcome {
+        case .hit: DeskInk.emerald
+        case .miss: DeskInk.coral
+        case .unresolved: DeskInk.slate
+        }
+        let symbol: String = switch receipt.outcome {
+        case .hit: "checkmark"
+        case .miss: "xmark"
+        case .unresolved: "questionmark"
+        }
         return HStack(spacing: 12) {
             ZStack {
                 Circle()
                     .fill(tint.opacity(0.16))
                     .frame(width: 38, height: 38)
-                Image(systemName: receipt.outcome == .hit ? "checkmark" : "xmark")
+                Image(systemName: symbol)
                     .font(.system(size: 15, weight: .heavy))
                     .foregroundStyle(tint)
             }
@@ -905,6 +931,9 @@ struct DeskScreen: View {
     }
 
     private func receiptLine(_ receipt: SettleReceipt) -> String {
+        if receipt.outcome == .unresolved {
+            return "unverified · excluded from confirmed stats"
+        }
         var parts: [String] = []
         if let pips = receipt.pips, pips.isFinite {
             parts.append(String(format: "%+.1fp", pips))

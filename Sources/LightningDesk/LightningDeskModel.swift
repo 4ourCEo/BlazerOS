@@ -1047,7 +1047,12 @@ public final class LightningDeskModel: ObservableObject {
     /// The only path that records a broker outcome: the user confirms the real venue result.
     /// Reference observations stay labelled as reference.
     public func confirmVenueOutcome(_ outcome: DeskOutcome) async {
-        await settle(outcome, labelSource: "venue-confirmed")
+        let source: String
+        switch outcome {
+        case .hit, .miss: source = "venue-confirmed"
+        case .unresolved: source = "operator-unsure"
+        }
+        await settle(outcome, labelSource: source)
     }
 
     /// Retries a settlement that failed to save. Never invents or changes the outcome.
