@@ -127,10 +127,13 @@ public struct SystemModelEngine: OnDeviceModelEngine {
         prompt: String,
         context: AssistantContext
     ) async -> ModelTokenEstimate? {
-        let model = SystemLanguageModel.default
-        let contextSize = model.contextSize
         let output = ModelBudgetPolicy.outputReserve(for: feature)
         let safety = ModelBudgetPolicy.safetyMargin
+        #if compiler(>=6.4)
+        // `contextSize` and `tokenCount(for:)` arrived with the Xcode 27 SDK. An SDK that has
+        // Foundation Models but not these calls still builds, using the documented window.
+        let model = SystemLanguageModel.default
+        let contextSize = model.contextSize
         if #available(iOS 26.4, macOS 26.4, visionOS 26.4, *) {
             do {
                 let promptTokens = try await model.tokenCount(for: prompt)
@@ -149,6 +152,9 @@ public struct SystemModelEngine: OnDeviceModelEngine {
                 // Fall through to a conservative character estimate.
             }
         }
+        #else
+        let contextSize = ModelBudgetPolicy.fallbackContextSize
+        #endif
         let characters = prompt.count + instructions.count + 800
         return ModelTokenEstimate(
             inputTokens: max(1, characters / 4) + ModelBudgetPolicy.toolReserve(for: feature),

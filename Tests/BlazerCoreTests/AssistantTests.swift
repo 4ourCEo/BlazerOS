@@ -532,6 +532,7 @@ private struct BudgetEngine: OnDeviceModelEngine {
 
 @Test func realEngineReportsExactTokenCountWhenAvailable() async {
     #if canImport(FoundationModels)
+    #if compiler(>=6.4)
     if #available(macOS 26.4, iOS 26.4, *) {
         let engine = SystemModelEngine()
         guard await engine.availability() == .ready else { return }
@@ -549,6 +550,7 @@ private struct BudgetEngine: OnDeviceModelEngine {
         #expect((estimate?.contextSize ?? 0) >= 4_096)
         #expect(estimate?.fits == true)
     }
+    #endif
     #endif
 }
 
