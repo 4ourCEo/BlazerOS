@@ -40,7 +40,7 @@ jobs:
   ios-app:
     name: iPhone app build
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v7
@@ -59,3 +59,31 @@ jobs:
             -configuration Debug \
             CODE_SIGNING_ALLOWED=NO \
             build
+
+      # BlazerTests covers the desk layout and the iPhone execution flow. It only
+      # runs from the Xcode project, so it needs a concrete simulator. Ask
+      # xcodebuild which destinations it accepts instead of guessing from simctl.
+      - name: Run the iPhone tests
+        run: |
+          set -o pipefail
+          destinations=$(xcodebuild \
+            -project iPhone/BlazerOS.xcodeproj \
+            -scheme BlazerOS \
+            -showdestinations)
+          echo "$destinations"
+          udid=$(echo "$destinations" \
+            | grep "name:iPhone" \
+            | sed -nE 's/.*id:([0-9A-F-]{36}).*/\1/p' \
+            | head -1)
+          if [ -z "$udid" ]; then
+            echo "No iPhone simulator available to xcodebuild" >&2
+            exit 1
+          fi
+          echo "Testing on $udid"
+          xcodebuild \
+            -project iPhone/BlazerOS.xcodeproj \
+            -scheme BlazerOS \
+            -destination "platform=iOS Simulator,id=$udid" \
+            -configuration Debug \
+            CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=YES \
+            test

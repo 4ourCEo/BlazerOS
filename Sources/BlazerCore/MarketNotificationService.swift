@@ -14,6 +14,13 @@ public final class MarketNotificationService: NSObject, @unchecked Sendable {
 
     private let userDefaultsKey = "blazer.notifications.prime_windows_enabled"
 
+    /// `UNUserNotificationCenter.current()` traps when the process has no application bundle
+    /// (the unit-test runner, command-line tools, XPC agents). Those callers still get a sane
+    /// answer: notifications are unavailable.
+    private static var hasAppBundle: Bool {
+        Bundle.main.bundleURL.pathExtension == "app"
+    }
+
     public var isNotificationsEnabled: Bool {
         get {
             UserDefaults.standard.bool(forKey: userDefaultsKey)
@@ -26,13 +33,16 @@ public final class MarketNotificationService: NSObject, @unchecked Sendable {
     public override init() {
         super.init()
         #if canImport(UserNotifications)
-        UNUserNotificationCenter.current().delegate = self
+        if Self.hasAppBundle {
+            UNUserNotificationCenter.current().delegate = self
+        }
         #endif
     }
 
     /// Check if notifications are currently authorized
     public func checkAuthorizationStatus() async -> Bool {
         #if canImport(UserNotifications)
+        guard Self.hasAppBundle else { return false }
         let settings = await UNUserNotificationCenter.current().notificationSettings()
         return settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional
         #else
@@ -43,6 +53,7 @@ public final class MarketNotificationService: NSObject, @unchecked Sendable {
     /// Request notification authorization from the user
     public func requestAuthorization() async -> Bool {
         #if canImport(UserNotifications)
+        guard Self.hasAppBundle else { return false }
         do {
             let center = UNUserNotificationCenter.current()
             let granted = try await center.requestAuthorization(options: [.alert, .sound, .badge])
@@ -61,6 +72,7 @@ public final class MarketNotificationService: NSObject, @unchecked Sendable {
     /// Schedule recurring Pacific Time prime window alerts
     public func schedulePrimeNotifications() async {
         #if canImport(UserNotifications)
+        guard Self.hasAppBundle else { return }
         let center = UNUserNotificationCenter.current()
 
         let granted = await requestAuthorization()
@@ -124,6 +136,10 @@ public final class MarketNotificationService: NSObject, @unchecked Sendable {
     /// Cancel prime window notifications
     public func cancelPrimeNotifications() {
         #if canImport(UserNotifications)
+        guard Self.hasAppBundle else {
+            isNotificationsEnabled = false
+            return
+        }
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: [
             Self.morningNotificationID,
@@ -136,6 +152,7 @@ public final class MarketNotificationService: NSObject, @unchecked Sendable {
     /// Send a quick test alert (after e.g. 3 seconds) so the user can verify on their iPhone
     public func sendTestNotification(delaySec: TimeInterval = 3) async -> Bool {
         #if canImport(UserNotifications)
+        guard Self.hasAppBundle else { return false }
         let center = UNUserNotificationCenter.current()
         let granted = await requestAuthorization()
         guard granted else { return false }
