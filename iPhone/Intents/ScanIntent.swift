@@ -4,9 +4,9 @@ import Foundation
 
 /// "Scan with Blazer" opens the existing six-market walk. It does not score or choose a side.
 public struct ScanIntent: AppIntent {
-    public static var title: LocalizedStringResource = "Scan with Blazer"
-    public static var description = IntentDescription("Opens the Lightning Desk and initiates a watchlist scan.")
-    public static var openAppWhenRun: Bool = true
+    public static let title: LocalizedStringResource = "Scan with Blazer"
+    public static let description = IntentDescription("Opens the Lightning Desk and initiates a watchlist scan.")
+    public static let openAppWhenRun: Bool = true
 
     public init() {}
 

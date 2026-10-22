@@ -49,14 +49,23 @@ struct JournalTimelineProvider: TimelineProvider {
         )
     }
 
+    /// WidgetKit still hands these methods a non-Sendable completion handler. Loading the
+    /// timeline is async, so the handler crosses into a task; the box records that the value is
+    /// only ever called once, from that task, and never shared.
+    private struct Completion<T>: @unchecked Sendable {
+        let call: (T) -> Void
+    }
+
     func getSnapshot(in context: Context, completion: @escaping (JournalWidgetEntry) -> Void) {
+        let callback = Completion(call: completion)
         Task {
             let entry = await loadLatest()
-            completion(entry)
+            callback.call(entry)
         }
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<JournalWidgetEntry>) -> Void) {
+        let callback = Completion(call: completion)
         Task {
             let entry = await loadLatest()
             let fifteenMinutes = Date().addingTimeInterval(15 * 60)
@@ -66,7 +75,7 @@ struct JournalTimelineProvider: TimelineProvider {
             }
             let nextUpdate = min(fifteenMinutes, beamEnd.flatMap { $0 > Date() ? $0 : nil } ?? fifteenMinutes)
             let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
-            completion(timeline)
+            callback.call(timeline)
         }
     }
 

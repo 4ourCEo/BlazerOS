@@ -10,11 +10,17 @@ final class LiveActivityController {
     static let shared = LiveActivityController()
     private var currentActivity: Activity<DeskActivityAttributes>?
 
-    func update(with frame: DeskFrame?, trade: ActiveTrade? = nil) {
+    /// `Activity` is safe to update from any thread but is not marked `Sendable`.
+    /// The box records that the handle may cross the `await` boundary.
+    private struct Handle: @unchecked Sendable {
+        let activity: Activity<DeskActivityAttributes>
+    }
+
+    func update(with frame: DeskFrame?, trade: ActiveTrade? = nil) async {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
 
         guard let frame else {
-            endAllActivities()
+            await endAllActivities()
             return
         }
 
@@ -32,13 +38,12 @@ final class LiveActivityController {
 
             if let activity = activity(for: trade.fingerprint) {
                 currentActivity = activity
-                Task {
-                    await activity.update(
-                        ActivityContent(state: contentState, staleDate: trade.expiresAt)
-                    )
-                }
+                let handle = Handle(activity: activity)
+                await handle.activity.update(
+                    ActivityContent(state: contentState, staleDate: trade.expiresAt)
+                )
             } else {
-                endOtherActivities()
+                await endOtherActivities()
                 let attributes = DeskActivityAttributes(
                     pair: trade.pair,
                     score: trade.score,
@@ -68,13 +73,12 @@ final class LiveActivityController {
 
             if let activity = activity(for: frame.fingerprint) {
                 currentActivity = activity
-                Task {
-                    await activity.update(
-                        ActivityContent(state: contentState, staleDate: endsAt)
-                    )
-                }
+                let handle = Handle(activity: activity)
+                await handle.activity.update(
+                    ActivityContent(state: contentState, staleDate: endsAt)
+                )
             } else {
-                endOtherActivities()
+                await endOtherActivities()
                 let attributes = DeskActivityAttributes(
                     pair: frame.pair,
                     score: frame.score,
@@ -97,12 +101,11 @@ final class LiveActivityController {
                 endsAt: Date(),
                 veto: frame.veto
             )
-            Task {
-                await activity.end(
-                    ActivityContent(state: contentState, staleDate: nil),
-                    dismissalPolicy: .after(Date().addingTimeInterval(2.5))
-                )
-            }
+            let handle = Handle(activity: activity)
+            await handle.activity.end(
+                ActivityContent(state: contentState, staleDate: nil),
+                dismissalPolicy: .after(Date().addingTimeInterval(2.5))
+            )
             currentActivity = nil
         }
     }
@@ -118,16 +121,18 @@ final class LiveActivityController {
     }
 
     /// Ends every activity except the current one. Recovery does not rely on in-memory state.
-    private func endOtherActivities() {
+    private func endOtherActivities() async {
         for activity in Activity<DeskActivityAttributes>.activities
         where activity.id != currentActivity?.id {
-            Task { await activity.end(nil, dismissalPolicy: .immediate) }
+            let handle = Handle(activity: activity)
+            await handle.activity.end(nil, dismissalPolicy: .immediate)
         }
     }
 
-    private func endAllActivities() {
+    private func endAllActivities() async {
         for activity in Activity<DeskActivityAttributes>.activities {
-            Task { await activity.end(nil, dismissalPolicy: .immediate) }
+            let handle = Handle(activity: activity)
+            await handle.activity.end(nil, dismissalPolicy: .immediate)
         }
         currentActivity = nil
     }

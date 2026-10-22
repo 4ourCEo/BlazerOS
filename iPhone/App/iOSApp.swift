@@ -18,10 +18,10 @@ struct BlazerOSPhoneApp: App {
                     }
                 }
                 .onChange(of: model.frame) { _, next in
-                    LiveActivityController.shared.update(with: next, trade: model.activeTrade)
+                    Task { await LiveActivityController.shared.update(with: next, trade: model.activeTrade) }
                 }
                 .onChange(of: model.activeTrade) { _, trade in
-                    LiveActivityController.shared.update(with: model.frame, trade: trade)
+                    Task { await LiveActivityController.shared.update(with: model.frame, trade: trade) }
                 }
                 .task {
                     #if DEBUG
