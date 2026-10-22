@@ -586,13 +586,14 @@ struct DeskScreen: View {
             }
 
             if model.awaitingOutcome {
-                if let reference = model.predictedOutcome {
-                    Text("Reference suggests \(reference.rawValue). Confirm what Pocket Option settled.")
+                if let note = model.referenceSuggestionNote {
+                    Text(note)
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(DeskInk.slate)
+                        .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                let reference = model.predictedOutcome
+                let reference = model.referenceSuggestion
                 HStack(spacing: 10) {
                     outcomeChoice(
                         reference == .hit ? "Confirm HIT" : (reference == .miss ? "HIT instead" : "HIT"),

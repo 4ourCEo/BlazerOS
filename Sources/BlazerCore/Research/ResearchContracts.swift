@@ -92,6 +92,18 @@ public enum ResearchResolution: String, Codable, Sendable {
 }
 
 /// OANDA midpoint observation, explicitly a proxy rather than a venue result.
+/// Desk-side suggestion derived from the OANDA reference label. It is never a venue
+/// settlement: the desk still requires an explicit confirmation.
+public extension ResearchOutcome {
+    var deskSuggestion: DeskOutcome? {
+        switch resolution {
+        case .hit: return .hit
+        case .miss: return .miss
+        case .tie, .unresolved: return nil
+        }
+    }
+}
+
 public struct ResearchOutcome: Codable, Sendable {
     public let eventID: String
     public let horizon: Int

@@ -1010,6 +1010,35 @@ public final class LightningDeskModel: ObservableObject {
         LedgerStatsEngine.evaluate(pair: asset, rows: ledgerRows, payoutRatio: 0.88)
     }
 
+    /// Reference suggestion for the arm awaiting confirmation. Prefers the in-memory expiry
+    /// observation, then the persisted reference history so a relaunch does not lose it.
+    /// This is an OANDA midpoint label, never a venue settlement.
+    public var referenceSuggestion: DeskOutcome? {
+        if let predictedOutcome { return predictedOutcome }
+        guard let armID else { return nil }
+        return referenceOutcomes.last(where: { $0.eventID == armID })?.deskSuggestion
+    }
+
+    /// Why the desk can or cannot suggest a result. Shown above the HIT/MISS buttons.
+    public var referenceSuggestionNote: String? {
+        guard let armID else { return nil }
+        if let suggestion = referenceSuggestion {
+            return "Reference suggests \(suggestion.rawValue). Confirm what the venue settled."
+        }
+        guard let observation = referenceOutcomes.last(where: { $0.eventID == armID }) else {
+            return "No reference observation was captured. Confirm the venue result."
+        }
+        switch observation.resolution {
+        case .tie:
+            return "Expiry tied at the reference mid. Confirm the venue result."
+        case .unresolved:
+            let reason = observation.reason ?? "quote unavailable"
+            return "No timely expiry print (\(reason)). Confirm the venue result."
+        default:
+            return "Confirm the venue result."
+        }
+    }
+
     /// Reference observations that belong to a desk entry. These are OANDA midpoint results,
     /// not venue settlements, and are excluded from `outcomeStats`.
     public var referenceHistory: [ResearchOutcome] {
