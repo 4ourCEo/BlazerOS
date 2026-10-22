@@ -18,6 +18,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The image's default Xcode trails the SDK this app targets (Foundation Models,
+      # iOS 26). Select the newest installed Xcode so CI builds the configuration that
+      # ships instead of silently compiling the fallback paths.
+      - name: Select newest Xcode
+        run: |
+          latest=$(ls -d /Applications/Xcode_[0-9]*.app | sort -V | tail -1)
+          echo "Selecting $latest"
+          sudo xcode-select -s "$latest"
+
       - name: Toolchain
         run: swift --version
 
