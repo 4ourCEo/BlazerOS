@@ -1978,7 +1978,7 @@ public final class LightningDeskModel: ObservableObject {
         historical = false
         commit = ScanCommit(
             asset: entry.pair,
-            engineCall: position.trade.side,
+            engineCall: entry.verb.isEmpty ? position.trade.side : entry.verb,
             score: entry.score,
             evidence: entry.why,
             strike: entry.strike,

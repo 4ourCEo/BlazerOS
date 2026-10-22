@@ -51,7 +51,7 @@ struct DeskLiveActivity: Widget {
                             .background(tint.opacity(0.18), in: Capsule())
                             .overlay(Capsule().strokeBorder(tint.opacity(0.4), lineWidth: 0.75))
 
-                        Text(timerInterval: Date()...context.state.endsAt, countsDown: true)
+                        Text(timerInterval: countdownRange(context), countsDown: true)
                             .font(.system(size: 14, weight: .bold, design: .monospaced))
                             .foregroundStyle(Color.white)
                     }
@@ -61,7 +61,7 @@ struct DeskLiveActivity: Widget {
                 DynamicIslandExpandedRegion(.bottom) {
                     VStack(spacing: 6) {
                         ProgressView(
-                            timerInterval: context.state.startedAt...context.state.endsAt,
+                            timerInterval: progressRange(context),
                             countsDown: false
                         )
                         .tint(tint)
@@ -107,7 +107,7 @@ struct DeskLiveActivity: Widget {
                         .foregroundStyle(Color.white)
                 }
             } compactTrailing: {
-                Text(timerInterval: Date()...context.state.endsAt, countsDown: true)
+                Text(timerInterval: countdownRange(context), countsDown: true)
                     .font(.system(size: 11, weight: .bold, design: .monospaced))
                     .foregroundStyle(tint)
                     .frame(minWidth: 32, alignment: .trailing)
@@ -149,7 +149,7 @@ struct DeskLiveActivity: Widget {
                 HStack(spacing: 4) {
                     Image(systemName: "stopwatch.fill")
                         .font(.system(size: 10, weight: .semibold))
-                    Text(timerInterval: Date()...context.state.endsAt, countsDown: true)
+                    Text(timerInterval: countdownRange(context), countsDown: true)
                         .font(.system(size: 13, weight: .bold, design: .monospaced))
                 }
                 .foregroundStyle(Color.white)
@@ -201,7 +201,7 @@ struct DeskLiveActivity: Widget {
 
             // Progress rail
             ProgressView(
-                timerInterval: context.state.startedAt...context.state.endsAt,
+                timerInterval: progressRange(context),
                 countsDown: false
             )
             .tint(tint)
@@ -241,6 +241,22 @@ struct DeskLiveActivity: Widget {
     }
 
     /// The activity is historical once its timer has closed or ActivityKit marks it stale.
+    /// A countdown range must never have a lower bound after its upper bound: constructing
+    /// `Date()...endsAt` once the activity expires traps with EXC_BREAKPOINT. Collapse to a
+    /// zero-width instant instead.
+    private func countdownRange(_ context: ActivityViewContext<DeskActivityAttributes>) -> ClosedRange<Date> {
+        let now = Date()
+        let end = context.state.endsAt
+        return now < end ? now...end : now...now
+    }
+
+    /// Same guard for the progress rail, which uses the frozen start and end.
+    private func progressRange(_ context: ActivityViewContext<DeskActivityAttributes>) -> ClosedRange<Date> {
+        let start = context.state.startedAt
+        let end = context.state.endsAt
+        return start < end ? start...end : start...start
+    }
+
     private func isExpired(_ context: ActivityViewContext<DeskActivityAttributes>) -> Bool {
         LiveActivityPresentation.isExpired(endsAt: context.state.endsAt, isStale: context.isStale)
     }
