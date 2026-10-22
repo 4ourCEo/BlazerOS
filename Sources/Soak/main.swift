@@ -230,7 +230,7 @@ final class SoakRunner {
         let model = LightningDeskModel(storageRoot: root)
         model.showingLaunch = false
 
-        let pairs = ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD", "USD/CAD", "EUR/GBP"]
+        let pairs = Assets.watchlist
         let tabs = DeskTab.allCases
 
         for i in 0..<100 {

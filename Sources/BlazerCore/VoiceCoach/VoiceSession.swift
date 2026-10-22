@@ -25,8 +25,42 @@ public final class VoiceSession: NSObject, ObservableObject {
         case error(String)
     }
 
+    public enum RecognitionAvailability: Equatable, Sendable {
+        case checking
+        case onDevice
+        case network
+        case permissionDenied
+        case unavailable(String)
+
+        public var label: String {
+            switch self {
+            case .checking: return "Speech: checking"
+            case .onDevice: return "Speech: on-device"
+            case .network: return "Speech: network"
+            case .permissionDenied: return "Speech: permission denied"
+            case .unavailable(let reason): return "Speech: \(reason)"
+            }
+        }
+    }
+
+    public enum SynthesisAvailability: Equatable, Sendable {
+        case checking
+        case available
+        case unavailable
+
+        public var label: String {
+            switch self {
+            case .checking: return "Voice: checking"
+            case .available: return "Voice: ready"
+            case .unavailable: return "Voice: unavailable"
+            }
+        }
+    }
+
     @Published public private(set) var state: State = .idle
     @Published public private(set) var transcript: String = ""
+    @Published public private(set) var recognitionAvailability: RecognitionAvailability = .checking
+    @Published public private(set) var synthesisAvailability: SynthesisAvailability = .checking
 
     private var recognizer: SFSpeechRecognizer?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
@@ -37,6 +71,14 @@ public final class VoiceSession: NSObject, ObservableObject {
     public override init() {
         super.init()
         synthesizer.delegate = self
+        synthesisAvailability = AVSpeechSynthesisVoice(language: "en-US") == nil ? .unavailable : .available
+        if SFSpeechRecognizer.authorizationStatus() == .denied {
+            recognitionAvailability = .permissionDenied
+        } else if let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US")), recognizer.isAvailable {
+            recognitionAvailability = recognizer.supportsOnDeviceRecognition ? .onDevice : .unavailable("on-device speech unavailable")
+        } else {
+            recognitionAvailability = .unavailable("recognizer unavailable")
+        }
     }
 
     // MARK: - Public API
@@ -61,6 +103,7 @@ public final class VoiceSession: NSObject, ObservableObject {
     /// Announce a debriefing or settlement message aloud.
     public func speakAnnouncement(_ text: String) {
         cancel()
+        guard synthesisAvailability == .available else { return }
         speak(text)
     }
 
@@ -77,15 +120,23 @@ public final class VoiceSession: NSObject, ObservableObject {
         let speechStatus = await requestSpeechRecognitionPermission()
 
         guard micStatus, speechStatus else {
+            recognitionAvailability = .permissionDenied
             state = .denied
             return
+        }
+        if let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US")), recognizer.isAvailable {
+            recognitionAvailability = recognizer.supportsOnDeviceRecognition ? .onDevice : .unavailable("on-device speech unavailable")
+        } else {
+            recognitionAvailability = .unavailable("recognizer unavailable")
         }
         beginListening(seal: seal, evidence: evidence, service: service)
     }
 
     private func requestMicrophonePermission() async -> Bool {
         await withCheckedContinuation { continuation in
-            AVAudioApplication.requestRecordPermission { granted in
+            // TCC invokes this on a background queue. Marking the closure @Sendable stops it
+            // inheriting MainActor isolation, which would trap on the Swift 6 executor check.
+            AVAudioApplication.requestRecordPermission { @Sendable granted in
                 continuation.resume(returning: granted)
             }
         }
@@ -93,7 +144,8 @@ public final class VoiceSession: NSObject, ObservableObject {
 
     private func requestSpeechRecognitionPermission() async -> Bool {
         await withCheckedContinuation { continuation in
-            SFSpeechRecognizer.requestAuthorization { status in
+            // Same contract as the microphone request: the reply arrives off the main queue.
+            SFSpeechRecognizer.requestAuthorization { @Sendable status in
                 continuation.resume(returning: status == .authorized)
             }
         }
@@ -120,13 +172,18 @@ public final class VoiceSession: NSObject, ObservableObject {
             state = .error("Speech recognition unavailable.")
             return
         }
+        guard recognizer.supportsOnDeviceRecognition else {
+            recognitionAvailability = .unavailable("on-device speech unavailable")
+            state = .error("On-device speech recognition is unavailable. Type your question instead.")
+            return
+        }
         self.recognizer = recognizer
         recognizer.defaultTaskHint = .search
 
         let request = SFSpeechAudioBufferRecognitionRequest()
-        if recognizer.supportsOnDeviceRecognition {
-            request.requiresOnDeviceRecognition = true
-        }
+        // Keep audio local. If on-device recognition is unavailable, the session fails
+        // visibly instead of silently uploading speech.
+        request.requiresOnDeviceRecognition = true
         request.shouldReportPartialResults = true
         recognitionRequest = request
 
@@ -268,8 +325,32 @@ public final class VoiceSession: ObservableObject {
         case speaking(text: String)
         case denied, error(String)
     }
+    public enum RecognitionAvailability: Equatable, Sendable {
+        case checking, onDevice, network, permissionDenied, unavailable(String)
+        public var label: String {
+            switch self {
+            case .checking: return "Speech: checking"
+            case .onDevice: return "Speech: on-device"
+            case .network: return "Speech: network"
+            case .permissionDenied: return "Speech: permission denied"
+            case .unavailable(let reason): return "Speech: \(reason)"
+            }
+        }
+    }
+    public enum SynthesisAvailability: Equatable, Sendable {
+        case checking, available, unavailable
+        public var label: String {
+            switch self {
+            case .checking: return "Voice: checking"
+            case .available: return "Voice: ready"
+            case .unavailable: return "Voice: unavailable"
+            }
+        }
+    }
     @Published public private(set) var state: State = .idle
     @Published public private(set) var transcript: String = ""
+    @Published public private(set) var recognitionAvailability: RecognitionAvailability = .unavailable("Speech framework unavailable")
+    @Published public private(set) var synthesisAvailability: SynthesisAvailability = .unavailable
     public init() {}
     public func start(seal: ParitySeal, evidence: String, using service: FoundationCoachService) {}
     public func cancel() {}

@@ -20,6 +20,7 @@
 		B2000000000000000000000B /* BlazerIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F10000000000000000000004 /* BlazerIntents.framework */; };
 		B2000000000000000000000C /* BlazerActivity.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F10000000000000000000005 /* BlazerActivity.framework */; };
 		B2000000000000000000000D /* LightningDesk in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000006 /* LightningDesk */; };
+		B2000000000000000000000E /* BlazerCore in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000007 /* BlazerCore */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -155,6 +156,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B20000000000000000000004 /* BlazerActivity.framework in Frameworks */,
+				B2000000000000000000000E /* BlazerCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -285,6 +287,9 @@
 				G10000000000000000000003 /* LiveActivity */,
 			);
 			name = BlazerLiveActivity;
+			packageProductDependencies = (
+				D20000000000000000000007 /* BlazerCore */,
+			);
 			productName = BlazerLiveActivity;
 			productReference = F10000000000000000000003 /* BlazerLiveActivity.appex */;
 			productType = "com.apple.product-type.app-extension";
@@ -543,7 +548,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = App/BlazerOS.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 5;
 				DEVELOPMENT_TEAM = 8GZ3352QQB;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = App/Info.plist;
@@ -570,7 +575,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = App/BlazerOS.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 5;
 				DEVELOPMENT_TEAM = 8GZ3352QQB;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = App/Info.plist;
@@ -595,7 +600,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = Widgets/BlazerWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 5;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Widgets/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -618,7 +623,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = Widgets/BlazerWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 5;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Widgets/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -641,7 +646,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = LiveActivity/BlazerLiveActivity.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 5;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = LiveActivity/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -664,7 +669,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = LiveActivity/BlazerLiveActivity.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 5;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = LiveActivity/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -686,7 +691,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 5;
 				DEFINES_MODULE = YES;
 				DYLIB_COMPATIBILITY_VERSION = 1;
 				DYLIB_CURRENT_VERSION = 1;
@@ -714,7 +719,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 5;
 				DEFINES_MODULE = YES;
 				DYLIB_COMPATIBILITY_VERSION = 1;
 				DYLIB_CURRENT_VERSION = 1;
@@ -742,7 +747,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 5;
 				DEFINES_MODULE = YES;
 				DYLIB_COMPATIBILITY_VERSION = 1;
 				DYLIB_CURRENT_VERSION = 1;
@@ -770,7 +775,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 5;
 				DEFINES_MODULE = YES;
 				DYLIB_COMPATIBILITY_VERSION = 1;
 				DYLIB_CURRENT_VERSION = 1;
@@ -799,7 +804,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 5;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.7.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.blazer.os.tests;
@@ -817,7 +822,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 5;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.7.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.blazer.os.tests;
@@ -935,6 +940,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = D10000000000000000000001 /* XCLocalSwiftPackageReference ".." */;
 			productName = LightningDesk;
+		};
+		D20000000000000000000007 /* BlazerCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D10000000000000000000001 /* XCLocalSwiftPackageReference ".." */;
+			productName = BlazerCore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

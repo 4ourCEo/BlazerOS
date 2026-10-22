@@ -21,6 +21,12 @@ public enum CloudSecurityGate {
         try? NSRegularExpression(pattern: #"(?i)\b[0-9a-f]{32,}\b"#)
     }()
 
+    /// Structural digests are hexadecimal by design. They are not credentials, so they
+    /// are exempt from the token-shape heuristic. Free-text fields are not.
+    private static let digestKeys: Set<String> = [
+        "barsJSON", "hash", "engineSHA", "fullFingerprint",
+    ]
+
     private static func words(in identifier: String) -> Set<String> {
         var result = Set<String>()
         let clean = identifier.lowercased().filter { $0.isLetter || $0.isNumber }
@@ -67,7 +73,7 @@ public enum CloudSecurityGate {
                 if valLower.contains("bearer ") || valLower.contains("oanda_token") {
                     return false
                 }
-                if key != "barsJSON" && containsTokenShape(strVal) {
+                if !digestKeys.contains(key) && containsTokenShape(strVal) {
                     return false
                 }
             }
@@ -95,9 +101,9 @@ public enum CloudRecordMapper {
     public static func makeRecord(from row: LedgerRow, zoneID: CKRecordZone.ID? = nil) -> CKRecord {
         let recordID: CKRecord.ID
         if let zoneID {
-            recordID = CKRecord.ID(recordName: "ledger_\(row.hash)", zoneID: zoneID)
+            recordID = CKRecord.ID(recordName: "ledger_\(row.identity)", zoneID: zoneID)
         } else {
-            recordID = CKRecord.ID(recordName: "ledger_\(row.hash)")
+            recordID = CKRecord.ID(recordName: "ledger_\(row.identity)")
         }
         let record = CKRecord(recordType: CloudRecordType.ledger, recordID: recordID)
         record["timestamp"] = row.timestamp as CKRecordValue
@@ -109,6 +115,22 @@ public enum CloudRecordMapper {
         record["drift"] = row.drift as CKRecordValue
         record["outcome"] = row.outcome as CKRecordValue
         record["outcomeEventID"] = row.outcomeEventID as CKRecordValue
+        if let value = row.labelSource { record["labelSource"] = value as CKRecordValue }
+        if let value = row.horizonSeconds { record["horizonSeconds"] = Int64(value) as CKRecordValue }
+        if let value = row.enteredAt { record["enteredAt"] = value as CKRecordValue }
+        if let value = row.expiryObservedMs { record["expiryObservedMs"] = value as CKRecordValue }
+        if let value = row.evaluationAgeMs { record["evaluationAgeMs"] = value as CKRecordValue }
+        if let value = row.recordingDelayMs { record["recordingDelayMs"] = value as CKRecordValue }
+        if let value = row.remainingBeamMs { record["remainingBeamMs"] = value as CKRecordValue }
+        if let value = row.payout { record["payout"] = value as CKRecordValue }
+        if let value = row.stake { record["stake"] = value as CKRecordValue }
+        if let value = row.marketWindow { record["marketWindow"] = value as CKRecordValue }
+        if let value = row.engineSHA { record["engineSHA"] = value as CKRecordValue }
+        if let value = row.fullFingerprint { record["fullFingerprint"] = value as CKRecordValue }
+        // "quote" is reserved by the security gate, so the entry mark uses a neutral key.
+        if let value = row.entryQuote { record["entryMark"] = value as CKRecordValue }
+        if let value = row.expiryPrice { record["expiryPrice"] = value as CKRecordValue }
+        if let value = row.schemaVersion { record["schemaVersion"] = Int64(value) as CKRecordValue }
         return record
     }
 
@@ -134,7 +156,22 @@ public enum CloudRecordMapper {
             veto: vetoVal != 0,
             drift: drift,
             outcome: outcome,
-            outcomeEventID: outcomeEventID
+            outcomeEventID: outcomeEventID,
+            payout: record["payout"] as? Double,
+            stake: record["stake"] as? Double,
+            marketWindow: record["marketWindow"] as? String,
+            engineSHA: record["engineSHA"] as? String,
+            fullFingerprint: record["fullFingerprint"] as? String,
+            entryQuote: record["entryMark"] as? Double,
+            expiryPrice: record["expiryPrice"] as? Double,
+            labelSource: record["labelSource"] as? String,
+            horizonSeconds: (record["horizonSeconds"] as? Int64).map(Int.init),
+            enteredAt: record["enteredAt"] as? Date,
+            expiryObservedMs: record["expiryObservedMs"] as? Double,
+            evaluationAgeMs: record["evaluationAgeMs"] as? Double,
+            recordingDelayMs: record["recordingDelayMs"] as? Double,
+            remainingBeamMs: record["remainingBeamMs"] as? Double,
+            schemaVersion: (record["schemaVersion"] as? Int64).map(Int.init)
         )
     }
 

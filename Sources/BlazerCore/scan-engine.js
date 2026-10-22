@@ -139,7 +139,8 @@ var BlazerScan = (() => {
     const heat = pairHeatMap(trades, payoutPercent);
     const skipped = (row) => heat.get(row.asset)?.verdict === "skip";
     const preferred = (row) => heat.get(row.asset)?.verdict === "keep";
-    const blocked = (row) => skipped(row) || printLooksStale(row, nowMs);
+    const blocked = (row) => skipped(row) || printLooksStale(row, nowMs) ||
+      !Number.isFinite(row.evaluatedAtMs) || nowMs - row.evaluatedAtMs > 8000 || row.evaluatedAtMs > nowMs + 1000;
     if (preferAsset) {
       const stay = rows.find((row) => row.asset === preferAsset);
       if (stay && stay.live && !blocked(stay)) {
@@ -157,11 +158,9 @@ var BlazerScan = (() => {
       if (pref !== 0) {
         return pref;
       }
-      const age = quoteAgeMs(a, nowMs) - quoteAgeMs(b, nowMs);
-      if (age !== 0) {
-        return age;
-      }
-      return b.confidence - a.confidence;
+      const conviction = b.confidence - a.confidence;
+      if (conviction !== 0) return conviction;
+      return quoteAgeMs(a, nowMs) - quoteAgeMs(b, nowMs);
     })[0] ?? null;
   }
   function pickBestSignalWithDesk(signals, trades, payoutPercent, nowMs = Date.now(), preferAsset) {
@@ -171,6 +170,7 @@ var BlazerScan = (() => {
         asset: signal.asset,
         live: signal.side !== "WAIT",
         confidence: signal.confidence,
+        evaluatedAtMs: signal.asOfMs,
         asOfMs: signalPrintMs(signal)
       })),
       trades,
@@ -251,14 +251,14 @@ var BlazerScan = (() => {
     }
     let avgGain = gain / period;
     let avgLoss = loss / period;
-    out[period] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+    out[period] = avgGain === 0 && avgLoss === 0 ? 50 : avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
     for (let i = period + 1; i < values.length; i += 1) {
       const delta = values[i] - values[i - 1];
       const curGain = delta > 0 ? delta : 0;
       const curLoss = delta < 0 ? -delta : 0;
       avgGain = (avgGain * (period - 1) + curGain) / period;
       avgLoss = (avgLoss * (period - 1) + curLoss) / period;
-      out[i] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+      out[i] = avgGain === 0 && avgLoss === 0 ? 50 : avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
     }
     return out;
   }
@@ -344,10 +344,10 @@ var BlazerScan = (() => {
     return `${seconds} seconds`;
   }
   function pipSize(asset) {
-    return /JPY/i.test(asset) ? 0.01 : 1e-4;
+    return /XAU/i.test(asset) ? 0.1 : /JPY/i.test(asset) ? 0.01 : 1e-4;
   }
   function isSpreadOk(asset, spread, lastBar) {
-    if (!Number.isFinite(spread)) {
+    if (!Number.isFinite(spread) || spread <= 0) {
       return false;
     }
     const rawRange = lastBar ? lastBar.high - lastBar.low : 0;
@@ -438,7 +438,8 @@ var BlazerScan = (() => {
     }
     score = Math.max(0, Math.min(100, Math.round(score)));
     let side = "WAIT";
-    let confidence = score;
+    // Signed score is not a probability. Both directions use symmetric conviction.
+    let confidence = Math.max(score, 100 - score);
     let getIn = "NOW";
     let why = "Not enough edge.";
     const countertrend = bounce && trend === "DOWN" || reject && trend === "UP";
@@ -560,6 +561,8 @@ var BlazerScan = (() => {
       cabinetSide,
       call,
       confidence,
+      directionScore: score,
+      strength: Math.abs(score - 50) * 2,
       price: lastPrice,
       bid: bundle.bid,
       ask: bundle.ask,
@@ -606,6 +609,7 @@ var BlazerScan = (() => {
     }
     const priorLow = Math.min(...prior.map((bar) => bar.low));
     const priorHigh = Math.max(...prior.map((bar) => bar.high));
+    if (last2.low < priorLow && last2.high > priorHigh) return null;
     if (last2.low < priorLow && last2.close > priorLow) {
       return "low";
     }
@@ -649,7 +653,7 @@ var BlazerScan = (() => {
 
   // src/lib/slippage-gate.ts
   function pipSize2(asset) {
-    return asset.toUpperCase().includes("JPY") ? 0.01 : 1e-4;
+    return pipSize(asset);
   }
   function slippageGate(input) {
     const pip = pipSize2(input.asset);
@@ -661,7 +665,7 @@ var BlazerScan = (() => {
     if (input.side !== "HIGH" && input.side !== "LOW") return idle;
     const { strike, bid, ask } = input;
     if (![strike, bid, ask, pip].every((n) => Number.isFinite(n)) || pip <= 0) {
-      return idle;
+      return { ...idle, veto: true };
     }
     const liveSpreadPips = Math.max(0, ask - bid) / pip;
     const threshold = Math.max(liveSpreadPips, 1);
@@ -688,10 +692,111 @@ var BlazerScan = (() => {
       evidence: signal.evidence,
       asOfMs: signal.asOfMs,
       printMs: signal.printMs,
-      source: signal.source
+      source: signal.source,
+      directionScore: signal.directionScore,
+      strength: signal.strength,
+      policy: signal.policy,
+      features: signal.features,
+      vetoes: signal.vetoes
     };
   }
+  function validateInput(input) {
+    if (!input || typeof input.asset !== "string" || !["baseline", "continuation", "reversal", "regime"].includes(input.policy ?? "baseline"))
+      throw new Error("Invalid scan policy or asset");
+    for (const bars of [input.candles1m, input.candles5m]) {
+      if (!Array.isArray(bars) || bars.length < 20) throw new Error("Insufficient completed bars");
+      for (let i = 0; i < bars.length; i++) {
+        const b = bars[i];
+        if (![b.time, b.open, b.high, b.low, b.close].every(Number.isFinite) ||
+            b.time <= 0 || b.low <= 0 || b.low > Math.min(b.open, b.close) ||
+            b.high < Math.max(b.open, b.close) || b.high < b.low || (i > 0 && b.time <= bars[i - 1].time))
+          throw new Error("Invalid or unordered completed bars");
+      }
+    }
+    if (![input.lastPrice, input.bid, input.ask, input.spread].every(Number.isFinite) ||
+        input.bid <= 0 || input.ask < input.bid || input.lastPrice <= 0 || input.spread < 0 ||
+        Math.abs(input.spread - (input.ask - input.bid)) > 1e-8 ||
+        ![60, 180, 300].includes(input.expirySeconds ?? 60)) throw new Error("Invalid scan quote or horizon");
+    if (input.evaluatedAtMs != null && (!Number.isFinite(input.evaluatedAtMs) || input.evaluatedAtMs <= 0))
+      throw new Error("Invalid evaluation timestamp");
+    if (input.quoteAsOfMs != null && (!Number.isFinite(input.quoteAsOfMs) || input.quoteAsOfMs <= 0))
+      throw new Error("Invalid quote timestamp");
+  }
+
+  function researchFeatures(bundle) {
+    const m1 = bundle.candles1m, m5 = bundle.candles5m;
+    const a1 = last(atr(m1, 14)), a5 = last(atr(m5, 14));
+    const tail = m1.slice(-8), candle = last(m1);
+    const distance = tail.slice(1).reduce((sum, b, i) => sum + Math.abs(b.close - tail[i].close), 0);
+    const efficiency = distance > 0 ? Math.abs(candle.close - tail[0].close) / distance : 0;
+    const slow = ema(closes(m5), 55);
+    const slopeATR = a5 > 0 ? (last(slow) - slow[Math.max(0, slow.length - 4)]) / a5 : 0;
+    const range = candle.high - candle.low;
+    const prior = priorBars(m1);
+    const lo = Math.min(...prior.map(b => b.low)), hi = Math.max(...prior.map(b => b.high));
+    const rangeATR = a1 > 0 ? range / a1 : 0;
+    const compression = rangeIsTight(m1, a1);
+    const regime = rangeATR > 3 ? "shock" : compression ? "compression" :
+      efficiency >= 0.35 && Math.abs(slopeATR) >= 0.05 ? "trend" : "range";
+    return { atr1m: a1, atr5m: a5, efficiency, slopeATR,
+      spreadATR: a1 > 0 ? bundle.spread / a1 : 0,
+      rangeATR, bodyATR: a1 > 0 ? (candle.close - candle.open) / a1 : 0,
+      upperWickShare: range > 0 ? (candle.high - Math.max(candle.open, candle.close)) / range : 0,
+      lowerWickShare: range > 0 ? (Math.min(candle.open, candle.close) - candle.low) / range : 0,
+      twoSidedSweep: candle.low < lo && candle.high > hi,
+      sweep: liquiditySweep(m1), structureBreak: breakOfStructure(m1), regime };
+  }
+
+  function applyResearchPolicy(signal, bundle, input) {
+    const f = signal.features, candle = last(bundle.candles1m), prior = priorBars(bundle.candles1m);
+    const priorLow = Math.min(...prior.map(b => b.low)), priorHigh = Math.max(...prior.map(b => b.high));
+    const age = signal.asOfMs - (candle.time + 60000);
+    const vetoes = [];
+    if (!(f.atr1m > 0 && f.atr5m > 0)) vetoes.push("Insufficient volatility");
+    if (f.spreadATR > 0.2 || !signal.spreadOk) vetoes.push("Spread relative to volatility");
+    if (age < 0 || age > 8000) vetoes.push("Trigger candle too old");
+    if (input.quoteAsOfMs == null || signal.asOfMs - input.quoteAsOfMs > 8000 || input.quoteAsOfMs > signal.asOfMs + 1000)
+      vetoes.push("Research quote stale");
+    if (["shock", "compression"].includes(f.regime)) vetoes.push("Shock or compression regime");
+    if (Math.abs(bundle.lastPrice - candle.close) > f.atr1m * 0.25) vetoes.push("Entry chase distance");
+    let side = "WAIT", setup = "No qualifying setup";
+    const canContinue = input.policy === "continuation" || input.policy === "regime";
+    const canReverse = input.policy === "reversal" || input.policy === "regime";
+    const prev = bundle.candles1m[bundle.candles1m.length - 2];
+    if (canContinue && f.regime === "trend") {
+      const up = f.slopeATR > 0 && signal.trend === "UP" && f.bodyATR > 0;
+      const down = f.slopeATR < 0 && signal.trend === "DOWN" && f.bodyATR < 0;
+      const bounce = candle.close > candle.open && prev.close < prev.open;
+      const reject = candle.close < candle.open && prev.close > prev.open;
+      // Existing opposing level is defined before the trigger; a fresh break has no nearby level in this window.
+      const roomUp = f.structureBreak === "up" || priorHigh - bundle.lastPrice >= f.atr1m * 0.35;
+      const roomDown = f.structureBreak === "down" || bundle.lastPrice - priorLow >= f.atr1m * 0.35;
+      if (up && (f.structureBreak === "up" || bounce) && roomUp) side = "CALL";
+      if (down && (f.structureBreak === "down" || reject) && roomDown) side = "PUT";
+      setup = "Trend continuation";
+    } else if (canReverse && f.regime === "range" && !f.twoSidedSweep) {
+      const rsiOkCall = signal.rsi == null || signal.rsi <= 55;
+      const rsiOkPut = signal.rsi == null || signal.rsi >= 45;
+      if (f.sweep === "low" && f.lowerWickShare >= 0.45 && f.bodyATR > 0 && rsiOkCall &&
+          priorLow - candle.low >= f.atr1m * 0.1 && candle.close - priorLow >= f.atr1m * 0.1) side = "CALL";
+      if (f.sweep === "high" && f.upperWickShare >= 0.45 && f.bodyATR < 0 && rsiOkPut &&
+          candle.high - priorHigh >= f.atr1m * 0.1 && priorHigh - candle.close >= f.atr1m * 0.1) side = "PUT";
+      setup = "Range sweep rejection";
+    }
+    if (side === "WAIT") vetoes.push("No qualifying setup");
+    if (vetoes.length) side = "WAIT";
+    signal.side = side;
+    signal.cabinetSide = toCabinet(side);
+    signal.call = toCall(side);
+    signal.why = side === "WAIT" ? vetoes.join(" · ") : setup;
+    signal.vetoes = vetoes;
+    // Challenger conviction is an uncalibrated feature; no winning probability is invented.
+    signal.confidence = side === "WAIT" ? 0 : Math.max(signal.directionScore, 100 - signal.directionScore);
+    signal.opportunity = signal.confidence;
+  }
+
   function evaluatePair(input) {
+    validateInput(input);
     const bid = input.bid ?? input.lastPrice;
     const ask = input.ask ?? input.lastPrice;
     const spread = input.spread ?? Math.max(0, ask - bid);
@@ -706,6 +811,11 @@ var BlazerScan = (() => {
       spread
     };
     const signal = runStrategyEngine(bundle, input.expirySeconds ?? 60);
+    signal.asOfMs = input.evaluatedAtMs ?? Date.now();
+    signal.policy = input.policy ?? "baseline";
+    signal.features = researchFeatures(bundle);
+    signal.vetoes = [...signal.blockers];
+    if (signal.policy !== "baseline") applyResearchPolicy(signal, bundle, input);
     return {
       signal: slimSignal(signal),
       candles: bundle.candles5m.slice(-80),

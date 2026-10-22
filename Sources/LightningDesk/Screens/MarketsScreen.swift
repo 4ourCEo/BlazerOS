@@ -81,7 +81,7 @@ struct MarketsScreen: View {
         }
     }
 
-    private func radarLeaderBanner(_ leader: (asset: String, score: Int, side: String)) -> some View {
+    private func radarLeaderBanner(_ leader: (asset: String, score: Int, conviction: Int, side: String)) -> some View {
         Button {
             DeskHaptics.tabSwitch()
             model.selectAndNavigate(pair: leader.asset)
@@ -119,9 +119,9 @@ struct MarketsScreen: View {
                 Spacer()
 
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text("SCORE \(leader.score)")
+                    Text("\(leader.side == "LOW" ? "PUT" : "CALL") \(leader.conviction)%")
                         .font(.system(size: 15, weight: .heavy, design: .monospaced))
-                        .foregroundStyle(leader.score >= 70 ? DeskInk.emerald : DeskInk.electric)
+                        .foregroundStyle(leader.conviction >= 70 ? (leader.side == "LOW" ? DeskInk.coral : DeskInk.emerald) : DeskInk.electric)
                     HStack(spacing: 3) {
                         Text("Trade on Desk")
                             .font(.system(size: 10, weight: .semibold))
@@ -161,8 +161,13 @@ struct MarketTacticalTile: View {
         MarketEdgeWindow.conviction(for: pair)
     }
 
+    private var convictionRating: Int {
+        let raw = score ?? 50
+        return raw
+    }
+
     private var isHighConviction: Bool {
-        (score ?? 0) >= 70 && (side == "HIGH" || side == "LOW")
+        convictionRating >= 70 && (side == "HIGH" || side == "LOW")
     }
 
     private var tint: Color {
@@ -271,7 +276,7 @@ struct MarketTacticalTile: View {
             )
         }
         .buttonStyle(SpringPressButtonStyle())
-        .accessibilityLabel("\(pair) score \(score ?? 0) \(side)")
+        .accessibilityLabel("\(pair) conviction \(convictionRating) \(sideBadgeText)")
     }
 
     private var scoreGauge: some View {
@@ -280,7 +285,7 @@ struct MarketTacticalTile: View {
                 .stroke(Color.white.opacity(0.08), lineWidth: 3)
                 .frame(width: 38, height: 38)
 
-            let fraction = Double(min(100, max(0, score ?? 0))) / 100.0
+            let fraction = Double(min(100, max(0, convictionRating))) / 100.0
             Circle()
                 .trim(from: 0, to: CGFloat(fraction))
                 .stroke(
@@ -294,7 +299,7 @@ struct MarketTacticalTile: View {
                 .rotationEffect(.degrees(-90))
                 .frame(width: 38, height: 38)
 
-            Text("\(score ?? 0)")
+            Text("\(convictionRating)")
                 .font(.system(size: 12, weight: .bold, design: .monospaced))
                 .foregroundStyle(DeskInk.ink)
                 .monospacedDigit()
@@ -374,8 +379,8 @@ struct MarketTacticalTile: View {
 
     private var sideBadgeText: String {
         switch side {
-        case "HIGH": return "HIGH"
-        case "LOW":  return "LOW"
+        case "HIGH": return "CALL"
+        case "LOW":  return "PUT"
         default:     return "WAIT"
         }
     }

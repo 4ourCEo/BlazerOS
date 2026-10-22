@@ -39,6 +39,8 @@ public struct Tag: Codable, Equatable, Sendable {
 public struct JournalEntry: Codable, Equatable, Sendable, Identifiable {
     public var id: String
     public var fingerprint: String
+    /// Full frozen-input identity. Absent on entries written before schema v3.
+    public var fullFingerprint: String?
     public var pair: String
     public var score: Int
     public var side: String
@@ -47,6 +49,12 @@ public struct JournalEntry: Codable, Equatable, Sendable, Identifiable {
     public var strike: Double
     public var veto: String?
     public var scannedAt: Date
+    public var engineSHA: String?
+    public var expirySeconds: Int?
+    public var m1Count: Int?
+    public var m5Count: Int?
+    public var evaluationQuote: Double?
+    public var evaluationSpread: Double?
     public var voiceNote: VoiceNote?
     public var tag: Tag?
     public var emotion: Emotion?
@@ -56,6 +64,7 @@ public struct JournalEntry: Codable, Equatable, Sendable, Identifiable {
     public init(
         id: String,
         fingerprint: String,
+        fullFingerprint: String? = nil,
         pair: String,
         score: Int,
         side: String,
@@ -64,6 +73,12 @@ public struct JournalEntry: Codable, Equatable, Sendable, Identifiable {
         strike: Double,
         veto: String?,
         scannedAt: Date,
+        engineSHA: String? = nil,
+        expirySeconds: Int? = nil,
+        m1Count: Int? = nil,
+        m5Count: Int? = nil,
+        evaluationQuote: Double? = nil,
+        evaluationSpread: Double? = nil,
         voiceNote: VoiceNote? = nil,
         tag: Tag? = nil,
         emotion: Emotion? = nil,
@@ -72,6 +87,7 @@ public struct JournalEntry: Codable, Equatable, Sendable, Identifiable {
     ) {
         self.id = id
         self.fingerprint = fingerprint
+        self.fullFingerprint = fullFingerprint
         self.pair = pair
         self.score = score
         self.side = side
@@ -80,6 +96,12 @@ public struct JournalEntry: Codable, Equatable, Sendable, Identifiable {
         self.strike = strike
         self.veto = veto
         self.scannedAt = scannedAt
+        self.engineSHA = engineSHA
+        self.expirySeconds = expirySeconds
+        self.m1Count = m1Count
+        self.m5Count = m5Count
+        self.evaluationQuote = evaluationQuote
+        self.evaluationSpread = evaluationSpread
         self.voiceNote = voiceNote
         self.tag = tag
         self.emotion = emotion

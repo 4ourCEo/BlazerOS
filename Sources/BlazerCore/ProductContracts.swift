@@ -3,14 +3,45 @@ import Foundation
 
 /// Full SHA-1 of the bundled scan-engine.js. Both apps must load this exact script.
 public enum EngineIdentity {
-    public static let pinnedSHA1 = "1a1d264d44eec606ded991cb4814df953bc07b34"
+    public static let pinnedSHA1 = "7c02e550e2e6ca656a258ceefc6083f098ff40b2"
+
+    /// Outcome of hashing a candidate engine source against the pin.
+    public enum Verification: Sendable, Equatable {
+        case verified(sha: String)
+        case mismatch(loaded: String, pinned: String)
+        case unavailable
+
+        public var isVerified: Bool {
+            if case .verified = self { return true }
+            return false
+        }
+
+        /// Operator-facing explanation. Never includes the script body.
+        public var detail: String {
+            switch self {
+            case .verified(let sha):
+                return "engine \(sha.prefix(12)) verified"
+            case .mismatch(let loaded, let pinned):
+                return "engine hash mismatch: loaded \(loaded.prefix(12)), pinned \(pinned.prefix(12))"
+            case .unavailable:
+                return "engine source unavailable"
+            }
+        }
+    }
 
     public static func sha1Hex(of source: String) -> String {
         let digest = Insecure.SHA1.hash(data: Data(source.utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 
+    /// Verification for a candidate source. This is the only place the pin is compared.
+    public static func verify(source: String) -> Verification {
+        let sha = sha1Hex(of: source)
+        return sha == pinnedSHA1 ? .verified(sha: sha) : .mismatch(loaded: sha, pinned: pinnedSHA1)
+    }
+
     public static func loadedSHA1() -> String? {
+        if let known = StrategyEngine.knownSHA { return known }
         guard let source = StrategyEngine.bundleSource() else { return nil }
         return sha1Hex(of: source)
     }
@@ -75,6 +106,7 @@ public struct DeskFrame: Sendable, Equatable {
     public var remainingMs: Double
     public var veto: String?
     public var fingerprint: String
+    public var isActionable: Bool
 
     public init(
         pair: String,
@@ -85,7 +117,8 @@ public struct DeskFrame: Sendable, Equatable {
         verb: String,
         remainingMs: Double,
         veto: String?,
-        fingerprint: String
+        fingerprint: String,
+        isActionable: Bool
     ) {
         self.pair = pair
         self.feed = feed
@@ -96,31 +129,42 @@ public struct DeskFrame: Sendable, Equatable {
         self.remainingMs = remainingMs
         self.veto = veto
         self.fingerprint = fingerprint
+        self.isActionable = isActionable
     }
 
     public static func make(
         commit: ScanCommit,
         feed: FeedStatus,
         cabinetSide: String,
-        elapsedMs: Double
+        elapsedMs: Double,
+        historical: Bool = false
     ) -> DeskFrame {
-        let vetoed = commit.veto != nil
+        let actionable = !historical && (cabinetSide == "HIGH" || cabinetSide == "LOW") && elapsedMs > 0 && BeamContract.remainingMs(elapsedMs: elapsedMs, historical: historical) > 0 && feed == .live && commit.veto == nil
+        let verb = actionable || historical
+            ? BeamContract.verb(
+                cabinetSide: cabinetSide,
+                elapsedMs: elapsedMs,
+                vetoed: commit.veto != nil,
+                historical: historical
+            )
+            : "WAIT"
         return DeskFrame(
             pair: commit.asset,
             feed: feed,
             score: commit.score,
             why: commit.evidence,
             strike: commit.strike,
-            verb: BeamContract.verb(cabinetSide: cabinetSide, elapsedMs: elapsedMs, vetoed: vetoed),
-            remainingMs: BeamContract.remainingMs(elapsedMs: elapsedMs),
+            verb: verb,
+            remainingMs: actionable ? BeamContract.remainingMs(elapsedMs: elapsedMs, historical: historical) : 0,
             veto: commit.veto,
-            fingerprint: commit.fingerprint
+            fingerprint: commit.fingerprint,
+            isActionable: actionable
         )
     }
 }
 
 /// An executed 60-second binary options trade horizon.
-public struct ActiveTrade: Sendable, Equatable, Identifiable {
+public struct ActiveTrade: Sendable, Equatable, Identifiable, Codable {
     public var id: String
     public var pair: String
     public var side: String
@@ -130,6 +174,14 @@ public struct ActiveTrade: Sendable, Equatable, Identifiable {
     public var expiresAt: Date
     public var durationSec: Double
     public var currentPrice: Double?
+    public var stake: Double?
+    public var payout: Double?
+    /// User-supplied broker entry price. Optional; never inferred.
+    public var brokerEntryPrice: Double?
+    /// Evaluation age and beam timing captured when the user recorded the manual entry.
+    public var evaluationAgeMs: Double?
+    public var remainingBeamMs: Double?
+    public var recordingDelayMs: Double?
     public var fingerprint: String
 
     public init(
@@ -141,6 +193,12 @@ public struct ActiveTrade: Sendable, Equatable, Identifiable {
         enteredAt: Date = Date(),
         durationSec: Double = 60.0,
         currentPrice: Double? = nil,
+        stake: Double? = nil,
+        payout: Double? = nil,
+        brokerEntryPrice: Double? = nil,
+        evaluationAgeMs: Double? = nil,
+        remainingBeamMs: Double? = nil,
+        recordingDelayMs: Double? = nil,
         fingerprint: String
     ) {
         self.id = id
@@ -152,6 +210,12 @@ public struct ActiveTrade: Sendable, Equatable, Identifiable {
         self.expiresAt = enteredAt.addingTimeInterval(durationSec)
         self.durationSec = durationSec
         self.currentPrice = currentPrice
+        self.stake = stake
+        self.payout = payout
+        self.brokerEntryPrice = brokerEntryPrice
+        self.evaluationAgeMs = evaluationAgeMs
+        self.remainingBeamMs = remainingBeamMs
+        self.recordingDelayMs = recordingDelayMs
         self.fingerprint = fingerprint
     }
 
@@ -165,7 +229,7 @@ public struct ActiveTrade: Sendable, Equatable, Identifiable {
 
     public var pipDiff: Double? {
         guard let currentPrice else { return nil }
-        let pip = pair.uppercased().contains("JPY") ? 0.01 : 0.0001
+        let pip = Assets.pipScale(for: pair)
         if side == "HIGH" {
             return (currentPrice - strike) / pip
         } else {
@@ -177,6 +241,18 @@ public struct ActiveTrade: Sendable, Equatable, Identifiable {
         guard let pipDiff else { return nil }
         return pipDiff > 0
     }
+}
+
+/// Typed failures for enforcing entry gates at confirmation time.
+public enum EntryGateFailure: Error, Sendable, Equatable {
+    case expiredBeam
+    case staleFeed
+    case vetoed(String)
+    case notDirectional
+    case historical
+    case activePositionExists
+    case noArmedBeam
+    case unsupportedExpiry
 }
 
 /// Spoken note attached to a fingerprint. Tags are annotations. They are not scan inputs.
@@ -237,4 +313,23 @@ public enum DeviceLocal: String, Sendable, Codable, CaseIterable {
 public protocol TradingCoach: Sendable {
     func explain(seal: ParitySeal, evidence: String, question: String) async throws -> String
     func tag(spoken: String, seal: ParitySeal) async throws -> JournalTags
+}
+
+/// Provenance and evidence for an observed outcome. Reference observations are not broker outcomes.
+public struct OutcomeProvenance: Sendable, Equatable, Codable {
+    public enum Kind: String, Codable, Sendable { case reference, confirmedBroker }
+    public enum EvidenceType: String, Codable, Sendable { case completedM1Candle, lastQuote, none }
+    public var kind: Kind
+    public var evidenceType: EvidenceType
+    public var evidenceAt: Date?
+    public var confirmedAt: Date?
+    public var confirmedBy: String?
+
+    public init(kind: Kind, evidenceType: EvidenceType, evidenceAt: Date? = nil, confirmedAt: Date? = nil, confirmedBy: String? = nil) {
+        self.kind = kind
+        self.evidenceType = evidenceType
+        self.evidenceAt = evidenceAt
+        self.confirmedAt = confirmedAt
+        self.confirmedBy = confirmedBy
+    }
 }

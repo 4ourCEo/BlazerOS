@@ -56,6 +56,16 @@ public struct VoiceCoachButton: View {
             .accessibilityLabel(buttonLabel)
             .accessibilityHint(accessibilityHint)
 
+            HStack(spacing: 6) {
+                Text(voiceSession.recognitionAvailability.label)
+                Text("·")
+                Text(voiceSession.synthesisAvailability.label)
+            }
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(DeskInk.slate)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(voiceSession.recognitionAvailability.label). \(voiceSession.synthesisAvailability.label)")
+
             if case .denied = voiceSession.state {
                 Text("Microphone or speech recognition access denied. Enable it in Settings.")
                     .font(.system(size: 12, weight: .medium))

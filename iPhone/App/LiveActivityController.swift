@@ -14,30 +14,31 @@ final class LiveActivityController {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
 
         guard let frame else {
-            endCurrentActivity()
+            endAllActivities()
             return
         }
 
         let isLiveTrade = trade != nil && !(trade?.isExpired ?? true)
-        let isArmed = (frame.verb == "TAP HIGH" || frame.verb == "TAP LOW") && frame.remainingMs > 0
+        let isArmed = frame.isActionable
 
         if isLiveTrade, let trade {
             let contentState = DeskActivityAttributes.ContentState(
-                verb: "\(trade.side) 60s",
+                verb: "\(trade.side) \(Int(trade.durationSec))s",
                 endsAt: trade.expiresAt,
                 startedAt: trade.enteredAt,
                 veto: nil,
                 currentPrice: trade.currentPrice
             )
 
-            if let activity = currentActivity, activity.attributes.fingerprint == trade.fingerprint {
+            if let activity = activity(for: trade.fingerprint) {
+                currentActivity = activity
                 Task {
                     await activity.update(
                         ActivityContent(state: contentState, staleDate: trade.expiresAt)
                     )
                 }
             } else {
-                endCurrentActivity()
+                endOtherActivities()
                 let attributes = DeskActivityAttributes(
                     pair: trade.pair,
                     score: trade.score,
@@ -65,14 +66,15 @@ final class LiveActivityController {
                 currentPrice: nil
             )
 
-            if let activity = currentActivity, activity.attributes.fingerprint == frame.fingerprint {
+            if let activity = activity(for: frame.fingerprint) {
+                currentActivity = activity
                 Task {
                     await activity.update(
                         ActivityContent(state: contentState, staleDate: endsAt)
                     )
                 }
             } else {
-                endCurrentActivity()
+                endOtherActivities()
                 let attributes = DeskActivityAttributes(
                     pair: frame.pair,
                     score: frame.score,
@@ -89,7 +91,7 @@ final class LiveActivityController {
                     // Fail gracefully if permission is denied or device does not support it
                 }
             }
-        } else if let activity = currentActivity {
+        } else if let activity = activity(for: frame.fingerprint) ?? currentActivity {
             let contentState = DeskActivityAttributes.ContentState(
                 verb: frame.verb,
                 endsAt: Date(),
@@ -105,10 +107,27 @@ final class LiveActivityController {
         }
     }
 
-    private func endCurrentActivity() {
-        guard let activity = currentActivity else { return }
-        Task {
-            await activity.end(nil, dismissalPolicy: .immediate)
+    /// Finds the activity by fingerprint, including one left behind by a previous launch.
+    private func activity(for fingerprint: String) -> Activity<DeskActivityAttributes>? {
+        if let currentActivity, currentActivity.attributes.fingerprint == fingerprint {
+            return currentActivity
+        }
+        return Activity<DeskActivityAttributes>.activities.first {
+            $0.attributes.fingerprint == fingerprint
+        }
+    }
+
+    /// Ends every activity except the current one. Recovery does not rely on in-memory state.
+    private func endOtherActivities() {
+        for activity in Activity<DeskActivityAttributes>.activities
+        where activity.id != currentActivity?.id {
+            Task { await activity.end(nil, dismissalPolicy: .immediate) }
+        }
+    }
+
+    private func endAllActivities() {
+        for activity in Activity<DeskActivityAttributes>.activities {
+            Task { await activity.end(nil, dismissalPolicy: .immediate) }
         }
         currentActivity = nil
     }

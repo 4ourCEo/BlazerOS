@@ -127,37 +127,13 @@ struct MiniCandleChart: View, Equatable {
 
     private func scrubPill(for bar: Candle) -> some View {
         HStack(spacing: 7) {
-            Group {
-                Text("O")
-                    .foregroundStyle(DeskInk.slate.opacity(0.8))
-                + Text(" \(PriceFormat.px(bar.bodyOpen))")
-                    .foregroundStyle(DeskInk.ink)
-            }
-            .font(.system(size: 9.5, weight: .medium, design: .monospaced))
-
-            Group {
-                Text("H")
-                    .foregroundStyle(DeskInk.slate.opacity(0.8))
-                + Text(" \(PriceFormat.px(bar.bodyHigh))")
-                    .foregroundStyle(DeskInk.ink)
-            }
-            .font(.system(size: 9.5, weight: .medium, design: .monospaced))
-
-            Group {
-                Text("L")
-                    .foregroundStyle(DeskInk.slate.opacity(0.8))
-                + Text(" \(PriceFormat.px(bar.bodyLow))")
-                    .foregroundStyle(DeskInk.ink)
-            }
-            .font(.system(size: 9.5, weight: .medium, design: .monospaced))
-
-            Group {
-                Text("C")
-                    .foregroundStyle(DeskInk.slate.opacity(0.8))
-                + Text(" \(PriceFormat.px(bar.close))")
-                    .foregroundStyle(bar.isUp ? DeskInk.emerald : DeskInk.coral)
-            }
-            .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+            ohlcField("O", PriceFormat.px(bar.bodyOpen), tint: DeskInk.ink, weight: .medium)
+            ohlcField("H", PriceFormat.px(bar.bodyHigh), tint: DeskInk.ink, weight: .medium)
+            ohlcField("L", PriceFormat.px(bar.bodyLow), tint: DeskInk.ink, weight: .medium)
+            ohlcField(
+                "C", PriceFormat.px(bar.close),
+                tint: bar.isUp ? DeskInk.emerald : DeskInk.coral, weight: .bold
+            )
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 4.5)
@@ -171,6 +147,20 @@ struct MiniCandleChart: View, Equatable {
         )
         .shadow(color: Color.black.opacity(0.4), radius: 6, y: 2)
         .padding(.top, 4)
+    }
+
+    /// One label/value pair in the scrub pill.
+    ///
+    /// Kept as its own view so `scrubPill` stays cheap for the type checker; inlining four
+    /// concatenated `Text` pairs in one `HStack` timed out on the Swift 6.1 toolchain.
+    private func ohlcField(
+        _ label: String, _ value: String, tint: Color, weight: Font.Weight
+    ) -> some View {
+        (
+            Text(label).foregroundStyle(DeskInk.slate.opacity(0.8))
+                + Text(" \(value)").foregroundStyle(tint)
+        )
+        .font(.system(size: 9.5, weight: weight, design: .monospaced))
     }
 
     private var gridLines: some View {
@@ -295,7 +285,7 @@ struct CandleCanvas: View {
                 let currentY = max(4, min(height - 4, height - (currentFrac * height)))
                 let beaconX = size.width - 8
 
-                let pipScale = (pair?.contains("JPY") == true || current > 50) ? 0.01 : 0.0001
+                let pipScale = Assets.pipScale(for: pair ?? "")
                 let pipDiff = strike != nil ? (current - strike!) / pipScale : 0.0
 
                 let isITM: Bool

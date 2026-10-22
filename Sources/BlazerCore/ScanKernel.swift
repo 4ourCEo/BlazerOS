@@ -46,6 +46,13 @@ public enum ScanKernel {
                 complete: true
             )
         }
+        let frozenM5 = input.candles5m.map {
+            Candle(time: $0.time, open: $0.open, high: $0.high, low: $0.low, close: $0.close)
+        }
+        let frozenBid = input.bid
+        let frozenAsk = input.ask
+        let frozenSpread = input.spread
+        let frozenExpiry = input.expirySeconds
         await ring.loadCompleted(completed)
         let ringBars = await ring.fetchLatestBars(count: completed.count)
         input.candles1m = ringBars.map {
@@ -81,7 +88,13 @@ public enum ScanKernel {
                 error: nil,
                 candles: frozen,
                 source: input.source,
-                snapshotBars: frozen
+                snapshotBars: frozen,
+                snapshotM5Bars: frozenM5,
+                bid: frozenBid,
+                ask: frozenAsk,
+                spread: frozenSpread,
+                expirySeconds: frozenExpiry,
+                engineSHA: EngineIdentity.loadedSHA1() ?? "unverified"
             )
         }
         let result: StrategyEngine.EvaluateResult
@@ -98,7 +111,13 @@ public enum ScanKernel {
             error: nil,
             candles: result.candles,
             source: result.source ?? input.source,
-            snapshotBars: frozen
+            snapshotBars: frozen,
+            snapshotM5Bars: frozenM5,
+            bid: frozenBid,
+            ask: frozenAsk,
+            spread: frozenSpread,
+            expirySeconds: frozenExpiry,
+            engineSHA: EngineIdentity.loadedSHA1() ?? "unverified"
         )
     }
 
@@ -106,18 +125,45 @@ public enum ScanKernel {
     public static func commit(
         from found: EngineSignal,
         bars snapshot: [Candle],
+        m5Bars: [Candle] = [],
+        bid: Double? = nil,
+        ask: Double? = nil,
+        spread: Double? = nil,
+        expirySeconds: Int = Timing.expirySec,
+        engineSHA: String = EngineIdentity.loadedSHA1() ?? "unverified",
+        policy: String = "baseline",
         scannedAt: Date = Date()
     ) -> ScanCommit {
         let fingerprint = ScanFingerprint.hex(candles: snapshot)
         return ScanCommit(
             asset: found.asset,
             engineCall: found.call,
+            // The engine's directional score is 0...100. Convert it to side-neutral
+            // conviction once, here, so every downstream consumer reads the same number.
             score: Int((found.opportunity ?? found.confidence ?? 0).rounded()),
             evidence: found.evidence ?? found.why,
             strike: found.entryPrice ?? found.price,
             fingerprint: fingerprint,
+            fullFingerprint: ScanInputSnapshot(
+                pair: found.asset,
+                m1: snapshot,
+                m5: m5Bars,
+                bid: bid,
+                ask: ask,
+                spread: spread,
+                expirySeconds: expirySeconds,
+                engineSHA: engineSHA,
+                policy: policy
+            ).identity,
             candleCount: snapshot.count,
             candles: snapshot,
+            m5Candles: m5Bars,
+            bid: bid,
+            ask: ask,
+            spread: spread,
+            expirySeconds: expirySeconds,
+            engineSHA: engineSHA,
+            policy: policy,
             scannedAt: scannedAt,
             veto: nil,
             driftPips: nil

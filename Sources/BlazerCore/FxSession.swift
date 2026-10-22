@@ -27,6 +27,31 @@ public enum FxSession {
         return "FX closed — SKIP"
     }
 
+    /// Next instant the FX week opens: Sunday 17:00 New York.
+    /// Only meaningful while the market is shut; returns the next Sunday open otherwise.
+    public static func nextOpen(after date: Date = Date()) -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/New_York") ?? .gmt
+        let weekday = calendar.component(.weekday, from: date)
+        let minutes = calendar.component(.hour, from: date) * 60 + calendar.component(.minute, from: date)
+        let close = 17 * 60
+
+        let daysAhead: Int
+        switch weekday {
+        case 1:  daysAhead = minutes < close ? 0 : 7   // Sunday: today's open, else next week
+        case 7:  daysAhead = 1                          // Saturday
+        case 6:  daysAhead = 2                          // Friday: next open is Sunday
+        default: daysAhead = (8 - weekday) % 7          // Mon–Thu: next Sunday
+        }
+
+        let day = calendar.date(
+            byAdding: .day,
+            value: daysAhead,
+            to: calendar.startOfDay(for: date)
+        ) ?? date
+        return calendar.date(bySettingHour: 17, minute: 0, second: 0, of: day) ?? day
+    }
+
     /// Identifies the active market session in UTC for market-open positioning.
     public static func activeSessionName(_ date: Date = Date()) -> String {
         guard isOpen(date) else { return "MARKET CLOSED" }

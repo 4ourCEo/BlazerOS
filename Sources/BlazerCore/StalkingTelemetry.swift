@@ -40,53 +40,55 @@ public struct StalkingTelemetry: Sendable, Equatable {
         }
 
         // 2. Chronic Chop Pair Check
-        if asset == "USD/CAD" && side != "WAIT" {
+        if case .chopRisk = MarketEdgeWindow.conviction(for: asset), side != "WAIT" {
             return StalkingTelemetry(
                 tier: .pairWarning,
                 badgeLabel: "CHOP RISK",
-                telemetryHeadline: "USD/CAD Volatility Trap",
-                telemetryDetail: "Empirical forward testing confirms 36.4% win rate on USD/CAD. Sub-pip consolidations fail 60s binary horizons.",
-                stakeGuidance: "$0 · Switch to GBP/USD or USD/JPY",
+                telemetryHeadline: "\(asset) Quarantined",
+                telemetryDetail: "This build quarantines \(asset) from the active basket. The quarantine is a configuration choice, not a measured edge claim.",
+                stakeGuidance: "No entry · switch to an active pair",
                 isActionable: false
             )
         }
 
         let isSideActionable = side == "HIGH" || side == "LOW"
+        // The commit score is side-neutral conviction (0...100). It is not a win probability.
+        let conviction = score
+        let dirLabel = side == "LOW" ? "PUT" : (side == "HIGH" ? "CALL" : "WAIT")
 
         // 3. Apex Prime Setup (A+)
-        if isSideActionable && score >= 72 && edgeWindow.isPrime {
-            let winRate = edgeWindow.badgeTitle.contains("LATE NIGHT") ? "69.2%" : "61.2%"
+        if isSideActionable && conviction >= 72 && edgeWindow.isPrime {
             return StalkingTelemetry(
                 tier: .apexPrime,
                 badgeLabel: "APEX A+ CONVICTION",
-                telemetryHeadline: "Prime Momentum Confirmed",
-                telemetryDetail: "Institutional volume expansion during \(edgeWindow.badgeTitle). Calibrated historical win rate: \(winRate).",
-                stakeGuidance: "Standard Stake ($25–$50) · Prime Edge",
+                telemetryHeadline: "\(dirLabel) Momentum Confirmed",
+                telemetryDetail: "Engine score \(conviction) during \(edgeWindow.badgeTitle). Score is not a win probability.",
+                stakeGuidance: "Use your fixed risk limit",
                 isActionable: true
             )
         }
 
         // 4. Tactical Probe (B-Tier)
-        if isSideActionable && score >= 65 {
+        if isSideActionable && conviction >= 65 {
             return StalkingTelemetry(
                 tier: .tacticalProbe,
                 badgeLabel: "TACTICAL PROBE",
-                telemetryHeadline: "Secondary Micro-Breakout",
-                telemetryDetail: "Moderate directional impulse detected (Score \(score)). Market is outside peak liquidity overlap.",
-                stakeGuidance: "Light Stake ($10–$15) · Secondary Edge",
+                telemetryHeadline: "\(dirLabel) Micro-Breakout",
+                telemetryDetail: "Moderate directional impulse detected (engine score \(conviction)). Market is outside peak liquidity overlap.",
+                stakeGuidance: "Use your fixed risk limit",
                 isActionable: true
             )
         }
 
         // 5. Stalking Setup (Developing pressure)
-        if score >= 50 && score < 65 {
-            let direction = evidence.lowercased().contains("up") ? "CALL" : (evidence.lowercased().contains("down") ? "PUT" : "Breakout")
+        if conviction >= 50 && conviction < 65 {
+            let direction = side == "LOW" ? "PUT" : (side == "HIGH" ? "CALL" : (evidence.lowercased().contains("down") ? "PUT" : "CALL"))
             return StalkingTelemetry(
                 tier: .stalkingSetup,
                 badgeLabel: "STALKING SETUP",
                 telemetryHeadline: "Stalking \(direction) Pressure",
-                telemetryDetail: "\(evidence). Score \(score)/72 needed for high-conviction trigger. Monitoring compression.",
-                stakeGuidance: "Stand By · Awaiting Trigger Spike",
+                telemetryDetail: "\(evidence). Engine score \(conviction)/72 needed for the high-conviction tier. Monitoring compression.",
+                stakeGuidance: "Stand by · awaiting a qualifying trigger",
                 isActionable: false
             )
         }
@@ -96,8 +98,8 @@ public struct StalkingTelemetry: Sendable, Equatable {
             tier: .capitalShield,
             badgeLabel: "CAPITAL SHIELD",
             telemetryHeadline: "Chop Filtered · No Trade",
-            telemetryDetail: "Market noise below statistical edge. Skipping low-probability consolidation preserves your bankroll.",
-            stakeGuidance: "No Action · Radar Scanning Other Pairs",
+            telemetryDetail: "No qualifying setup. Standing down preserves capital; this is not a probability claim.",
+            stakeGuidance: "No action · radar scanning other pairs",
             isActionable: false
         )
     }

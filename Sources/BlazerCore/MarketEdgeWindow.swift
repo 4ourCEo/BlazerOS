@@ -1,10 +1,10 @@
 import Foundation
 
-/// High-conviction market trading windows and statistical pair-edge intelligence.
-/// Calibrated empirically from 372 live forward-tested 60-second binary contracts.
+/// Pacific research schedules and unverified historical pair priors.
+/// Session timing alone does not establish a profitable edge.
 public enum MarketEdgeWindow: Sendable, Equatable {
-    case morningPrime(hoursLabel: String)      // 5:00 AM - 10:00 AM PT (12:00 - 17:00 UTC) -> 59.1% - 61.2% WR
-    case lateNightPrime(hoursLabel: String)    // 11:00 PM - 12:30 AM PT (06:00 - 07:30 UTC) -> 69.2% WR
+    case morningPrime(hoursLabel: String)      // 5:00 AM - 10:00 AM PT; UTC offset varies with DST.
+    case lateNightPrime(hoursLabel: String)    // 11:00 PM - 12:30 AM PT; not a fixed London session.
     case offPeak(nextWindowDescription: String, secondsUntilNext: TimeInterval)
 
     public var isSupremePrime: Bool {
@@ -18,7 +18,7 @@ public enum MarketEdgeWindow: Sendable, Equatable {
     }
 
     public var isPrime: Bool {
-        return isSupremePrime
+        return isSupremePrime || isTactical
     }
 
     public var badgeTitle: String {
@@ -49,45 +49,113 @@ public enum MarketEdgeWindow: Sendable, Equatable {
             return .offPeak(nextWindowDescription: "Market Closed", secondsUntilNext: 0)
         }
 
-        var calendar = Calendar(identifier: .gregorian)
-        guard let ptZone = TimeZone(identifier: "America/Los_Angeles") else {
-            return .offPeak(nextWindowDescription: "5:00 AM PT", secondsUntilNext: 0)
-        }
-        calendar.timeZone = ptZone
-
-        let hour = calendar.component(.hour, from: date)
-        let minute = calendar.component(.minute, from: date)
-        let totalMinutes = hour * 60 + minute
+        let totalMinutes = pacificMinutesOfDay(date)
 
         // 1. Morning NY Prime: 5:00 AM - 10:00 AM PT (300 to 600 mins)
-        if totalMinutes >= 5 * 60 && totalMinutes < 10 * 60 {
+        if totalMinutes >= morningStartMinutes && totalMinutes < morningEndMinutes {
             return .morningPrime(hoursLabel: "5:00 AM – 10:00 AM PT")
         }
 
         // 2. Late Night London Prime: 11:00 PM - 12:30 AM PT (23:00 to 24:30)
-        if totalMinutes >= 23 * 60 || totalMinutes < 30 {
+        if totalMinutes >= lateNightStartMinutes || totalMinutes < lateNightEndMinutes {
             return .lateNightPrime(hoursLabel: "11:00 PM – 12:30 AM PT")
         }
 
-        // 3. Off-Peak: calculate next window
-        let nextTargetMinutes: Int
-        let nextLabel: String
+        // 3. Off-Peak: point at the next window using the same clock the windows use.
+        guard let next = nextPrimeStart(after: date) else {
+            return .offPeak(nextWindowDescription: "5:00 AM PT", secondsUntilNext: 0)
+        }
+        return .offPeak(
+            nextWindowDescription: nextWindowLabel(for: next),
+            secondsUntilNext: max(0, next.timeIntervalSince(date))
+        )
+    }
 
-        if totalMinutes < 5 * 60 {
-            nextTargetMinutes = 5 * 60
-            nextLabel = "5:00 AM PT"
-        } else if totalMinutes < 23 * 60 {
-            nextTargetMinutes = 23 * 60
-            nextLabel = "11:00 PM PT"
-        } else {
-            nextTargetMinutes = 5 * 60
-            nextLabel = "5:00 AM PT"
+    /// Single source of truth for the live countdown.
+    /// Window arithmetic lives here; screens only format `phase` and must not recompute boundaries.
+    public static func countdown(at date: Date = Date()) -> MarketEdgeCountdown {
+        let window = current(at: date)
+
+        guard FxSession.isOpen(date) else {
+            let opensAt = FxSession.nextOpen(after: date)
+            return MarketEdgeCountdown(
+                phase: .marketClosed(opensIn: max(0, opensAt.timeIntervalSince(date))),
+                window: window
+            )
         }
 
-        let diffMinutes = nextTargetMinutes >= totalMinutes ? nextTargetMinutes - totalMinutes : (1440 - totalMinutes + nextTargetMinutes)
-        let secondsUntil = TimeInterval(diffMinutes * 60)
+        switch window {
+        case .morningPrime:
+            let end = pacificTime(hour: 10, onDayContaining: date) ?? date
+            return MarketEdgeCountdown(
+                phase: .primeEndsIn(max(0, end.timeIntervalSince(date))),
+                window: window
+            )
+        case .lateNightPrime:
+            let minutes = pacificMinutesOfDay(date)
+            let end = minutes >= lateNightStartMinutes
+                ? pacificTime(hour: 0, minute: 30, onDayContaining: date, dayOffset: 1)
+                : pacificTime(hour: 0, minute: 30, onDayContaining: date)
+            return MarketEdgeCountdown(
+                phase: .primeEndsIn(max(0, (end ?? date).timeIntervalSince(date))),
+                window: window
+            )
+        case .offPeak(_, let secondsUntilNext):
+            return MarketEdgeCountdown(
+                phase: .nextPrimeIn(max(0, secondsUntilNext)),
+                window: window
+            )
+        }
+    }
 
-        return .offPeak(nextWindowDescription: nextLabel, secondsUntilNext: secondsUntil)
+    // MARK: - Schedule Primitives
+
+    private static let morningStartMinutes = 5 * 60
+    private static let morningEndMinutes = 10 * 60
+    private static let lateNightStartMinutes = 23 * 60
+    private static let lateNightEndMinutes = 30
+
+    private static func pacificCalendar() -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/Los_Angeles") ?? .gmt
+        return calendar
+    }
+
+    private static func pacificMinutesOfDay(_ date: Date) -> Int {
+        let calendar = pacificCalendar()
+        return calendar.component(.hour, from: date) * 60 + calendar.component(.minute, from: date)
+    }
+
+    /// Wall-clock time in Pacific on the day containing `date`, optionally offset by whole days.
+    /// Uses `date(bySettingHour:)` rather than adding hours, so a DST transition cannot shift it.
+    private static func pacificTime(
+        hour: Int,
+        minute: Int = 0,
+        onDayContaining date: Date,
+        dayOffset: Int = 0
+    ) -> Date? {
+        let calendar = pacificCalendar()
+        let day = calendar.date(
+            byAdding: .day,
+            value: dayOffset,
+            to: calendar.startOfDay(for: date)
+        ) ?? date
+        return calendar.date(bySettingHour: hour, minute: minute, second: 0, of: day)
+    }
+
+    private static func nextPrimeStart(after date: Date) -> Date? {
+        let minutes = pacificMinutesOfDay(date)
+        if minutes < morningStartMinutes {
+            return pacificTime(hour: 5, onDayContaining: date)
+        }
+        if minutes < lateNightStartMinutes {
+            return pacificTime(hour: 23, onDayContaining: date)
+        }
+        return pacificTime(hour: 5, onDayContaining: date, dayOffset: 1)
+    }
+
+    private static func nextWindowLabel(for date: Date) -> String {
+        pacificMinutesOfDay(date) == lateNightStartMinutes ? "11:00 PM PT" : "5:00 AM PT"
     }
 
     // MARK: - Pair-Specific Conviction
@@ -112,6 +180,10 @@ public enum MarketEdgeWindow: Sendable, Equatable {
             return .edgeConfirmed(winRate: "57.8%", drift: "+0.3p")
         case "USD/JPY":
             return .edgeConfirmed(winRate: "54.2%", drift: "+0.3p")
+        case "GBP/JPY":
+            return .neutral(winRate: "Calibrating (High ATR)")
+        case "XAU/USD":
+            return .neutral(winRate: "Calibrating (Gold)")
         case "USD/CAD":
             return .chopRisk(winRate: "36.4%", warning: "Sub-pip consolidations")
         case "AUD/USD":
@@ -119,9 +191,39 @@ public enum MarketEdgeWindow: Sendable, Equatable {
         case "EUR/USD":
             return .neutral(winRate: "50.0%")
         case "EUR/GBP":
-            return .neutral(winRate: "45.5%")
+            return .chopRisk(winRate: "45.5%", warning: "Micro-pip spread trap (+0.01p avg drift)")
         default:
             return .neutral(winRate: "50.0%")
+        }
+    }
+}
+
+/// Live countdown derived from the same schedule as `MarketEdgeWindow.current`.
+/// Screens format this; they must not recompute window boundaries themselves.
+public struct MarketEdgeCountdown: Sendable, Equatable {
+    public enum Phase: Sendable, Equatable {
+        /// Inside a prime window: time until it closes.
+        case primeEndsIn(TimeInterval)
+        /// Outside a prime window while FX is open: time until the next one opens.
+        case nextPrimeIn(TimeInterval)
+        /// FX week is shut: time until the next Sunday 17:00 New York open.
+        case marketClosed(opensIn: TimeInterval)
+    }
+
+    public let phase: Phase
+    public let window: MarketEdgeWindow
+
+    public init(phase: Phase, window: MarketEdgeWindow) {
+        self.phase = phase
+        self.window = window
+    }
+
+    public var remaining: TimeInterval {
+        switch phase {
+        case .primeEndsIn(let seconds),
+             .nextPrimeIn(let seconds),
+             .marketClosed(let seconds):
+            return max(0, seconds)
         }
     }
 }
@@ -168,4 +270,3 @@ public struct EdgeEvidence: Sendable, Equatable {
         return (lower, upper)
     }
 }
-

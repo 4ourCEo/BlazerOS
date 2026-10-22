@@ -57,7 +57,7 @@ struct JournalScreen: View {
             .padding(.horizontal, 20)
             .padding(.top, 14)
 
-            if model.journal.isEmpty {
+            if model.journal.isEmpty && model.referenceHistory.isEmpty {
                 VStack(spacing: 14) {
                     Spacer()
                     Image(systemName: "book.closed")
@@ -81,6 +81,13 @@ struct JournalScreen: View {
                             PerformanceAnalyticsCard(
                                 hits: model.outcomeStats.hits,
                                 misses: model.outcomeStats.misses,
+                                journal: model.journal
+                            )
+                        }
+
+                        if !model.referenceHistory.isEmpty {
+                            ReferenceOutcomesCard(
+                                outcomes: model.referenceHistory,
                                 journal: model.journal
                             )
                         }
@@ -203,7 +210,7 @@ struct PerformanceAnalyticsCard: View {
     }
 
     private var netDollarPnL: Double {
-        let winProfit = Double(hits) * (stakeAmount * 0.85)
+        let winProfit = Double(hits) * (stakeAmount * EntryQuality.assumedPayout)
         let lossAmount = Double(misses) * stakeAmount
         return winProfit - lossAmount
     }
@@ -400,26 +407,30 @@ struct PerformanceAnalyticsCard: View {
                 }
             }
 
-            // Pair Breakdown Chips
+            // Pair Breakdown Grid
             if !pairStats.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("WATCHLIST ACCURACY")
+                    Text("PER-PAIR ATTRIBUTION & ACCURACY")
                         .font(.system(size: 9, weight: .bold))
                         .tracking(0.8)
                         .foregroundStyle(DeskInk.slate.opacity(0.7))
 
-                    HStack(spacing: 8) {
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
                         ForEach(pairStats, id: \.pair) { item in
                             HStack(spacing: 4) {
                                 Text(item.pair)
-                                    .font(.system(size: 10, weight: .medium))
+                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                    .foregroundStyle(DeskInk.ink)
+                                Spacer()
+                                Text("\(item.hits)/\(item.total)")
+                                    .font(.system(size: 9.5, weight: .medium, design: .monospaced))
                                     .foregroundStyle(DeskInk.slate)
                                 Text("\(item.rate)%")
-                                    .font(.system(size: 10, weight: .bold))
-                                    .foregroundStyle(item.rate >= 54 ? DeskInk.emerald : DeskInk.coral)
+                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                    .foregroundStyle(item.rate >= 54 ? DeskInk.emerald : (item.total >= 5 ? DeskInk.coral : DeskInk.slate))
                             }
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
                             .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                         }
                     }
@@ -461,7 +472,7 @@ struct EquityCurveView: View {
         var list: [Double] = [0.0]
         for trade in settledTrades {
             if trade.outcome == "HIT" {
-                running += (stakeAmount * 0.85)
+                running += (stakeAmount * EntryQuality.assumedPayout)
             } else {
                 running -= stakeAmount
             }
@@ -486,11 +497,11 @@ struct EquityCurveView: View {
         guard total > 0 else { return 0.0 }
         let winRate = Double(hits) / Double(total)
         let lossRate = Double(misses) / Double(total)
-        return (winRate * (stakeAmount * 0.85)) - (lossRate * stakeAmount)
+        return (winRate * (stakeAmount * EntryQuality.assumedPayout)) - (lossRate * stakeAmount)
     }
 
     private var profitFactor: Double {
-        let grossGains = Double(hits) * (stakeAmount * 0.85)
+        let grossGains = Double(hits) * (stakeAmount * EntryQuality.assumedPayout)
         let grossLosses = Double(misses) * stakeAmount
         guard grossLosses > 0 else { return grossGains > 0 ? 9.9 : 1.0 }
         return min(9.9, grossGains / grossLosses)
@@ -666,5 +677,76 @@ struct EquityCurveView: View {
         }
         .padding(10)
         .background(Color.white.opacity(0.025), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+/// Auto-recorded OANDA midpoint observations. These never contribute to confirmed performance.
+struct ReferenceOutcomesCard: View {
+    let outcomes: [ResearchOutcome]
+    let journal: [ReplayEntry]
+
+    private func entry(for outcome: ResearchOutcome) -> ReplayEntry? {
+        journal.first { $0.id == outcome.eventID }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Reference Outcomes")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(DeskInk.ink)
+                Spacer()
+                Text("OANDA MID · NOT CONFIRMED")
+                    .font(.system(size: 8.5, weight: .bold))
+                    .tracking(0.5)
+                    .foregroundStyle(DeskInk.slate)
+            }
+            Text("Auto-recorded at expiry. Excluded from confirmed win rate and expectancy.")
+                .font(.system(size: 10))
+                .foregroundStyle(DeskInk.slate)
+                .fixedSize(horizontal: false, vertical: true)
+
+            ForEach(outcomes.prefix(8), id: \.eventID) { outcome in
+                let record = entry(for: outcome)
+                HStack(spacing: 8) {
+                    Text(record?.pair ?? "—")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(DeskInk.ink)
+                    Text(outcome.resolution.rawValue.uppercased())
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(referenceInk(outcome.resolution))
+                    if let record {
+                        Text("Strike \(PriceFormat.px(record.strike))")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(DeskInk.slate)
+                    }
+                    if let exit = outcome.exitPrice {
+                        Text("→ \(PriceFormat.px(exit))")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(DeskInk.slate)
+                    }
+                    Spacer()
+                    Text(outcome.targetExpiry.formatted(date: .omitted, time: .shortened))
+                        .font(.system(size: 10))
+                        .foregroundStyle(DeskInk.slate.opacity(0.8))
+                }
+                .padding(.vertical, 3)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DeskInk.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.06), lineWidth: 0.5)
+        )
+    }
+
+    private func referenceInk(_ resolution: ResearchResolution) -> Color {
+        switch resolution {
+        case .hit: return DeskInk.emerald
+        case .miss: return DeskInk.coral
+        case .tie, .unresolved: return DeskInk.slate
+        }
     }
 }

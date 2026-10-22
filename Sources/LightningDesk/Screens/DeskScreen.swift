@@ -5,6 +5,9 @@ struct DeskScreen: View {
     @ObservedObject var model: LightningDeskModel
     var reduceMotion: Bool
     @State private var showingPrimeSchedule = false
+    @State private var showingStrikeSheet = false
+    @State private var showingEntryDetails = false
+    @State private var pressingOutcome: DeskOutcome?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -17,6 +20,16 @@ struct DeskScreen: View {
                 .padding(.top, 8)
                 .offset(y: reduceMotion ? 0 : model.heroLift)
 
+            if let receipt = model.settleReceipt {
+                settleReceiptCard(receipt)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .top).combined(with: .opacity),
+                        removal: .opacity
+                    ))
+            }
+
             Spacer(minLength: 10)
 
             ScanControl(
@@ -27,10 +40,44 @@ struct DeskScreen: View {
                 Task { await model.scan() }
             }
             .padding(.horizontal, 20)
+            .padding(.bottom, 6)
+
+            Picker("Market", selection: $model.marketMode) {
+                Text("Crypto").tag(DeskMarket.crypto)
+                Text("FX").tag(DeskMarket.fx)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(maxWidth: 220)
+            .disabled(model.activeTrade != nil || model.awaitingOutcome || model.isSettlementInFlight)
+            .padding(.bottom, 8)
+
+            Button {
+                DeskHaptics.tabSwitch()
+                showingStrikeSheet = true
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "target")
+                    Text("Track Strike Contract")
+                }
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(DeskInk.electric)
+            }
+            .buttonStyle(.plain)
             .padding(.bottom, 10)
         }
+        .animation(.easeOut(duration: 0.22), value: model.settleReceipt)
         .sheet(isPresented: $showingPrimeSchedule) {
             PrimeScheduleSheet()
+        }
+        .sheet(isPresented: $showingStrikeSheet) {
+            StrikeTradeSheet(model: model)
+        }
+        .sheet(isPresented: $showingEntryDetails) {
+            ManualEntryDetailsSheet(model: model)
+        }
+        .onChange(of: model.marketMode) { _, _ in
+            Task { await model.scan() }
         }
     }
 
@@ -45,8 +92,13 @@ struct DeskScreen: View {
                 DeskHaptics.tabSwitch()
                 model.activeTab = .intel
             } label: {
-                let sessionColor: Color = edgeWindow.isSupremePrime ? DeskInk.emerald : (edgeWindow.isTactical ? DeskInk.electric : (isOpen ? DeskInk.violet : DeskInk.coral))
-                let sessionLabel: String = edgeWindow.isSupremePrime ? "⚡ SUPREME PRIME" : (edgeWindow.isTactical ? "🌙 TACTICAL (BURSTS)" : "⚡ OFF-PEAK · \(FxSession.activeSessionName())")
+                let cryptoMode = model.marketMode == .crypto
+                let sessionColor: Color = cryptoMode
+                    ? cryptoFeedTint(model.feed)
+                    : (edgeWindow.isSupremePrime ? DeskInk.emerald : (edgeWindow.isTactical ? DeskInk.electric : (isOpen ? DeskInk.violet : DeskInk.coral)))
+                let sessionLabel: String = cryptoMode
+                    ? "₿ \(model.feed.rawValue)"
+                    : (edgeWindow.isSupremePrime ? "⚡ SUPREME PRIME" : (edgeWindow.isTactical ? "🌙 TACTICAL (BURSTS)" : "⚡ OFF-PEAK · \(FxSession.activeSessionName())"))
 
                 HStack(spacing: 5) {
                     Circle()
@@ -80,38 +132,39 @@ struct DeskScreen: View {
             Spacer(minLength: 4)
 
             // Right: Either Hot Radar Switch OR Next Prime Countdown
-            if let leader, leader.asset != model.pair, leader.score >= 65 {
+            if let leader, leader.asset != model.pair, leader.conviction >= 65 {
                 Button {
                     DeskHaptics.tabSwitch()
                     model.select(pair: leader.asset)
                 } label: {
+                    let badgeTint = leader.conviction >= 70 ? (leader.side == "LOW" ? DeskInk.coral : DeskInk.emerald) : DeskInk.electric
                     HStack(spacing: 4) {
                         Image(systemName: "scope")
                             .font(.system(size: 8, weight: .heavy))
-                            .foregroundStyle(DeskInk.electric)
+                            .foregroundStyle(badgeTint)
                         Text(leader.asset)
                             .font(.system(size: 10, weight: .heavy, design: .monospaced))
                             .foregroundStyle(DeskInk.ink)
-                        Text("\(leader.score)")
+                        Text(leader.side == "LOW" ? "PUT \(leader.conviction)" : "CALL \(leader.conviction)")
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundStyle(leader.score >= 70 ? DeskInk.emerald : DeskInk.electric)
+                            .foregroundStyle(badgeTint)
                         Image(systemName: "chevron.right")
                             .font(.system(size: 7, weight: .bold))
-                            .foregroundStyle(DeskInk.electric.opacity(0.7))
+                            .foregroundStyle(badgeTint.opacity(0.7))
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4.5)
                     .background(
                         Capsule()
-                            .fill(DeskInk.electric.opacity(0.14))
+                            .fill(badgeTint.opacity(0.14))
                     )
                     .overlay(
                         Capsule()
-                            .strokeBorder(DeskInk.electric.opacity(0.4), lineWidth: 0.8)
+                            .strokeBorder(badgeTint.opacity(0.4), lineWidth: 0.8)
                     )
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Radar Leader \(leader.asset), score \(leader.score)")
+                .accessibilityLabel("Radar Leader \(leader.asset), \(leader.side == "LOW" ? "PUT" : "CALL") conviction \(leader.conviction)")
                 .accessibilityHint("Tap to switch desk to \(leader.asset)")
             } else {
                 Button {
@@ -139,6 +192,15 @@ struct DeskScreen: View {
                 }
                 .buttonStyle(.plain)
             }
+        }
+    }
+
+    private func cryptoFeedTint(_ status: FeedStatus) -> Color {
+        switch status {
+        case .live: return DeskInk.emerald
+        case .stale: return DeskInk.electric
+        case .connecting: return DeskInk.violet
+        case .disconnected, .error: return DeskInk.coral
         }
     }
 
@@ -213,7 +275,7 @@ struct DeskScreen: View {
         .accessibilityElement(children: .contain)
         .onTapGesture {
             if model.activeTrade == nil && isArmed {
-                model.lockInTrade()
+                Task { await model.lockInTrade() }
             }
         }
         .gesture(
@@ -478,8 +540,16 @@ struct DeskScreen: View {
             }
 
             if model.activeTrade == nil && isArmed {
+                // Multi-Horizon Expiry Selector (60s | 3m | 5m)
+                HStack(spacing: 8) {
+                    horizonPill(seconds: 60, title: "60s")
+                    horizonPill(seconds: 180, title: "3m")
+                    horizonPill(seconds: 300, title: "5m")
+                }
+                .padding(.top, 2)
+
                 Button {
-                    model.lockInTrade()
+                    Task { await model.lockInTrade() }
                 } label: {
                     HStack(spacing: 10) {
                         ZStack {
@@ -491,11 +561,11 @@ struct DeskScreen: View {
                                 .foregroundStyle(verbColor)
                         }
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("LOCK IN 60s POSITION")
+                            Text("RECORD \(horizonLabel(model.selectedHorizonSec)) MANUAL ENTRY")
                                 .font(.system(size: 13, weight: .bold))
                                 .tracking(0.6)
                                 .foregroundStyle(DeskInk.ink)
-                            Text("Anchors live strike · Tap before beam expires")
+                            Text("Place it in Pocket Option first · Anchors live strike")
                                 .font(.system(size: 10, weight: .medium))
                                 .foregroundStyle(DeskInk.slate)
                         }
@@ -525,45 +595,371 @@ struct DeskScreen: View {
                 }
                 .buttonStyle(SpringPressButtonStyle())
                 .padding(.top, 4)
+            } else if model.canLogLateEntry {
+                Button {
+                    Task { await model.lockInTrade(late: true) }
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(DeskInk.electric)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("LOG LATE ENTRY")
+                                .font(.system(size: 12, weight: .bold))
+                                .tracking(0.6)
+                                .foregroundStyle(DeskInk.ink)
+                            Text("Beam closed · records the trade for data only")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundStyle(DeskInk.slate)
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "square.and.arrow.down")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(DeskInk.electric)
+                    }
+                    .padding(.horizontal, 14)
+                    .frame(height: 46)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(DeskInk.electric.opacity(0.1))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(DeskInk.electric.opacity(0.4), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(SpringPressButtonStyle())
+                .padding(.top, 4)
+            }
+
+            if let issue = model.entryIssue {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 9, weight: .bold))
+                    Text(issue)
+                        .font(.system(size: 10, weight: .semibold))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    if model.canLogLateEntry {
+                        Button("Log anyway") {
+                            Task { await model.lockInTrade(late: true) }
+                        }
+                        .font(.system(size: 10, weight: .heavy))
+                        .foregroundStyle(DeskInk.electric)
+                        .buttonStyle(.plain)
+                    }
+                }
+                .foregroundStyle(DeskInk.coral)
+                .padding(.top, 2)
+                .transition(.opacity)
             }
 
             if model.awaitingOutcome {
-                HStack(spacing: 10) {
-                    outcomeChoice(
-                        model.predictedOutcome == .hit ? "HIT (WIN)" : "HIT",
-                        tint: DeskInk.emerald,
-                        isHighlighted: model.predictedOutcome == .hit
-                    ) {
-                        Task { await model.settle(.hit) }
+                settlePanel
+            }
+
+            if model.pendingSaveCount > 0 {
+                Button {
+                    Task { await model.retryPendingSettlement() }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 10, weight: .bold))
+                        Text("RETRY SAVING OUTCOME (\(model.pendingSaveCount))")
+                            .font(.system(size: 10, weight: .heavy))
+                            .tracking(0.4)
                     }
-                    outcomeChoice(
-                        model.predictedOutcome == .miss ? "MISS (LOSS)" : "MISS",
-                        tint: DeskInk.coral,
-                        isHighlighted: model.predictedOutcome == .miss
-                    ) {
-                        Task { await model.settle(.miss) }
-                    }
+                    .foregroundStyle(DeskInk.coral)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(DeskInk.coral.opacity(0.14), in: Capsule())
                 }
-                .padding(.top, 6)
+                .buttonStyle(SpringPressButtonStyle())
+                .padding(.top, 4)
             }
         }
     }
 
-    private func outcomeChoice(_ title: String, tint: Color, isHighlighted: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(tint)
+    // MARK: - Settle panel
+
+    /// Post-expiry confirmation. The reference label is a suggestion only; the venue result
+    /// is still recorded by the operator.
+    private var settlePanel: some View {
+        let reference = model.referenceSuggestion
+        let side = model.settleSide ?? "WAIT"
+        let isHigh = side.contains("HIGH")
+
+        return VStack(alignment: .leading, spacing: 12) {
+            Divider()
+                .overlay(DeskInk.slate.opacity(0.18))
+
+            HStack(spacing: 7) {
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(DeskInk.electric)
+                Text("SETTLE ENTRY")
+                    .font(.system(size: 11, weight: .heavy))
+                    .tracking(1.4)
+                    .foregroundStyle(DeskInk.ink)
+                Spacer(minLength: 0)
+                if let reference {
+                    Text("REFERENCE \(reference.rawValue)")
+                        .font(.system(size: 9, weight: .heavy))
+                        .tracking(0.7)
+                        .foregroundStyle(reference == .hit ? DeskInk.emerald : DeskInk.coral)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(
+                            (reference == .hit ? DeskInk.emerald : DeskInk.coral).opacity(0.14),
+                            in: Capsule()
+                        )
+                }
+            }
+
+            HStack(spacing: 6) {
+                Text("Strike \(priceLabel(model.settleStrike))")
+                Text("·").foregroundStyle(DeskInk.slate.opacity(0.5))
+                Text("Ref \(priceLabel(model.expiryReferencePrice))")
+                Text("·").foregroundStyle(DeskInk.slate.opacity(0.5))
+                Text(pipsLabel(model.expiryReferenceDeltaPips))
+                    .foregroundStyle(pipsTint(model.expiryReferenceDeltaPips))
+            }
+            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            .foregroundStyle(DeskInk.slate)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+
+            HStack(spacing: 10) {
+                settleButton(
+                    outcome: .hit,
+                    title: "HIT",
+                    subtitle: isHigh ? "Closed above strike" : "Closed below strike",
+                    icon: "arrow.up.right",
+                    tint: DeskInk.emerald,
+                    isSuggested: reference == .hit
+                ) {
+                    Task { await model.confirmVenueOutcome(.hit) }
+                }
+
+                settleButton(
+                    outcome: .miss,
+                    title: "MISS",
+                    subtitle: isHigh ? "Closed below strike" : "Closed above strike",
+                    icon: "arrow.down.right",
+                    tint: DeskInk.coral,
+                    isSuggested: reference == .miss
+                ) {
+                    Task { await model.confirmVenueOutcome(.miss) }
+                }
+            }
+
+            Button {
+                Task { await model.confirmVenueOutcome(.unresolved) }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "questionmark.circle")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text("NOT SURE · RECORD AS UNVERIFIED")
+                        .font(.system(size: 9, weight: .heavy))
+                        .tracking(0.6)
+                }
+                .foregroundStyle(DeskInk.slate)
                 .frame(maxWidth: .infinity)
-                .frame(height: 46)
-                .background(tint.opacity(isHighlighted ? 0.25 : 0.14), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(tint.opacity(isHighlighted ? 0.9 : 0.35), lineWidth: isHighlighted ? 1.5 : 0.75)
-                )
+                .frame(height: 28)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Not sure. Record as unverified and exclude from statistics.")
+
+            if let note = model.referenceSuggestionNote {
+                Text(note)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(DeskInk.slate)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
-        .buttonStyle(SpringPressButtonStyle())
-        .accessibilityLabel(title)
+        .padding(.top, 2)
+    }
+
+    private func settleButton(
+        outcome: DeskOutcome,
+        title: String,
+        subtitle: String,
+        icon: String,
+        tint: Color,
+        isSuggested: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        let pressing = pressingOutcome == outcome
+
+        return VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .heavy))
+                Text(title)
+                    .font(.system(size: 18, weight: .heavy))
+                    .tracking(0.8)
+                Spacer(minLength: 0)
+                if isSuggested {
+                    Text("SUGGESTED")
+                        .font(.system(size: 8, weight: .heavy))
+                        .tracking(0.5)
+                        .foregroundStyle(tint)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(tint.opacity(0.2), in: Capsule())
+                }
+            }
+            .foregroundStyle(tint)
+
+            HStack(spacing: 4) {
+                Text(subtitle)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(DeskInk.slate)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Spacer(minLength: 0)
+                HStack(spacing: 3) {
+                    Image(systemName: "hand.tap")
+                    Text("HOLD")
+                }
+                .font(.system(size: 8, weight: .heavy))
+                .tracking(0.5)
+                .foregroundStyle(DeskInk.slate.opacity(0.65))
+            }
+        }
+        .padding(.horizontal, 14)
+        .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
+        .background(
+            LinearGradient(
+                colors: [
+                    tint.opacity(pressing ? 0.34 : (isSuggested ? 0.28 : 0.11)),
+                    tint.opacity(isSuggested ? 0.10 : 0.03),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            ),
+            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(tint.opacity(pressing ? 1 : (isSuggested ? 0.85 : 0.3)), lineWidth: isSuggested || pressing ? 1.5 : 0.75)
+        )
+        .shadow(color: tint.opacity(isSuggested ? 0.18 : 0.04), radius: 10, y: 3)
+        .scaleEffect(pressing ? 0.97 : 1)
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .onLongPressGesture(minimumDuration: 0.55, maximumDistance: 24) {
+            pressingOutcome = nil
+            DeskHaptics.tradeLocked()
+            action()
+        } onPressingChanged: { isPressing in
+            withAnimation(.easeOut(duration: 0.15)) {
+                if isPressing {
+                    pressingOutcome = outcome
+                } else if pressingOutcome == outcome {
+                    pressingOutcome = nil
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("\(title). \(subtitle). Hold to confirm.")
+        .accessibilityAction { action() }
+    }
+
+    private func settleReceiptCard(_ receipt: SettleReceipt) -> some View {
+        let tint: Color = switch receipt.outcome {
+        case .hit: DeskInk.emerald
+        case .miss: DeskInk.coral
+        case .unresolved: DeskInk.slate
+        }
+        let symbol: String = switch receipt.outcome {
+        case .hit: "checkmark"
+        case .miss: "xmark"
+        case .unresolved: "questionmark"
+        }
+        return HStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(tint.opacity(0.16))
+                    .frame(width: 38, height: 38)
+                Image(systemName: symbol)
+                    .font(.system(size: 15, weight: .heavy))
+                    .foregroundStyle(tint)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(receipt.outcome.rawValue)
+                        .font(.system(size: 16, weight: .heavy))
+                        .tracking(0.8)
+                        .foregroundStyle(tint)
+                    Text(receipt.pair)
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(DeskInk.slate)
+                }
+                Text(receiptLine(receipt))
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(DeskInk.slate)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+
+            Spacer(minLength: 0)
+
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("RECORDED")
+                    .font(.system(size: 8, weight: .heavy))
+                    .tracking(0.8)
+                    .foregroundStyle(DeskInk.slate.opacity(0.7))
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(tint.opacity(0.9))
+            }
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 58)
+        .background(DeskInk.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(tint.opacity(0.35), lineWidth: 1)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .onTapGesture { model.dismissSettleReceipt() }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Recorded \(receipt.outcome.rawValue) on \(receipt.pair).")
+    }
+
+    private func receiptLine(_ receipt: SettleReceipt) -> String {
+        if receipt.outcome == .unresolved {
+            return "unverified · excluded from confirmed stats"
+        }
+        var parts: [String] = []
+        if let pips = receipt.pips, pips.isFinite {
+            parts.append(String(format: "%+.1fp", pips))
+        }
+        parts.append("\(Int((receipt.payout * 100).rounded()))% payout")
+        parts.append(receipt.labelSource == "venue-confirmed" ? "venue confirmed" : receipt.labelSource)
+        return parts.joined(separator: " · ")
+    }
+
+    private func priceLabel(_ value: Double?) -> String {
+        guard let value, value.isFinite else { return "—" }
+        let pip = model.settleAsset.map { Assets.pipScale(for: $0) } ?? 0.0001
+        let decimals = max(0, Int(round(-log10(max(pip, 0.00001)))) + 1)
+        return String(format: "%.\(decimals)f", value)
+    }
+
+    private func pipsLabel(_ value: Double?) -> String {
+        guard let value, value.isFinite else { return "—" }
+        return String(format: "%+.1fp", value)
+    }
+
+    private func pipsTint(_ value: Double?) -> Color {
+        guard let value else { return DeskInk.slate }
+        if value > 0 { return DeskInk.emerald }
+        if value < 0 { return DeskInk.coral }
+        return DeskInk.slate
     }
 
     private var bookStrip: some View {
@@ -578,7 +974,7 @@ struct DeskScreen: View {
     private var isArmed: Bool {
         if model.activeTrade != nil { return true }
         guard let frame = model.frame else { return false }
-        return frame.remainingMs > 0
+        return frame.isActionable
     }
 
     private var rail: some View {
@@ -603,6 +999,16 @@ struct DeskScreen: View {
 
                     Spacer()
 
+                    Button {
+                        showingEntryDetails = true
+                    } label: {
+                        Text(trade.brokerEntryPrice == nil ? "Add broker details" : "Edit broker details")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(DeskInk.electric)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Add optional broker entry price, stake, and payout")
+
                     // Dynamic Live Pip Cushion Pill
                     HStack(spacing: 4) {
                         Text(String(format: "%@%.1f pips", pip >= 0 ? "+" : "", pip))
@@ -617,6 +1023,13 @@ struct DeskScreen: View {
                     .overlay(
                         Capsule().strokeBorder(statusTint.opacity(0.4), lineWidth: 0.8)
                     )
+                }
+
+                if let age = trade.evaluationAgeMs, let remaining = trade.remainingBeamMs {
+                    Text(String(format: "Recorded %.1fs after scan · %.1fs beam left", age / 1000, remaining / 1000))
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundStyle(DeskInk.slate)
+                        .accessibilityLabel(String(format: "Recorded %.1f seconds after the scan. %.1f seconds of the action window remained.", age / 1000, remaining / 1000))
                 }
 
                 GeometryReader { geo in
@@ -773,9 +1186,40 @@ struct DeskScreen: View {
         return CGFloat(min(1, max(0, frame.remainingMs / Timing.liveMs)))
     }
 
+    private func horizonPill(seconds: Double, title: String) -> some View {
+        let isSelected = model.selectedHorizonSec == seconds
+        return Button {
+            DeskHaptics.tabSwitch()
+            model.selectedHorizonSec = seconds
+        } label: {
+            Text(title)
+                .font(.system(size: 11, weight: isSelected ? .bold : .medium, design: .monospaced))
+                .foregroundStyle(isSelected ? DeskInk.ink : DeskInk.slate)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 5)
+                .background(isSelected ? DeskInk.electric.opacity(0.28) : Color.white.opacity(0.04), in: Capsule())
+                .overlay(Capsule().strokeBorder(isSelected ? DeskInk.electric.opacity(0.8) : Color.white.opacity(0.08), lineWidth: 0.8))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func horizonLabel(_ seconds: Double) -> String {
+        if seconds >= 60 {
+            let m = Int(seconds) / 60
+            return "\(m)m"
+        }
+        return "\(Int(seconds))s"
+    }
+
     private var railLabel: String {
         if let trade = model.activeTrade {
-            return String(format: "%.1fs REMAINING", trade.remainingMs / 1000)
+            let remSec = trade.remainingMs / 1000
+            if remSec >= 60 {
+                let m = Int(remSec) / 60
+                let s = Int(remSec) % 60
+                return String(format: "%dm %02ds REMAINING", m, s)
+            }
+            return String(format: "%.1fs REMAINING", remSec)
         }
         guard let frame = model.frame, frame.remainingMs > 0 else { return " " }
         return String(format: "%.1fs TO ENTER", frame.remainingMs / 1000)

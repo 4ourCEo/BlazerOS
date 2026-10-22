@@ -58,8 +58,13 @@ public struct IntelScreen: View {
             let currentWindow = MarketEdgeWindow.current(at: now)
             let isSupreme = currentWindow.isSupremePrime
             let isTactical = currentWindow.isTactical
-            let headerColor: Color = isSupreme ? DeskInk.emerald : (isTactical ? DeskInk.electric : DeskInk.violet)
-            let headerText: String = isSupreme ? "SUPREME PRIME" : (isTactical ? "TACTICAL" : "OFF-PEAK")
+            let cryptoMode = model.marketMode == .crypto
+            let headerColor: Color = cryptoMode
+                ? cryptoFeedTint(model.feed)
+                : (isSupreme ? DeskInk.emerald : (isTactical ? DeskInk.electric : DeskInk.violet))
+            let headerText: String = cryptoMode
+                ? "₿ \(model.feed.rawValue)"
+                : (isSupreme ? "SUPREME PRIME" : (isTactical ? "TACTICAL" : "OFF-PEAK"))
 
             HStack(spacing: 6) {
                 Circle()
@@ -80,14 +85,25 @@ public struct IntelScreen: View {
 
     // MARK: - Current Live Status Card
 
+    private func cryptoFeedTint(_ status: FeedStatus) -> Color {
+        switch status {
+        case .live: return DeskInk.emerald
+        case .stale: return DeskInk.electric
+        case .connecting: return DeskInk.violet
+        case .disconnected, .error: return DeskInk.coral
+        }
+    }
+
     private var currentStatusCard: some View {
         let currentWindow = MarketEdgeWindow.current(at: now)
         let isSupreme = currentWindow.isSupremePrime
         let isTactical = currentWindow.isTactical
         let cardColor: Color = isSupreme ? DeskInk.emerald : (isTactical ? DeskInk.electric : DeskInk.violet)
 
-        let statusTitle: String = isSupreme ? "👑 SUPREME PRIME ACTIVE" : (isTactical ? "🌙 TACTICAL LATE-NIGHT (BURSTS ONLY)" : "⚠️ OFF-PEAK CONSOLIDATION")
-        let statBadge: String = isSupreme ? "61.2% WR · NY OVERLAP" : (isTactical ? "BURSTS ONLY · THIN LIQUIDITY" : "42.1% WR · PRESERVE CAPITAL")
+        let statusTitle: String = model.marketMode == .crypto
+            ? "₿ CRYPTO DESK · \(model.feed.rawValue)"
+            : (isSupreme ? "👑 SUPREME PRIME ACTIVE" : (isTactical ? "🌙 TACTICAL LATE-NIGHT (BURSTS ONLY)" : "⚠️ OFF-PEAK CONSOLIDATION"))
+        let statBadge: String = isSupreme ? "MORNING RESEARCH WINDOW" : (isTactical ? "BURSTS ONLY · THIN LIQUIDITY" : "OUTSIDE RESEARCH WINDOW")
         let statColor: Color = isSupreme ? DeskInk.emerald : (isTactical ? DeskInk.electric : DeskInk.coral)
 
         return VStack(alignment: .leading, spacing: 12) {
@@ -172,48 +188,39 @@ public struct IntelScreen: View {
     }
 
     private func liveCountdownText() -> String {
-        let currentWindow = MarketEdgeWindow.current(at: now)
-        guard let ptZone = TimeZone(identifier: "America/Los_Angeles") else { return "" }
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = ptZone
+        if model.marketMode == .crypto {
+            return "₿ CRYPTO · 24/7 — NO FX SESSION GATE"
+        }
 
-        let hour = cal.component(.hour, from: now)
-        let min = cal.component(.minute, from: now)
-        let sec = cal.component(.second, from: now)
-        let totalMin = hour * 60 + min
-
-        if currentWindow.isSupremePrime {
-            let remSec = max(0, (9 * 3600) - (totalMin * 60 + sec))
-            let h = remSec / 3600
-            let m = (remSec % 3600) / 60
-            let s = remSec % 60
-            return String(format: "SUPREME PRIME ENDS IN: %02dh %02dm %02ds", h, m, s)
-        } else if currentWindow.isTactical {
-            let targetSec = 1470 * 60 // 12:30 AM
-            let curSec = (totalMin >= 1380 ? totalMin : totalMin + 1440) * 60 + sec
-            let remSec = max(0, targetSec - curSec)
-            let m = (remSec % 3600) / 60
-            let s = remSec % 60
-            return String(format: "BURST WINDOW ENDS IN: %02dm %02ds · NEXT SUPREME: 5:00 AM PT", m, s)
-        } else {
-            let nextTargetTotalSec: Int
-            let nowSec = totalMin * 60 + sec
-            if totalMin < 300 {
-                nextTargetTotalSec = 300 * 60
-            } else if totalMin < 1380 {
-                nextTargetTotalSec = 1380 * 60
-            } else {
-                nextTargetTotalSec = (1440 + 300) * 60
+        // Window arithmetic lives in MarketEdgeWindow so this screen cannot drift from it.
+        let countdown = MarketEdgeWindow.countdown(at: now)
+        switch countdown.phase {
+        case .primeEndsIn(let remaining):
+            if countdown.window.isSupremePrime {
+                return "SUPREME PRIME ENDS IN: \(Self.hoursMinutesSeconds(remaining))"
             }
-            let diff = max(0, nextTargetTotalSec - nowSec)
-            let h = diff / 3600
-            let m = (diff % 3600) / 60
-            let s = diff % 60
-            return String(format: "NEXT PRIME IN: %02dh %02dm %02ds", h, m, s)
+            return "BURST WINDOW ENDS IN: \(Self.minutesSeconds(remaining)) · NEXT SUPREME: 5:00 AM PT"
+        case .nextPrimeIn(let remaining):
+            return "NEXT PRIME IN: \(Self.hoursMinutesSeconds(remaining))"
+        case .marketClosed(let remaining):
+            return "FX MARKET CLOSED · OPENS IN: \(Self.hoursMinutesSeconds(remaining))"
         }
     }
 
+    private static func hoursMinutesSeconds(_ interval: TimeInterval) -> String {
+        let total = max(0, Int(interval))
+        return String(format: "%02dh %02dm %02ds", total / 3600, (total % 3600) / 60, total % 60)
+    }
+
+    private static func minutesSeconds(_ interval: TimeInterval) -> String {
+        let total = max(0, Int(interval))
+        return String(format: "%02dm %02ds", total / 60, total % 60)
+    }
+
     private func statusExplanation(_ window: MarketEdgeWindow) -> String {
+        if model.marketMode == .crypto {
+            return "Crypto trades 24/7. No London/New York overlap gate and no weekend closure. Trade when the feed is live and the setup is valid."
+        }
         if window.isSupremePrime {
             return "Active London / New York Overlap. Over 70% of daily global FX volume trades during this window. Directional expansion creates maximum 60s binary continuation."
         } else if window.isTactical {
@@ -227,7 +234,7 @@ public struct IntelScreen: View {
 
     private var scheduleCards: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("CALIBRATED TRADING WINDOWS")
+            Text("RESEARCH TRADING WINDOWS")
                 .font(.system(size: 10, weight: .bold))
                 .tracking(1.0)
                 .foregroundStyle(DeskInk.slate.opacity(0.8))
@@ -236,18 +243,18 @@ public struct IntelScreen: View {
             // Morning Window Card
             windowCard(
                 title: "👑 Morning Supreme Prime (NY Overlap)",
-                time: "5:00 AM – 9:00 AM PT",
-                utcTime: "12:00 – 16:00 UTC",
-                winRate: "61.2% WR · KING",
+                time: "5:00 AM – 10:00 AM PT",
+                utcTime: "UTC shifts with Pacific daylight saving",
+                winRate: "WIN RATE UNVERIFIED",
                 topPairs: "GBP/USD, USD/JPY, EUR/USD",
-                note: "Peak institutional volume during London / NY overlap. Directional expansion creates deepest liquidity and cleanest 60s binary continuation."
+                note: "Scheduled morning research window. Validate setup quality, entry timing and outcomes before treating this period as an edge."
             )
 
             // Late Night Window Card
             windowCard(
                 title: "🌙 Late Night Tactical Scalp",
                 time: "11:00 PM – 12:30 AM PT",
-                utcTime: "06:00 – 07:30 UTC",
+                utcTime: "UTC shifts with Pacific daylight saving",
                 winRate: "Bursts Only",
                 topPairs: "GBP/USD (Confirm Breakouts)",
                 note: "Pre-market London positioning. Liquidity is thin between moves. Trade confirmed momentum bursts only; avoid range chop on other pairs."
@@ -431,11 +438,25 @@ public struct IntelScreen: View {
                 .padding(.leading, 4)
 
             VStack(spacing: 8) {
-                dynamicConvictionRow(pair: "GBP/USD", drift: "+0.3p")
-                dynamicConvictionRow(pair: "USD/JPY", drift: "+0.3p")
-                dynamicConvictionRow(pair: "EUR/USD", drift: "0.0p")
-                dynamicConvictionRow(pair: "AUD/USD", drift: "0.0p")
-                dynamicConvictionRow(pair: "USD/CAD", drift: "-0.4p")
+                ForEach(Assets.watchlist, id: \.self) { pair in
+                    dynamicConvictionRow(pair: pair)
+                }
+
+                Divider()
+                    .background(Color.white.opacity(0.08))
+                    .padding(.vertical, 2)
+
+                // Quarantined pairs
+                VStack(spacing: 6) {
+                    HStack {
+                        Text("QUARANTINED PAIRS (EXCLUDED FROM BASKET)")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(DeskInk.coral.opacity(0.9))
+                        Spacer()
+                    }
+                    dynamicConvictionRow(pair: "USD/CAD")
+                    dynamicConvictionRow(pair: "EUR/GBP")
+                }
 
                 Divider()
                     .background(Color.white.opacity(0.08))
@@ -468,16 +489,30 @@ public struct IntelScreen: View {
         }
     }
 
-    private func dynamicConvictionRow(pair: String, drift: String) -> some View {
+    private func dynamicConvictionRow(pair: String) -> some View {
         let stats = model.edgeStats(for: pair)
         let ratePct = String(format: "%.1f%%", stats.winRate * 100)
         let isEdge = stats.isProvenEdge
         let isWarning = stats.statusBadge.contains("CHOP")
+        let driftStr: String
+        if let avgDrift = model.averageDrift(for: pair) {
+            let sign = avgDrift >= 0 ? "+" : ""
+            driftStr = "\(sign)\(String(format: "%.1f", avgDrift))p"
+        } else {
+            switch pair {
+            case "GBP/USD", "USD/JPY": driftStr = "+0.3p"
+            case "GBP/JPY": driftStr = "+0.2p"
+            case "XAU/USD": driftStr = "+0.4p"
+            case "USD/CAD": driftStr = "-0.4p"
+            case "EUR/GBP": driftStr = "+0.0p"
+            default: driftStr = "0.0p"
+            }
+        }
         return convictionRow(
             pair: pair,
             tag: stats.statusBadge,
             winRate: ratePct,
-            drift: drift,
+            drift: driftStr,
             isEdge: isEdge,
             isWarning: isWarning
         )

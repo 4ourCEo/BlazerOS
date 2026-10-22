@@ -9,6 +9,7 @@ let package = Package(
     ],
     products: [
         .library(name: "BlazerCore", targets: ["BlazerCore"]),
+        .library(name: "BlazerCrypto", targets: ["BlazerCrypto"]),
         .library(name: "LightningDesk", targets: ["LightningDesk"]),
         .executable(name: "BlazerOS", targets: ["BlazerOS"]),
         .executable(name: "ForwardTest", targets: ["ForwardTest"]),
@@ -18,7 +19,15 @@ let package = Package(
             name: "BlazerCore",
             resources: [
                 .copy("scan-engine.js"),
+                .copy("Research/scan-engine-control.js"),
             ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+            ]
+        ),
+        .target(
+            name: "BlazerCrypto",
+            dependencies: ["BlazerCore"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ]
@@ -32,7 +41,7 @@ let package = Package(
         ),
         .target(
             name: "LightningDesk",
-            dependencies: ["BlazerCore"],
+            dependencies: ["BlazerCore", "BlazerCrypto"],
             resources: [
                 .copy("BlazerMark.png"),
             ],
@@ -68,6 +77,6 @@ let package = Package(
                 .swiftLanguageMode(.v6),
             ]
         ),
+        .testTarget(name: "BlazerCoreTests", dependencies: ["BlazerCore", "LightningDesk", "BlazerCrypto"]),
     ]
 )
-

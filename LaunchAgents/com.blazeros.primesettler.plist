@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.blazeros.primesettler</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/thagreat/BlazerOS/.build/out/Products/Release/ForwardTest</string>
+        <string>--daemon</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/thagreat/BlazerOS</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/thagreat/Library/Logs/BlazerOS/primesettler.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/thagreat/Library/Logs/BlazerOS/primesettler.log</string>
+</dict>
+</plist>

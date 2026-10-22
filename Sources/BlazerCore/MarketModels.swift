@@ -22,7 +22,7 @@ public struct DeskRestraint: Identifiable, Equatable, Sendable {
     }
 }
 
-public struct EngineSignal: Decodable, Sendable {
+public struct EngineSignal: Codable, Sendable {
     public var asset: String
     public var cabinetSide: String
     public var call: String
@@ -36,6 +36,11 @@ public struct EngineSignal: Decodable, Sendable {
     public var asOfMs: Double?
     public var printMs: Double?
     public var source: String?
+    public var directionScore: Double?
+    public var strength: Double?
+    public var policy: String?
+    public var features: ScanFeatures?
+    public var vetoes: [String]?
 
     public init(
         asset: String,
@@ -50,7 +55,12 @@ public struct EngineSignal: Decodable, Sendable {
         evidence: String? = nil,
         asOfMs: Double? = nil,
         printMs: Double? = nil,
-        source: String? = nil
+        source: String? = nil,
+        directionScore: Double? = nil,
+        strength: Double? = nil,
+        policy: String? = nil,
+        features: ScanFeatures? = nil,
+        vetoes: [String]? = nil
     ) {
         self.asset = asset
         self.cabinetSide = cabinetSide
@@ -65,6 +75,11 @@ public struct EngineSignal: Decodable, Sendable {
         self.asOfMs = asOfMs
         self.printMs = printMs
         self.source = source
+        self.directionScore = directionScore
+        self.strength = strength
+        self.policy = policy
+        self.features = features
+        self.vetoes = vetoes
     }
 }
 
@@ -75,19 +90,38 @@ public struct ScanEnvelope: Decodable, Sendable {
     public var source: String?
     /// Completed bars actually passed to scan-engine.js. Chart refreshes must not replace these.
     public var snapshotBars: [Candle]?
+    /// M5 bars the engine evaluated, frozen with the snapshot.
+    public var snapshotM5Bars: [Candle]?
+    public var bid: Double?
+    public var ask: Double?
+    public var spread: Double?
+    public var expirySeconds: Int?
+    public var engineSHA: String?
 
     public init(
         signal: EngineSignal?,
         error: String?,
         candles: [Candle]?,
         source: String?,
-        snapshotBars: [Candle]? = nil
+        snapshotBars: [Candle]? = nil,
+        snapshotM5Bars: [Candle]? = nil,
+        bid: Double? = nil,
+        ask: Double? = nil,
+        spread: Double? = nil,
+        expirySeconds: Int? = nil,
+        engineSHA: String? = nil
     ) {
         self.signal = signal
         self.error = error
         self.candles = candles
         self.source = source
         self.snapshotBars = snapshotBars
+        self.snapshotM5Bars = snapshotM5Bars
+        self.bid = bid
+        self.ask = ask
+        self.spread = spread
+        self.expirySeconds = expirySeconds
+        self.engineSHA = engineSHA
     }
 }
 
@@ -213,20 +247,27 @@ public enum DeskURL {
 
 public enum Assets {
     public static let watchlist = [
-        "EUR/USD", "GBP/USD", "USD/JPY", "EUR/GBP", "AUD/USD", "USD/CAD",
+        "EUR/USD", "GBP/USD", "USD/JPY", "GBP/JPY", "XAU/USD", "AUD/USD",
     ]
+
+    public static func pipScale(for asset: String) -> Double {
+        if asset.contains("XAU") { return 0.10 } // $0.10 = 1 pip for Gold
+        if asset.contains("JPY") { return 0.01 }  // 0.01 = 1 pip for JPY pairs
+        if asset.contains("USDT") { return 1.0 }  // $1.00 = 1 pip for crypto (BTC/ETH/SOL/DOGE)
+        return 0.0001                            // 0.0001 = 1 pip for standard FX
+    }
 
     public static func symbolName(for asset: String) -> String {
         switch asset {
         case "EUR/USD", "EUR/GBP":
             return "eurosign"
-        case "GBP/USD":
+        case "GBP/USD", "GBP/JPY":
             return "sterlingsign"
         case "USD/JPY":
             return "yensign"
-        case "AUD/USD":
-            return "dollarsign"
-        case "USD/CAD":
+        case "XAU/USD":
+            return "sparkles"
+        case "AUD/USD", "USD/CAD":
             return "dollarsign"
         default:
             return "coloncurrencysign"
@@ -290,11 +331,14 @@ public enum QuoteFreshness {
 
 public enum PriceFormat {
     public static func px(_ price: Double) -> String {
-        price >= 20 ? String(format: "%.3f", price) : String(format: "%.5f", price)
+        if price >= 500 {
+            return String(format: "%.2f", price)
+        }
+        return price >= 20 ? String(format: "%.3f", price) : String(format: "%.5f", price)
     }
 }
 
-public struct LiveQuote: Sendable, Equatable {
+public struct LiveQuote: Codable, Sendable, Equatable {
     public var asset: String
     public var bid: Double
     public var ask: Double

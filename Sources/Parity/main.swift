@@ -101,7 +101,7 @@ struct ParityCheck {
             check("golden fixture side", sealed.engineCall == first.signal.cabinetSide, first.signal.cabinetSide)
             check("golden fixture evidence", !sealed.evidence.isEmpty, sealed.evidence)
             check("repeat commit, same strike", sealed.strike == again.strike, String(sealed.strike))
-            let seal = ParitySeal.make(commit: sealed, engineSHA1: EngineIdentity.pinnedSHA1)
+            let seal = ParitySeal.make(commit: sealed, engineSHA1: EngineIdentity.loadedSHA1() ?? "unverified")
             check("seal matches local bars", seal.matchesLocalBars(frozen))
 
             var blocked = input
@@ -117,8 +117,8 @@ struct ParityCheck {
 
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("blazer-parity-\(UUID().uuidString)", isDirectory: true)
-        let ledger = LedgerFile(root: root)
-        let entry = LedgerEntry(
+        let ledger = LedgerStore(root: root)
+        let entry = LedgerRow(
             timestamp: Date(timeIntervalSince1970: 1_700_000_000),
             pair: "EUR/USD",
             hash: hash,
@@ -126,16 +126,16 @@ struct ParityCheck {
             side: "HIGH",
             veto: true,
             drift: 1.3,
-            outcome: "WIN",
-            theirPrice: nil,
-            outcomeEventID: "arm-1"
+            outcome: "HIT",
+            outcomeEventID: "arm-1",
+            labelSource: "venue-confirmed"
         )
         do {
-            let wrote = try await ledger.pipe(entry)
-            let duplicate = try await ledger.pipe(entry)
+            let wrote = try await ledger.record(entry)
+            let duplicate = try await ledger.record(entry)
             check("ledger writes once", wrote && !duplicate)
-            let csv = try String(contentsOf: root.appendingPathComponent(LedgerFile.fileName), encoding: .utf8)
-            check("ledger header matches Mac", csv.hasPrefix(LedgerEntry.csvHeader + "\n"))
+            let csv = try String(contentsOf: FileLocations.ledgerCSV(in: root), encoding: .utf8)
+            check("ledger header is canonical v3", csv.hasPrefix(LedgerStore.csvHeader + "\n"))
             check("ledger has no token", !csv.contains("token") && !csv.contains("Bearer"))
         } catch {
             check("ledger write", false, error.localizedDescription)

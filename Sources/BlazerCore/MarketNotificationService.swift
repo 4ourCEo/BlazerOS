@@ -77,7 +77,7 @@ public final class MarketNotificationService: NSObject, @unchecked Sendable {
         let morningContent = UNMutableNotificationContent()
         morningContent.title = "⚡ Morning Prime Window Active"
         morningContent.subtitle = "NY Overlap (5:00 AM – 10:00 AM PT)"
-        morningContent.body = "Peak statistical edge confirmed (61.2% historical win rate on GBP/USD and USD/JPY)."
+        morningContent.body = "Morning research window is open. Check setup and entry quality; the schedule does not establish a winning probability."
         morningContent.sound = .default
 
         var morningComponents = DateComponents()
@@ -96,7 +96,7 @@ public final class MarketNotificationService: NSObject, @unchecked Sendable {
         let lateNightContent = UNMutableNotificationContent()
         lateNightContent.title = "⚡ Late Night Prime Window Active"
         lateNightContent.subtitle = "Pre-London Surge (11:00 PM – 12:30 AM PT)"
-        lateNightContent.body = "Peak statistical win rate active (69.2% on GBP/USD with +0.3p drift)."
+        lateNightContent.body = "Late-night research window is open. Validate the setup and observed outcomes before treating this period as an edge."
         lateNightContent.sound = .default
 
         var lateNightComponents = DateComponents()
@@ -145,7 +145,7 @@ public final class MarketNotificationService: NSObject, @unchecked Sendable {
         let content = UNMutableNotificationContent()
         content.title = "⚡ Pacific Time Prime Window Test"
         content.subtitle = "Pacific Edge Alert System Verified"
-        content.body = "Morning Window: 5:00 AM PT (61.2% WR). Late Night London: 11:00 PM PT (69.2% WR)."
+        content.body = "Research windows: 5:00–10:00 AM PT and 11:00 PM–12:30 AM PT. Window win rates remain unverified."
         content.sound = .default
 
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(1, delaySec), repeats: false)
