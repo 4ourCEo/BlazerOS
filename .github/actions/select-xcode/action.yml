@@ -1,0 +1,21 @@
+name: Select newest Xcode
+description: >-
+  Point xcode-select at the newest installed Xcode so the SDK matches the
+  target the app ships (Foundation Models / iOS 26) instead of the image default.
+
+runs:
+  using: composite
+  steps:
+    - name: Select
+      shell: bash
+      run: |
+        shopt -s nullglob
+        xcodes=(/Applications/Xcode_[0-9]*.app)
+        if [ ${#xcodes[@]} -eq 0 ]; then
+          echo "No versioned Xcode installed; keeping $(xcode-select -p)"
+          exit 0
+        fi
+        latest=$(printf '%s\n' "${xcodes[@]}" | sort -V | tail -1)
+        echo "Selecting $latest"
+        sudo xcode-select -s "$latest"
+        swift --version

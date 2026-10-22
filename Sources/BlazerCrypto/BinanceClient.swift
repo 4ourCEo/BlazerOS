@@ -36,7 +36,7 @@ public enum BinanceClient {
     /// Returns the first Binance base URL that returns HTTP 200 for a lightweight ping.
     /// The cache is guarded because callers can resolve concurrently from different tasks.
     nonisolated(unsafe) private static var _resolvedBase: String? = nil
-    nonisolated(unsafe) private static let baseLock = NSLock()
+    private static let baseLock = NSLock()
 
     private static func cachedBase() -> String? {
         baseLock.lock()
