@@ -12,12 +12,15 @@ private let t0 = Date(timeIntervalSince1970: 1_772_000_000)
 
 private func bars(seed: Double = 0) -> [Candle] {
     (0..<3).map { index in
-        Candle(
-            time: t0.timeIntervalSince1970 + Double(index) * 60,
-            open: 1.1000 + seed + Double(index) * 0.0001,
-            high: 1.1010 + seed + Double(index) * 0.0001,
-            low: 1.0990 + seed + Double(index) * 0.0001,
-            close: 1.1005 + seed + Double(index) * 0.0001
+        let step = Double(index) * 0.0001
+        let offset = seed + step
+        let time = t0.timeIntervalSince1970 + Double(index) * 60
+        return Candle(
+            time: time,
+            open: 1.1000 + offset,
+            high: 1.1010 + offset,
+            low: 1.0990 + offset,
+            close: 1.1005 + offset
         )
     }
 }
