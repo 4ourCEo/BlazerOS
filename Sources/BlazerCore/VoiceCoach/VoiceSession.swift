@@ -134,7 +134,9 @@ public final class VoiceSession: NSObject, ObservableObject {
 
     private func requestMicrophonePermission() async -> Bool {
         await withCheckedContinuation { continuation in
-            AVAudioApplication.requestRecordPermission { granted in
+            // TCC invokes this on a background queue. Marking the closure @Sendable stops it
+            // inheriting MainActor isolation, which would trap on the Swift 6 executor check.
+            AVAudioApplication.requestRecordPermission { @Sendable granted in
                 continuation.resume(returning: granted)
             }
         }
@@ -142,7 +144,8 @@ public final class VoiceSession: NSObject, ObservableObject {
 
     private func requestSpeechRecognitionPermission() async -> Bool {
         await withCheckedContinuation { continuation in
-            SFSpeechRecognizer.requestAuthorization { status in
+            // Same contract as the microphone request: the reply arrives off the main queue.
+            SFSpeechRecognizer.requestAuthorization { @Sendable status in
                 continuation.resume(returning: status == .authorized)
             }
         }
