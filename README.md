@@ -1,8 +1,38 @@
 # BlazerOS
 
+[![CI](https://github.com/4ourCEo/BlazerOS/actions/workflows/ci.yml/badge.svg)](https://github.com/4ourCEo/BlazerOS/actions/workflows/ci.yml)
+
 iPhone execution desk for the same deterministic scan BlazerMac already runs.
 
 This repository starts with **BlazerCore**, the shared Swift package. The iPhone app is built on top of it after the parity tests stay green. Mac remains the command center. iPhone is the execution desk. Neither device needs the other running, and neither device syncs a live scan, a live quote feed, or an OANDA token.
+
+## Requirements
+
+- macOS 14 or later
+- Xcode 26.3 or later (the iPhone target uses iOS 26 APIs, including Foundation Models)
+- No third-party package dependencies
+
+The package builds against older SDKs too: Foundation Models code is gated on `canImport`, and the assistant falls back to its deterministic path where the framework or tokenizer is absent.
+
+## Build and test
+
+```bash
+./scripts/check-engine-pin.sh   # pinned engine SHA-1s
+swift build
+swift test                      # 186 tests, including engine seal and contracts
+swift run -c release Parity     # 43 parity cases
+swift run Persist               # 59 persistence checks
+```
+
+The iPhone app, widgets, Live Activity and intents are compiled by the Xcode project:
+
+```bash
+xcodebuild -project iPhone/BlazerOS.xcodeproj -scheme BlazerOS \
+  -destination 'generic/platform=iOS Simulator' -configuration Debug \
+  CODE_SIGNING_ALLOWED=NO build
+```
+
+`iPhone/build-iphone16.sh` builds Debug and Release and runs the iPhone 16 simulator tests with Xcode. CI runs the package checks and the simulator build on every pull request; it selects the newest installed Xcode so the build matches the shipping SDK.
 
 ## What is in the package
 
@@ -18,15 +48,7 @@ SwiftUI rendering views (such as `CoachCard` and `CoachScreen` in `LightningDesk
 
 BlazerMac links this package. `BlazerMac/build.sh` builds BlazerCore, then compiles the desk against it. The OANDA token still comes from the Mac Keychain adapter. The script in the app bundle is the same bytes as `Sources/BlazerCore/scan-engine.js`.
 
-## Check
-
-```bash
-swift run -c release Parity
-swift test
-swift run BlazerOS
-```
-
-`swift run BlazerOS` opens the Lightning Desk as a macOS window. The native iPhone project uses the same `LightningDeskView`; `iPhone/build-iphone16.sh` builds Debug and Release and runs the iPhone 16 simulator tests with Xcode.
+`swift run BlazerOS` opens the Lightning Desk as a macOS window. The native iPhone project uses the same `LightningDeskView`.
 
 `EngineIdentity.pinnedSHA1` is the SHA-1 of `Sources/BlazerCore/scan-engine.js`. If that file changes, update the pin in the same commit on every app that ships the package.
 
