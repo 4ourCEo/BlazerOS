@@ -5,6 +5,9 @@ on:
     branches: [main, master]
   pull_request:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -16,19 +19,11 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      # The image's default Xcode trails the SDK this app targets (Foundation Models,
-      # iOS 26). Select the newest installed Xcode so CI builds the configuration that
-      # ships instead of silently compiling the fallback paths.
-      - name: Select newest Xcode
-        run: |
-          latest=$(ls -d /Applications/Xcode_[0-9]*.app | sort -V | tail -1)
-          echo "Selecting $latest"
-          sudo xcode-select -s "$latest"
-
-      - name: Toolchain
-        run: swift --version
+      # The image's default Xcode trails the SDK this app targets, so select the
+      # newest installed one before building.
+      - uses: ./.github/actions/select-xcode
 
       - name: Engine pin drift
         run: ./scripts/check-engine-pin.sh
@@ -41,3 +36,26 @@ jobs:
 
       - name: Parity tool
         run: swift run -c release Parity
+
+  ios-app:
+    name: iPhone app build
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/select-xcode
+
+      # The app, widgets, Live Activity and intents are only compiled by the Xcode
+      # project; `swift build` never sees them. Signing is not needed to compile.
+      - name: Build for the iOS Simulator
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project iPhone/BlazerOS.xcodeproj \
+            -scheme BlazerOS \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            build
