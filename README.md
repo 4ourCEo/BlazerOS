@@ -98,3 +98,8 @@ Available policies: `control`, `baseline`, `continuation`, `reversal`, and `regi
 OANDA midpoint labels are proxies, not confirmed Pocket Option settlements. Statistics mark unknown or proxy ledger labels as unverified. Payout is assumed at 88% until actual venue terms are supplied. A calendar/news feed, trained probability calibrator and prospective promotion evidence remain future work; no higher live win rate is claimed.
 
 See [the design report](reports/SCAN_ENGINE_DESIGN_DEBATE_2026-10-02.md) and [implementation notes](reports/SCAN_RESEARCH_IMPLEMENTATION.md).
+
+## License
+
+No license is granted. This repository is public for review and reference only; all rights are
+reserved. Do not redistribute or reuse the code without written permission.
