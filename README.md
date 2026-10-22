@@ -99,6 +99,17 @@ OANDA midpoint labels are proxies, not confirmed Pocket Option settlements. Stat
 
 See [the design report](reports/SCAN_ENGINE_DESIGN_DEBATE_2026-10-02.md) and [implementation notes](reports/SCAN_RESEARCH_IMPLEMENTATION.md).
 
+## Known issues
+
+- The app loads BlazerCore twice — a static copy in the app binary and the embedded
+  `_PackageProduct.framework`. On-device launches log duplicate Objective-C classes.
+  Analysis in [issue #6](https://github.com/4ourCEo/BlazerOS/issues/6).
+- The physical-device gate in
+  [the reliability notes](reports/RELIABILITY_RELEASE.md#remaining-gate-physical-device) still
+  needs a person with the phone and the venue app.
+
+Device verification for the current tree: [2026-10-22](reports/DEVICE_VERIFICATION_2026-10-22.md).
+
 ## License
 
 No license is granted. This repository is public for review and reference only; all rights are
