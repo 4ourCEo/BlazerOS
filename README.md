@@ -32,7 +32,7 @@ xcodebuild -project iPhone/BlazerOS.xcodeproj -scheme BlazerOS \
   CODE_SIGNING_ALLOWED=NO build
 ```
 
-`iPhone/build-iphone16.sh` builds Debug and Release and runs the iPhone 16 simulator tests with Xcode. CI runs the package checks and the simulator build on every pull request; it selects the newest installed Xcode so the build matches the shipping SDK.
+`iPhone/build-iphone16.sh` builds Debug and Release and runs the iPhone 16 simulator tests with Xcode. CI runs the package checks, the simulator build, and the `BlazerTests` suite on every pull request; it selects the newest installed Xcode so the build matches the shipping SDK.
 
 ## What is in the package
 
