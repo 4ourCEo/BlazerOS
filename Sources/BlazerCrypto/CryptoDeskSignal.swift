@@ -20,9 +20,16 @@ public enum CryptoDeskSignal {
         let result = CryptoEngine.evaluate(batch: batch, asset: asset)
         let pip = CTAssets.pipScale(for: asset)
         let atrPrice = result.atrPips * pip
-        let directionScore = result.side == "HIGH"
-            ? Double(result.highScore)
-            : (result.side == "LOW" ? Double(100 - result.lowScore) : 50)
+        // The crypto engine emits a magnitude (0…100+), not a centred directional score.
+        // Map it onto the documented contract: direction 50 ± magnitude/2, strength = magnitude.
+        // Clamping here keeps both fields inside 0…100 for every consumer and ledger row.
+        let rawMagnitude = result.side == "HIGH"
+            ? result.highScore
+            : (result.side == "LOW" ? result.lowScore : 0)
+        let magnitude = Double(min(100, max(0, rawMagnitude)))
+        let directionScore: Double = result.side == "HIGH"
+            ? 50 + magnitude / 2
+            : (result.side == "LOW" ? 50 - magnitude / 2 : 50)
         let features = ScanFeatures(
             atr1m: atrPrice,
             atr5m: atrPrice,
@@ -52,7 +59,7 @@ public enum CryptoDeskSignal {
             printMs: now.timeIntervalSince1970 * 1000,
             source: "crypto:\(batch.source)",
             directionScore: directionScore,
-            strength: abs(directionScore - 50) * 2,
+            strength: magnitude,
             policy: policy,
             features: features
         )

@@ -68,7 +68,7 @@ public struct SnapshotRecord: Codable, Equatable, Sendable {
             ask: ask,
             spread: spread,
             expirySeconds: expirySeconds ?? Timing.expirySec,
-            engineSHA: engineSHA ?? EngineIdentity.pinnedSHA1,
+            engineSHA: engineSHA ?? EngineIdentity.loadedSHA1() ?? "unverified",
             policy: policy ?? "baseline"
         )
     }

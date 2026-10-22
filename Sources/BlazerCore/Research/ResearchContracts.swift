@@ -154,7 +154,7 @@ public struct ResearchEvent: Codable, Sendable, Identifiable {
 
     public init(input: StrategyEngine.MarketInput, signal: EngineSignal, sourceKind: String,
                 capturedAt: Date, entryQuote: LiveQuote? = nil,
-                engineSHA: String = EngineIdentity.pinnedSHA1) throws {
+                engineSHA: String = EngineIdentity.loadedSHA1() ?? "unverified") throws {
         id = UUID().uuidString
         inputDigest = try Self.digest(of: input)
         self.engineSHA = engineSHA

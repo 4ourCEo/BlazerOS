@@ -5,12 +5,43 @@ import Foundation
 public enum EngineIdentity {
     public static let pinnedSHA1 = "7c02e550e2e6ca656a258ceefc6083f098ff40b2"
 
+    /// Outcome of hashing a candidate engine source against the pin.
+    public enum Verification: Sendable, Equatable {
+        case verified(sha: String)
+        case mismatch(loaded: String, pinned: String)
+        case unavailable
+
+        public var isVerified: Bool {
+            if case .verified = self { return true }
+            return false
+        }
+
+        /// Operator-facing explanation. Never includes the script body.
+        public var detail: String {
+            switch self {
+            case .verified(let sha):
+                return "engine \(sha.prefix(12)) verified"
+            case .mismatch(let loaded, let pinned):
+                return "engine hash mismatch: loaded \(loaded.prefix(12)), pinned \(pinned.prefix(12))"
+            case .unavailable:
+                return "engine source unavailable"
+            }
+        }
+    }
+
     public static func sha1Hex(of source: String) -> String {
         let digest = Insecure.SHA1.hash(data: Data(source.utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 
+    /// Verification for a candidate source. This is the only place the pin is compared.
+    public static func verify(source: String) -> Verification {
+        let sha = sha1Hex(of: source)
+        return sha == pinnedSHA1 ? .verified(sha: sha) : .mismatch(loaded: sha, pinned: pinnedSHA1)
+    }
+
     public static func loadedSHA1() -> String? {
+        if let known = StrategyEngine.knownSHA { return known }
         guard let source = StrategyEngine.bundleSource() else { return nil }
         return sha1Hex(of: source)
     }

@@ -101,7 +101,7 @@ struct ParityCheck {
             check("golden fixture side", sealed.engineCall == first.signal.cabinetSide, first.signal.cabinetSide)
             check("golden fixture evidence", !sealed.evidence.isEmpty, sealed.evidence)
             check("repeat commit, same strike", sealed.strike == again.strike, String(sealed.strike))
-            let seal = ParitySeal.make(commit: sealed, engineSHA1: EngineIdentity.pinnedSHA1)
+            let seal = ParitySeal.make(commit: sealed, engineSHA1: EngineIdentity.loadedSHA1() ?? "unverified")
             check("seal matches local bars", seal.matchesLocalBars(frozen))
 
             var blocked = input

@@ -76,11 +76,11 @@ private func quote(_ input: StrategyEngine.MarketInput, time: Date = clock, mid:
     #expect(Assets.pipScale(for: "XAU/USD") == 0.1)
     let small = StrategyEngine.slippageGate(asset: "XAU/USD", side: "HIGH", strike: 2650,
         bid: 2649.95, ask: 2650.05)
-    #expect(small?.veto == false)
-    #expect(abs((small?.adverseDriftPips ?? 99) - 0.5) < 1e-6)
+    #expect(small.veto == false)
+    #expect(abs(small.adverseDriftPips - 0.5) < 1e-6)
     let large = StrategyEngine.slippageGate(asset: "XAU/USD", side: "HIGH", strike: 2650,
         bid: 2649.85, ask: 2649.95)
-    #expect(large?.veto == true)
+    #expect(large.veto == true)
 }
 
 @Test func malformedInputFailsExplicitly() async throws {

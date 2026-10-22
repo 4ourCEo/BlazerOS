@@ -94,7 +94,7 @@ public enum ScanKernel {
                 ask: frozenAsk,
                 spread: frozenSpread,
                 expirySeconds: frozenExpiry,
-                engineSHA: EngineIdentity.pinnedSHA1
+                engineSHA: EngineIdentity.loadedSHA1() ?? "unverified"
             )
         }
         let result: StrategyEngine.EvaluateResult
@@ -117,7 +117,7 @@ public enum ScanKernel {
             ask: frozenAsk,
             spread: frozenSpread,
             expirySeconds: frozenExpiry,
-            engineSHA: EngineIdentity.pinnedSHA1
+            engineSHA: EngineIdentity.loadedSHA1() ?? "unverified"
         )
     }
 
@@ -130,7 +130,7 @@ public enum ScanKernel {
         ask: Double? = nil,
         spread: Double? = nil,
         expirySeconds: Int = Timing.expirySec,
-        engineSHA: String = EngineIdentity.pinnedSHA1,
+        engineSHA: String = EngineIdentity.loadedSHA1() ?? "unverified",
         policy: String = "baseline",
         scannedAt: Date = Date()
     ) -> ScanCommit {

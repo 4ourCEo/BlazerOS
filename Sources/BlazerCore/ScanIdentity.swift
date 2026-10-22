@@ -25,7 +25,7 @@ public struct ScanInputSnapshot: Sendable, Equatable, Codable {
         ask: Double? = nil,
         spread: Double? = nil,
         expirySeconds: Int = Timing.expirySec,
-        engineSHA: String = EngineIdentity.pinnedSHA1,
+        engineSHA: String = EngineIdentity.loadedSHA1() ?? "unverified",
         policy: String = "baseline"
     ) {
         self.pair = pair

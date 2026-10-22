@@ -445,16 +445,16 @@ struct PersistCheck {
     @MainActor
     private static func slippageGateFailClosed(_ check: @MainActor (String, Bool, String) -> Void) {
         let nanResult = StrategyEngine.slippageGate(asset: "EUR/USD", side: "HIGH", strike: Double.nan, bid: 1.0850, ask: 1.0852)
-        check("slippage gate vetoes NaN strike", nanResult?.veto == true, "")
+        check("slippage gate vetoes NaN strike", nanResult.veto == true, "")
 
         let nanQuote = StrategyEngine.slippageGate(asset: "EUR/USD", side: "HIGH", strike: 1.0850, bid: Double.nan, ask: 1.0852)
-        check("slippage gate vetoes NaN quote", nanQuote?.veto == true, "")
+        check("slippage gate vetoes NaN quote", nanQuote.veto == true, "")
 
         let crossed = StrategyEngine.slippageGate(asset: "EUR/USD", side: "HIGH", strike: 1.0850, bid: 1.0855, ask: 1.0850)
-        check("slippage gate vetoes crossed quote", crossed?.veto == true, "")
+        check("slippage gate vetoes crossed quote", crossed.veto == true, "")
 
         let zeroBid = StrategyEngine.slippageGate(asset: "EUR/USD", side: "HIGH", strike: 1.0850, bid: 0.0, ask: 1.0852)
-        check("slippage gate vetoes zero bid", zeroBid?.veto == true, "")
+        check("slippage gate vetoes zero bid", zeroBid.veto == true, "")
     }
 
     @MainActor

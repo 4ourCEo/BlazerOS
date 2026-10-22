@@ -84,7 +84,7 @@ final class ResearchRunner {
             let signal = try await evaluate(candidate, policy: policy)
             let event = try ResearchEvent(input: candidate, signal: signal,
                 sourceKind: synthetic ? "synthetic" : "oanda-proxy", capturedAt: time, entryQuote: quote,
-                engineSHA: policy == "control" ? StrategyEngine.controlSHA1 : EngineIdentity.pinnedSHA1)
+                engineSHA: policy == "control" ? StrategyEngine.controlSHA1 : (EngineIdentity.loadedSHA1() ?? "unverified"))
             try await store.record(event) // Persist before exposing an accepted research entry.
             if event.entryTime != nil { pending[event.id] = event }
             events.append(event)
@@ -254,7 +254,7 @@ final class ResearchRunner {
         let events = try await store.events()
         let outcomes = try await store.outcomes()
         for policy in options.policies {
-            let engine = policy == "control" ? StrategyEngine.controlSHA1 : EngineIdentity.pinnedSHA1
+            let engine = policy == "control" ? StrategyEngine.controlSHA1 : (EngineIdentity.loadedSHA1() ?? "unverified")
             let experiment = ResearchExperiment(
                 name: "chronological \(policy) evaluation",
                 policy: policy,
