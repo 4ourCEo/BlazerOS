@@ -595,6 +595,63 @@ struct DeskScreen: View {
                 }
                 .buttonStyle(SpringPressButtonStyle())
                 .padding(.top, 4)
+            } else if model.canLogLateEntry {
+                Button {
+                    Task { await model.lockInTrade(late: true) }
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(DeskInk.electric)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("LOG LATE ENTRY")
+                                .font(.system(size: 12, weight: .bold))
+                                .tracking(0.6)
+                                .foregroundStyle(DeskInk.ink)
+                            Text("Beam closed · records the trade for data only")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundStyle(DeskInk.slate)
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "square.and.arrow.down")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(DeskInk.electric)
+                    }
+                    .padding(.horizontal, 14)
+                    .frame(height: 46)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(DeskInk.electric.opacity(0.1))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(DeskInk.electric.opacity(0.4), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(SpringPressButtonStyle())
+                .padding(.top, 4)
+            }
+
+            if let issue = model.entryIssue {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 9, weight: .bold))
+                    Text(issue)
+                        .font(.system(size: 10, weight: .semibold))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    if model.canLogLateEntry {
+                        Button("Log anyway") {
+                            Task { await model.lockInTrade(late: true) }
+                        }
+                        .font(.system(size: 10, weight: .heavy))
+                        .foregroundStyle(DeskInk.electric)
+                        .buttonStyle(.plain)
+                    }
+                }
+                .foregroundStyle(DeskInk.coral)
+                .padding(.top, 2)
+                .transition(.opacity)
             }
 
             if model.awaitingOutcome {

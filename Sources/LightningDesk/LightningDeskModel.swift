@@ -65,6 +65,8 @@ public final class LightningDeskModel: ObservableObject {
     /// Last full-book read. Display only.
     @Published var book: [BookRow] = Assets.watchlist.map { BookRow(asset: $0, side: "—") }
     @Published var notice: String?
+    /// Visible reason the last entry tap was refused. Cleared on the next attempt or scan.
+    @Published public private(set) var entryIssue: String?
     @Published public private(set) var frame: DeskFrame?
     /// Active 60-second binary trade execution. Nil when not in an active position.
     @Published public private(set) var activeTrade: ActiveTrade?
@@ -402,6 +404,7 @@ public final class LightningDeskModel: ObservableObject {
     private var settlementInFlight = false
     private var selectedSignal: EngineSignal?
     private var pendingExpiry: ResearchOutcome?
+    private var entryInFlight = false
     private var pendingTrade: ActiveTrade?
     /// Label source to reuse when a failed settlement is retried.
     private var pendingLabelSource = "manual-unverified"
@@ -631,6 +634,7 @@ public final class LightningDeskModel: ObservableObject {
 
     /// A fresh six-market walk. Nothing from the previous scan is reused.
     public func scan() async {
+        entryIssue = nil
         isDemoDesk = false
         switch marketMode {
         case .fx: await scanFx()
@@ -1397,64 +1401,144 @@ public final class LightningDeskModel: ObservableObject {
 
     /// Locks in an active binary trade horizon on the armed setup (60s, 3m, or 5m).
     /// The recovery copy is written before the desk treats the entry as tracked.
-    public func lockInTrade(duration: Double? = nil) async {
-        let context = DeskEntryGate.Context(
-            commit: commit,
-            frame: frame,
-            signal: selectedSignal,
-            quote: quote,
-            lastFreshPollAt: lastFreshPollAt,
-            activeTrade: activeTrade,
-            awaitingOutcome: awaitingOutcome,
-            settlementInFlight: settlementInFlight,
-            scanning: scanning,
-            historical: historical,
-            armedAt: armedAt,
-            armID: armID
-        )
-        if let failure = DeskEntryGate.veto(context) {
-            notice = Self.message(for: failure)
+    /// Records a manual entry. `late` skips the actionable-beam check for data capture after
+    /// the eight-second action window; the delay is still recorded so research can flag it.
+    public func lockInTrade(duration: Double? = nil, late: Bool = false) async {
+        guard !entryInFlight else { return }
+
+        if late {
+            guard canLogLateEntry else {
+                entryIssue = "Nothing to log. Scan again before recording."
+                DeskHaptics.veto()
+                return
+            }
+        } else {
+            let context = DeskEntryGate.Context(
+                commit: commit,
+                frame: frame,
+                signal: selectedSignal,
+                quote: quote,
+                lastFreshPollAt: lastFreshPollAt,
+                activeTrade: activeTrade,
+                awaitingOutcome: awaitingOutcome,
+                settlementInFlight: settlementInFlight,
+                scanning: scanning,
+                historical: historical,
+                armedAt: armedAt,
+                armID: armID
+            )
+            if let failure = DeskEntryGate.veto(context) {
+                entryIssue = Self.message(for: failure)
+                DeskHaptics.veto()
+                return
+            }
+        }
+
+        guard let commit, let selectedSignal else {
+            entryIssue = "Nothing to log. Scan again before recording."
+            DeskHaptics.veto()
             return
         }
-        guard let commit, let selectedSignal, let quote else { return }
-        let tradeID = armID ?? "\(commit.fingerprint)-\(Int(Date().timeIntervalSince1970 * 1000))"
-        activeEntryArmedAt = armedAt
-        armID = tradeID
-        let liveStrike = quote.mid
-        let durationSec = duration ?? selectedHorizonSec
-        guard [60.0, 180.0, 300.0].contains(durationSec) else { notice = "Unsupported expiry"; return }
-        let enteredAt = Date()
-        let recordingDelayMs = activeEntryArmedAt.map {
-            max(0, enteredAt.timeIntervalSince($0) * 1000)
+        let liveQuote = quote.flatMap { $0.asset == commit.asset ? $0 : nil }
+        let liveStrike: Double
+        if late {
+            // A dead feed must not block data capture; fall back to the frozen strike.
+            liveStrike = liveQuote?.mid ?? commit.strike
+        } else {
+            guard let liveQuote else {
+                entryIssue = Self.message(for: .staleFeed)
+                DeskHaptics.veto()
+                return
+            }
+            liveStrike = liveQuote.mid
         }
+        let signalSide = selectedSignal.cabinetSide
+        guard signalSide == "HIGH" || signalSide == "LOW" else {
+            entryIssue = Self.message(for: .notDirectional)
+            DeskHaptics.veto()
+            return
+        }
+        let durationSec = duration ?? selectedHorizonSec
+        guard [60.0, 180.0, 300.0].contains(durationSec) else {
+            entryIssue = "Unsupported expiry"
+            DeskHaptics.veto()
+            return
+        }
+
+        entryInFlight = true
+        defer { entryInFlight = false }
+
+        let tradeID = armID ?? "\(commit.fingerprint)-\(Int(Date().timeIntervalSince1970 * 1000))"
+        let armedReference = armedAt ?? commit.scannedAt
+        let enteredAt = Date()
+        let recordingDelayMs = max(0, enteredAt.timeIntervalSince(armedReference) * 1000)
         let evaluationAgeMs = max(0, enteredAt.timeIntervalSince(commit.scannedAt) * 1000)
-        let remainingBeamMs = max(0, Timing.liveMs - (recordingDelayMs ?? 0))
+        let remainingBeamMs = late ? 0 : max(0, Timing.liveMs - recordingDelayMs)
         let trade = ActiveTrade(
             id: tradeID,
             pair: commit.asset,
-            side: cabinetSide,
+            side: signalSide,
             strike: liveStrike,
             score: commit.score,
             enteredAt: enteredAt,
             durationSec: durationSec,
-            currentPrice: quote.mid,
+            currentPrice: liveQuote?.mid ?? liveStrike,
             brokerEntryPrice: nil,
             evaluationAgeMs: evaluationAgeMs,
             remainingBeamMs: remainingBeamMs,
             recordingDelayMs: recordingDelayMs,
             fingerprint: commit.fingerprint
         )
+        activeEntryArmedAt = armedAt
+        armID = tradeID
         guard await persistOpenPosition(trade, commit: commit, armID: tradeID) else {
-            notice = "Could not save the entry; position not tracked"
+            entryIssue = "Could not save the entry; position not tracked"
+            DeskHaptics.veto()
             return
         }
         activeTrade = trade
-        activeTradeQuote = quote
+        activeTradeQuote = liveQuote
         pendingTrade = trade
         pendingExpiry = nil
         armedAt = nil
+        entryIssue = nil
         DeskHaptics.tradeLocked()
         publishFrame()
+    }
+
+    /// True when a signal still exists but the eight-second action window has closed, so the
+    /// entry can be recorded for data without claiming it was actionable.
+    public var canLogLateEntry: Bool {
+        Self.canLogLateEntry(
+            commit: commit,
+            signal: selectedSignal,
+            activeTrade: activeTrade,
+            awaitingOutcome: awaitingOutcome,
+            settlementInFlight: settlementInFlight,
+            scanning: scanning,
+            historical: historical,
+            now: Date()
+        )
+    }
+
+    /// Pure decision so the window and safety conditions are testable without a live desk.
+    nonisolated public static func canLogLateEntry(
+        commit: ScanCommit?,
+        signal: EngineSignal?,
+        activeTrade: ActiveTrade?,
+        awaitingOutcome: Bool,
+        settlementInFlight: Bool,
+        scanning: Bool,
+        historical: Bool,
+        now: Date
+    ) -> Bool {
+        guard activeTrade == nil, !awaitingOutcome, !settlementInFlight, !scanning, !historical else {
+            return false
+        }
+        guard let commit, commit.veto == nil, let signal else { return false }
+        guard signal.cabinetSide == "HIGH" || signal.cabinetSide == "LOW" else { return false }
+        // Bound the window: an old scan is not a trade the operator just placed.
+        return now.timeIntervalSince(commit.scannedAt) <= 10 * 60
     }
 
     /// Optional broker details supplied by the user after placing the manual trade.
