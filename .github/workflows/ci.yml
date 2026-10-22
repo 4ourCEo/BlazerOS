@@ -61,14 +61,22 @@ jobs:
             build
 
       # BlazerTests covers the desk layout and the iPhone execution flow. It only
-      # runs from the Xcode project, so it needs a concrete simulator.
+      # runs from the Xcode project, so it needs a concrete simulator. Ask
+      # xcodebuild which destinations it accepts instead of guessing from simctl.
       - name: Run the iPhone tests
         run: |
           set -o pipefail
-          udid=$(xcrun simctl list devices available \
-            | sed -nE 's/^ +iPhone[^(]*\(([0-9A-F-]{36})\).*/\1/p' | head -1)
+          destinations=$(xcodebuild \
+            -project iPhone/BlazerOS.xcodeproj \
+            -scheme BlazerOS \
+            -showdestinations)
+          echo "$destinations"
+          udid=$(echo "$destinations" \
+            | grep "name:iPhone" \
+            | sed -nE 's/.*id:([0-9A-F-]{36}).*/\1/p' \
+            | head -1)
           if [ -z "$udid" ]; then
-            echo "No iPhone simulator installed" >&2
+            echo "No iPhone simulator available to xcodebuild" >&2
             exit 1
           fi
           echo "Testing on $udid"
