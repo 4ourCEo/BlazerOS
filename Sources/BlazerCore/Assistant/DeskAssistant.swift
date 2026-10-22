@@ -285,6 +285,7 @@ public actor DeskAssistant {
     // MARK: - Schema decoding (runtime-gated)
 
     private static func decodeScanExplanation(_ data: Data, scanID: String) throws -> ScanExplanation {
+        #if canImport(FoundationModels)
         if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *) {
             let dto = try JSONDecoder().decode(GeneratedScanExplanation.self, from: data)
             return ScanExplanation(
@@ -295,18 +296,22 @@ public actor DeskAssistant {
                 recordID: scanID
             )
         }
+        #endif
         throw AssistantFailure.unavailable(.unsupportedOS)
     }
 
     private static func decodeCoachAnswer(_ data: Data) throws -> CoachAnswer {
+        #if canImport(FoundationModels)
         if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *) {
             let dto = try JSONDecoder().decode(GeneratedCoachAnswer.self, from: data)
             return CoachAnswer(answer: dto.answer, citations: dto.citations, limitations: dto.limitations)
         }
+        #endif
         throw AssistantFailure.unavailable(.unsupportedOS)
     }
 
     private static func decodeJournalDraft(_ data: Data) throws -> JournalDraft {
+        #if canImport(FoundationModels)
         if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *) {
             let dto = try JSONDecoder().decode(GeneratedJournalDraft.self, from: data)
             return JournalDraft(
@@ -314,12 +319,14 @@ public actor DeskAssistant {
                 lesson: dto.lesson, tags: Array(dto.tags.prefix(6))
             )
         }
+        #endif
         throw AssistantFailure.unavailable(.unsupportedOS)
     }
 
     private static func decodeSessionDebrief(
         _ data: Data, performance: PerformanceSummary, gaps: [ObservationGap]
     ) throws -> SessionDebrief {
+        #if canImport(FoundationModels)
         if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *) {
             let dto = try JSONDecoder().decode(GeneratedSessionDebrief.self, from: data)
             return SessionDebrief(
@@ -338,12 +345,14 @@ public actor DeskAssistant {
                 citations: Array(dto.citations.prefix(20))
             )
         }
+        #endif
         throw AssistantFailure.unavailable(.unsupportedOS)
     }
 
     private static func decodeComparison(
         _ data: Data, left: ScanRecordContext, right: ScanRecordContext
     ) throws -> ScanComparison {
+        #if canImport(FoundationModels)
         if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *) {
             let dto = try JSONDecoder().decode(GeneratedComparison.self, from: data)
             let deterministic = ScanComparisonEngine.deterministic(left, right)
@@ -354,10 +363,12 @@ public actor DeskAssistant {
                 citations: dto.citations
             )
         }
+        #endif
         throw AssistantFailure.unavailable(.unsupportedOS)
     }
 
     private static func decodeResearchSuggestions(_ data: Data) throws -> [ResearchSuggestion] {
+        #if canImport(FoundationModels)
         if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *) {
             let dto = try JSONDecoder().decode(GeneratedResearchSuggestions.self, from: data)
             return dto.suggestions.prefix(3).map {
@@ -371,6 +382,7 @@ public actor DeskAssistant {
                 )
             }
         }
+        #endif
         throw AssistantFailure.unavailable(.unsupportedOS)
     }
 
