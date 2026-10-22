@@ -73,6 +73,22 @@ enum DeskHaptics {
         #endif
     }
 
+    /// Distinct confirmation pulse: success for HIT, warning for MISS.
+    static func outcomeConfirmed(_ outcome: DeskOutcome) {
+        #if os(macOS)
+        NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+        #elseif os(iOS)
+        switch outcome {
+        case .hit:
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        case .miss:
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+        default:
+            UISelectionFeedbackGenerator().selectionChanged()
+        }
+        #endif
+    }
+
     static func flipITM() {
         #if os(macOS)
         NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)

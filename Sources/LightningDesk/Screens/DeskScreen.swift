@@ -7,6 +7,7 @@ struct DeskScreen: View {
     @State private var showingPrimeSchedule = false
     @State private var showingStrikeSheet = false
     @State private var showingEntryDetails = false
+    @State private var pressingOutcome: DeskOutcome?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -18,6 +19,16 @@ struct DeskScreen: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 8)
                 .offset(y: reduceMotion ? 0 : model.heroLift)
+
+            if let receipt = model.settleReceipt {
+                settleReceiptCard(receipt)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .top).combined(with: .opacity),
+                        removal: .opacity
+                    ))
+            }
 
             Spacer(minLength: 10)
 
@@ -55,6 +66,7 @@ struct DeskScreen: View {
             .buttonStyle(.plain)
             .padding(.bottom, 10)
         }
+        .animation(.easeOut(duration: 0.22), value: model.settleReceipt)
         .sheet(isPresented: $showingPrimeSchedule) {
             PrimeScheduleSheet()
         }
@@ -662,6 +674,7 @@ struct DeskScreen: View {
 
             HStack(spacing: 10) {
                 settleButton(
+                    outcome: .hit,
                     title: "HIT",
                     subtitle: isHigh ? "Closed above strike" : "Closed below strike",
                     icon: "arrow.up.right",
@@ -672,6 +685,7 @@ struct DeskScreen: View {
                 }
 
                 settleButton(
+                    outcome: .miss,
                     title: "MISS",
                     subtitle: isHigh ? "Closed below strike" : "Closed above strike",
                     icon: "arrow.down.right",
@@ -694,6 +708,7 @@ struct DeskScreen: View {
     }
 
     private func settleButton(
+        outcome: DeskOutcome,
         title: String,
         subtitle: String,
         icon: String,
@@ -701,54 +716,145 @@ struct DeskScreen: View {
         isSuggested: Bool,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Image(systemName: icon)
-                        .font(.system(size: 13, weight: .heavy))
-                    Text(title)
-                        .font(.system(size: 18, weight: .heavy))
-                        .tracking(0.8)
-                    Spacer(minLength: 0)
-                    if isSuggested {
-                        Text("SUGGESTED")
-                            .font(.system(size: 8, weight: .heavy))
-                            .tracking(0.5)
-                            .foregroundStyle(tint)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(tint.opacity(0.2), in: Capsule())
-                    }
-                }
-                .foregroundStyle(tint)
+        let pressing = pressingOutcome == outcome
 
+        return VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .heavy))
+                Text(title)
+                    .font(.system(size: 18, weight: .heavy))
+                    .tracking(0.8)
+                Spacer(minLength: 0)
+                if isSuggested {
+                    Text("SUGGESTED")
+                        .font(.system(size: 8, weight: .heavy))
+                        .tracking(0.5)
+                        .foregroundStyle(tint)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(tint.opacity(0.2), in: Capsule())
+                }
+            }
+            .foregroundStyle(tint)
+
+            HStack(spacing: 4) {
                 Text(subtitle)
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(DeskInk.slate)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
+                Spacer(minLength: 0)
+                HStack(spacing: 3) {
+                    Image(systemName: "hand.tap")
+                    Text("HOLD")
+                }
+                .font(.system(size: 8, weight: .heavy))
+                .tracking(0.5)
+                .foregroundStyle(DeskInk.slate.opacity(0.65))
             }
-            .padding(.horizontal, 14)
-            .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
-            .background(
-                LinearGradient(
-                    colors: [
-                        tint.opacity(isSuggested ? 0.28 : 0.11),
-                        tint.opacity(isSuggested ? 0.10 : 0.03),
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ),
-                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(tint.opacity(isSuggested ? 0.85 : 0.3), lineWidth: isSuggested ? 1.5 : 0.75)
-            )
-            .shadow(color: tint.opacity(isSuggested ? 0.18 : 0.04), radius: 10, y: 3)
         }
-        .buttonStyle(SpringPressButtonStyle())
-        .accessibilityLabel("\(title). \(subtitle)")
+        .padding(.horizontal, 14)
+        .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
+        .background(
+            LinearGradient(
+                colors: [
+                    tint.opacity(pressing ? 0.34 : (isSuggested ? 0.28 : 0.11)),
+                    tint.opacity(isSuggested ? 0.10 : 0.03),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            ),
+            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(tint.opacity(pressing ? 1 : (isSuggested ? 0.85 : 0.3)), lineWidth: isSuggested || pressing ? 1.5 : 0.75)
+        )
+        .shadow(color: tint.opacity(isSuggested ? 0.18 : 0.04), radius: 10, y: 3)
+        .scaleEffect(pressing ? 0.97 : 1)
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .onLongPressGesture(minimumDuration: 0.55, maximumDistance: 24) {
+            pressingOutcome = nil
+            DeskHaptics.tradeLocked()
+            action()
+        } onPressingChanged: { isPressing in
+            withAnimation(.easeOut(duration: 0.15)) {
+                if isPressing {
+                    pressingOutcome = outcome
+                } else if pressingOutcome == outcome {
+                    pressingOutcome = nil
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("\(title). \(subtitle). Hold to confirm.")
+        .accessibilityAction { action() }
+    }
+
+    private func settleReceiptCard(_ receipt: SettleReceipt) -> some View {
+        let tint = receipt.outcome == .hit ? DeskInk.emerald : DeskInk.coral
+        return HStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(tint.opacity(0.16))
+                    .frame(width: 38, height: 38)
+                Image(systemName: receipt.outcome == .hit ? "checkmark" : "xmark")
+                    .font(.system(size: 15, weight: .heavy))
+                    .foregroundStyle(tint)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(receipt.outcome.rawValue)
+                        .font(.system(size: 16, weight: .heavy))
+                        .tracking(0.8)
+                        .foregroundStyle(tint)
+                    Text(receipt.pair)
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(DeskInk.slate)
+                }
+                Text(receiptLine(receipt))
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(DeskInk.slate)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+
+            Spacer(minLength: 0)
+
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("RECORDED")
+                    .font(.system(size: 8, weight: .heavy))
+                    .tracking(0.8)
+                    .foregroundStyle(DeskInk.slate.opacity(0.7))
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(tint.opacity(0.9))
+            }
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 58)
+        .background(DeskInk.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(tint.opacity(0.35), lineWidth: 1)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .onTapGesture { model.dismissSettleReceipt() }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Recorded \(receipt.outcome.rawValue) on \(receipt.pair).")
+    }
+
+    private func receiptLine(_ receipt: SettleReceipt) -> String {
+        var parts: [String] = []
+        if let pips = receipt.pips, pips.isFinite {
+            parts.append(String(format: "%+.1fp", pips))
+        }
+        parts.append("\(Int((receipt.payout * 100).rounded()))% payout")
+        parts.append(receipt.labelSource == "venue-confirmed" ? "venue confirmed" : receipt.labelSource)
+        return parts.joined(separator: " · ")
     }
 
     private func priceLabel(_ value: Double?) -> String {

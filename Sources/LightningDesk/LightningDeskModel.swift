@@ -9,6 +9,32 @@ public enum DeskMarket: String, Sendable, CaseIterable {
     case fx
 }
 
+/// Post-settlement receipt. Presentation only: the ledger row is already written.
+public struct SettleReceipt: Identifiable, Equatable, Sendable {
+    public let id: UUID
+    public let outcome: DeskOutcome
+    public let pair: String
+    public let pips: Double?
+    public let payout: Double
+    public let labelSource: String
+
+    public init(
+        id: UUID = UUID(),
+        outcome: DeskOutcome,
+        pair: String,
+        pips: Double?,
+        payout: Double,
+        labelSource: String
+    ) {
+        self.id = id
+        self.outcome = outcome
+        self.pair = pair
+        self.pips = pips
+        self.payout = payout
+        self.labelSource = labelSource
+    }
+}
+
 /// One-screen desk state. The frame is derived from the frozen commit. Quotes never rescore it.
 @MainActor
 public final class LightningDeskModel: ObservableObject {
@@ -44,6 +70,9 @@ public final class LightningDeskModel: ObservableObject {
     @Published public private(set) var activeTrade: ActiveTrade?
     /// Predicted outcome based on live price at trade expiry.
     @Published public private(set) var predictedOutcome: DeskOutcome?
+    /// Short-lived confirmation shown after a settlement write. Cleared automatically.
+    @Published public private(set) var settleReceipt: SettleReceipt?
+    private var receiptDismissTask: Task<Void, Never>?
     /// Live mid quote for the selected pair. An entry on another pair never leaks in.
     public var currentPrice: Double? {
         if let trade = activeTrade, trade.pair == pair { return trade.currentPrice }
@@ -959,6 +988,28 @@ public final class LightningDeskModel: ObservableObject {
         pendingLabelSource = "manual-unverified"
         notice = nil
         guard self.armID == settleArmID else { return }
+
+        // Show closure before the desk clears. The ledger row is already durable at this point.
+        let receiptPips: Double? = {
+            guard let exit = resolvedExpiryPrice else { return nil }
+            let pip = Assets.pipScale(for: settleCommit.asset)
+            guard pip > 0 else { return nil }
+            let signed = settleCommit.engineCall.contains("HIGH")
+                ? exit - settleCommit.strike
+                : settleCommit.strike - exit
+            return signed / pip
+        }()
+        showSettleReceipt(
+            SettleReceipt(
+                outcome: outcome,
+                pair: settleCommit.asset,
+                pips: receiptPips,
+                payout: trade?.payout ?? EntryQuality.assumedPayout,
+                labelSource: labelSource
+            )
+        )
+        DeskHaptics.outcomeConfirmed(outcome)
+
         self.armID = nil
         self.commit = nil
         cabinetSide = "WAIT"
@@ -972,6 +1023,21 @@ public final class LightningDeskModel: ObservableObject {
         predictedOutcome = nil
         candles = []
         publishFrame()
+    }
+
+    private func showSettleReceipt(_ receipt: SettleReceipt) {
+        receiptDismissTask?.cancel()
+        settleReceipt = receipt
+        receiptDismissTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 2_800_000_000)
+            guard !Task.isCancelled else { return }
+            self?.settleReceipt = nil
+        }
+    }
+
+    public func dismissSettleReceipt() {
+        receiptDismissTask?.cancel()
+        settleReceipt = nil
     }
 
     /// The only path that records a broker outcome: the user confirms the real venue result.
