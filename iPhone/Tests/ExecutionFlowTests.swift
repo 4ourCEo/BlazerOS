@@ -105,7 +105,7 @@ final class ExecutionFlowTests: XCTestCase {
 
         await model.lockInTrade(duration: 60)
         XCTAssertNil(model.activeTrade)
-        XCTAssertEqual(model.notice, "Beam expired; scan again")
+        XCTAssertEqual(model.entryIssue, "Beam expired; scan again")
     }
 
     func testHistoricalScanCannotBecomeAnEntry() async {
@@ -117,7 +117,7 @@ final class ExecutionFlowTests: XCTestCase {
 
         await model.lockInTrade(duration: 60)
         XCTAssertNil(model.activeTrade)
-        XCTAssertEqual(model.notice, "Historical scan; scan again before entry")
+        XCTAssertEqual(model.entryIssue, "Historical scan; scan again before entry")
     }
 
     func testLockedEntrySurvivesRelaunch() async {
