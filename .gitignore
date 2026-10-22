@@ -6,3 +6,6 @@ xcuserdata/
 DerivedData/
 dist/
 iPhone/build/
+
+# graphify knowledge-graph outputs
+graphify-out/

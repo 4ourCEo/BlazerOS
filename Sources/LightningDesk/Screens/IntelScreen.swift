@@ -191,45 +191,30 @@ public struct IntelScreen: View {
         if model.marketMode == .crypto {
             return "₿ CRYPTO · 24/7 — NO FX SESSION GATE"
         }
-        let currentWindow = MarketEdgeWindow.current(at: now)
-        guard let ptZone = TimeZone(identifier: "America/Los_Angeles") else { return "" }
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = ptZone
 
-        let hour = cal.component(.hour, from: now)
-        let min = cal.component(.minute, from: now)
-        let sec = cal.component(.second, from: now)
-        let totalMin = hour * 60 + min
-
-        if currentWindow.isSupremePrime {
-            let remSec = max(0, (9 * 3600) - (totalMin * 60 + sec))
-            let h = remSec / 3600
-            let m = (remSec % 3600) / 60
-            let s = remSec % 60
-            return String(format: "SUPREME PRIME ENDS IN: %02dh %02dm %02ds", h, m, s)
-        } else if currentWindow.isTactical {
-            let targetSec = 1470 * 60 // 12:30 AM
-            let curSec = (totalMin >= 1380 ? totalMin : totalMin + 1440) * 60 + sec
-            let remSec = max(0, targetSec - curSec)
-            let m = (remSec % 3600) / 60
-            let s = remSec % 60
-            return String(format: "BURST WINDOW ENDS IN: %02dm %02ds · NEXT SUPREME: 5:00 AM PT", m, s)
-        } else {
-            let nextTargetTotalSec: Int
-            let nowSec = totalMin * 60 + sec
-            if totalMin < 300 {
-                nextTargetTotalSec = 300 * 60
-            } else if totalMin < 1380 {
-                nextTargetTotalSec = 1380 * 60
-            } else {
-                nextTargetTotalSec = (1440 + 300) * 60
+        // Window arithmetic lives in MarketEdgeWindow so this screen cannot drift from it.
+        let countdown = MarketEdgeWindow.countdown(at: now)
+        switch countdown.phase {
+        case .primeEndsIn(let remaining):
+            if countdown.window.isSupremePrime {
+                return "SUPREME PRIME ENDS IN: \(Self.hoursMinutesSeconds(remaining))"
             }
-            let diff = max(0, nextTargetTotalSec - nowSec)
-            let h = diff / 3600
-            let m = (diff % 3600) / 60
-            let s = diff % 60
-            return String(format: "NEXT PRIME IN: %02dh %02dm %02ds", h, m, s)
+            return "BURST WINDOW ENDS IN: \(Self.minutesSeconds(remaining)) · NEXT SUPREME: 5:00 AM PT"
+        case .nextPrimeIn(let remaining):
+            return "NEXT PRIME IN: \(Self.hoursMinutesSeconds(remaining))"
+        case .marketClosed(let remaining):
+            return "FX MARKET CLOSED · OPENS IN: \(Self.hoursMinutesSeconds(remaining))"
         }
+    }
+
+    private static func hoursMinutesSeconds(_ interval: TimeInterval) -> String {
+        let total = max(0, Int(interval))
+        return String(format: "%02dh %02dm %02ds", total / 3600, (total % 3600) / 60, total % 60)
+    }
+
+    private static func minutesSeconds(_ interval: TimeInterval) -> String {
+        let total = max(0, Int(interval))
+        return String(format: "%02dm %02ds", total / 60, total % 60)
     }
 
     private func statusExplanation(_ window: MarketEdgeWindow) -> String {
