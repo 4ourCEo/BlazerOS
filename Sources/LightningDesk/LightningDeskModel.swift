@@ -1019,6 +1019,28 @@ public final class LightningDeskModel: ObservableObject {
         return referenceOutcomes.last(where: { $0.eventID == armID })?.deskSuggestion
     }
 
+    /// Frozen entry fields for the settle panel. The commit itself stays private.
+    public var settleAsset: String? { commit?.asset }
+    public var settleStrike: Double? { commit?.strike }
+    public var settleSide: String? { commit?.engineCall }
+
+    /// Reference exit price for the arm awaiting confirmation. Falls back to the persisted
+    /// reference history so the settle panel still shows numbers after a relaunch.
+    public var expiryReferencePrice: Double? {
+        if let price = pendingExpiry?.exitPrice { return price }
+        guard let armID else { return nil }
+        return referenceOutcomes.last(where: { $0.eventID == armID })?.exitPrice
+    }
+
+    /// Signed pips from strike, positive when the selected side finished in the money.
+    public var expiryReferenceDeltaPips: Double? {
+        guard let price = expiryReferencePrice, let commit else { return nil }
+        let pip = Assets.pipScale(for: commit.asset)
+        guard pip > 0 else { return nil }
+        let signed = commit.engineCall.contains("HIGH") ? price - commit.strike : commit.strike - price
+        return signed / pip
+    }
+
     /// Why the desk can or cannot suggest a result. Shown above the HIT/MISS buttons.
     public var referenceSuggestionNote: String? {
         guard let armID else { return nil }

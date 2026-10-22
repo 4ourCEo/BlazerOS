@@ -586,31 +586,7 @@ struct DeskScreen: View {
             }
 
             if model.awaitingOutcome {
-                if let note = model.referenceSuggestionNote {
-                    Text(note)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(DeskInk.slate)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                let reference = model.referenceSuggestion
-                HStack(spacing: 10) {
-                    outcomeChoice(
-                        reference == .hit ? "Confirm HIT" : (reference == .miss ? "HIT instead" : "HIT"),
-                        tint: DeskInk.emerald,
-                        isHighlighted: reference == .hit
-                    ) {
-                        Task { await model.confirmVenueOutcome(.hit) }
-                    }
-                    outcomeChoice(
-                        reference == .miss ? "Confirm MISS" : (reference == .hit ? "MISS instead" : "MISS"),
-                        tint: DeskInk.coral,
-                        isHighlighted: reference == .miss
-                    ) {
-                        Task { await model.confirmVenueOutcome(.miss) }
-                    }
-                }
-                .padding(.top, 6)
+                settlePanel
             }
 
             if model.pendingSaveCount > 0 {
@@ -635,21 +611,163 @@ struct DeskScreen: View {
         }
     }
 
-    private func outcomeChoice(_ title: String, tint: Color, isHighlighted: Bool = false, action: @escaping () -> Void) -> some View {
+    // MARK: - Settle panel
+
+    /// Post-expiry confirmation. The reference label is a suggestion only; the venue result
+    /// is still recorded by the operator.
+    private var settlePanel: some View {
+        let reference = model.referenceSuggestion
+        let side = model.settleSide ?? "WAIT"
+        let isHigh = side.contains("HIGH")
+
+        return VStack(alignment: .leading, spacing: 12) {
+            Divider()
+                .overlay(DeskInk.slate.opacity(0.18))
+
+            HStack(spacing: 7) {
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(DeskInk.electric)
+                Text("SETTLE ENTRY")
+                    .font(.system(size: 11, weight: .heavy))
+                    .tracking(1.4)
+                    .foregroundStyle(DeskInk.ink)
+                Spacer(minLength: 0)
+                if let reference {
+                    Text("REFERENCE \(reference.rawValue)")
+                        .font(.system(size: 9, weight: .heavy))
+                        .tracking(0.7)
+                        .foregroundStyle(reference == .hit ? DeskInk.emerald : DeskInk.coral)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(
+                            (reference == .hit ? DeskInk.emerald : DeskInk.coral).opacity(0.14),
+                            in: Capsule()
+                        )
+                }
+            }
+
+            HStack(spacing: 6) {
+                Text("Strike \(priceLabel(model.settleStrike))")
+                Text("·").foregroundStyle(DeskInk.slate.opacity(0.5))
+                Text("Ref \(priceLabel(model.expiryReferencePrice))")
+                Text("·").foregroundStyle(DeskInk.slate.opacity(0.5))
+                Text(pipsLabel(model.expiryReferenceDeltaPips))
+                    .foregroundStyle(pipsTint(model.expiryReferenceDeltaPips))
+            }
+            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            .foregroundStyle(DeskInk.slate)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+
+            HStack(spacing: 10) {
+                settleButton(
+                    title: "HIT",
+                    subtitle: isHigh ? "Closed above strike" : "Closed below strike",
+                    icon: "arrow.up.right",
+                    tint: DeskInk.emerald,
+                    isSuggested: reference == .hit
+                ) {
+                    Task { await model.confirmVenueOutcome(.hit) }
+                }
+
+                settleButton(
+                    title: "MISS",
+                    subtitle: isHigh ? "Closed below strike" : "Closed above strike",
+                    icon: "arrow.down.right",
+                    tint: DeskInk.coral,
+                    isSuggested: reference == .miss
+                ) {
+                    Task { await model.confirmVenueOutcome(.miss) }
+                }
+            }
+
+            if let note = model.referenceSuggestionNote {
+                Text(note)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(DeskInk.slate)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(.top, 2)
+    }
+
+    private func settleButton(
+        title: String,
+        subtitle: String,
+        icon: String,
+        tint: Color,
+        isSuggested: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
-            Text(title)
-                .font(.system(size: 15, weight: .semibold))
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Image(systemName: icon)
+                        .font(.system(size: 13, weight: .heavy))
+                    Text(title)
+                        .font(.system(size: 18, weight: .heavy))
+                        .tracking(0.8)
+                    Spacer(minLength: 0)
+                    if isSuggested {
+                        Text("SUGGESTED")
+                            .font(.system(size: 8, weight: .heavy))
+                            .tracking(0.5)
+                            .foregroundStyle(tint)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(tint.opacity(0.2), in: Capsule())
+                    }
+                }
                 .foregroundStyle(tint)
-                .frame(maxWidth: .infinity)
-                .frame(height: 46)
-                .background(tint.opacity(isHighlighted ? 0.25 : 0.14), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(tint.opacity(isHighlighted ? 0.9 : 0.35), lineWidth: isHighlighted ? 1.5 : 0.75)
-                )
+
+                Text(subtitle)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(DeskInk.slate)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .padding(.horizontal, 14)
+            .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
+            .background(
+                LinearGradient(
+                    colors: [
+                        tint.opacity(isSuggested ? 0.28 : 0.11),
+                        tint.opacity(isSuggested ? 0.10 : 0.03),
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(tint.opacity(isSuggested ? 0.85 : 0.3), lineWidth: isSuggested ? 1.5 : 0.75)
+            )
+            .shadow(color: tint.opacity(isSuggested ? 0.18 : 0.04), radius: 10, y: 3)
         }
         .buttonStyle(SpringPressButtonStyle())
-        .accessibilityLabel(title)
+        .accessibilityLabel("\(title). \(subtitle)")
+    }
+
+    private func priceLabel(_ value: Double?) -> String {
+        guard let value, value.isFinite else { return "—" }
+        let pip = model.settleAsset.map { Assets.pipScale(for: $0) } ?? 0.0001
+        let decimals = max(0, Int(round(-log10(max(pip, 0.00001)))) + 1)
+        return String(format: "%.\(decimals)f", value)
+    }
+
+    private func pipsLabel(_ value: Double?) -> String {
+        guard let value, value.isFinite else { return "—" }
+        return String(format: "%+.1fp", value)
+    }
+
+    private func pipsTint(_ value: Double?) -> Color {
+        guard let value else { return DeskInk.slate }
+        if value > 0 { return DeskInk.emerald }
+        if value < 0 { return DeskInk.coral }
+        return DeskInk.slate
     }
 
     private var bookStrip: some View {
