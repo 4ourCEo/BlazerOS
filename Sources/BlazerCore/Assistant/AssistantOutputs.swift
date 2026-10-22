@@ -75,8 +75,9 @@ public struct CoachAnswer: Codable, Sendable, Equatable {
                 let rate = p.winRate.map { String(format: "%.1f%%", $0 * 100) } ?? "unavailable"
                 text = "Confirmed outcomes: \(p.wins) wins and \(p.losses) losses out of \(p.sampleSize). Descriptive win rate \(rate); assumed payout break-even \(String(format: "%.1f%%", p.breakEven * 100))."
             }
-        } else if lower.contains("low") && latest?.engineCall == "PUT" {
-            text = "The engine returned PUT. Engine score \(latest?.score ?? 0) is side-neutral conviction, not a win probability."
+        } else if lower.contains("low"), let latest,
+                  AssistantValidation.canonicalDecision(latest.engineCall) == "TAP LOW" {
+            text = "The engine returned \(latest.engineCall). Engine score \(latest.score) is side-neutral conviction, not a win probability."
         } else if let latest {
             text = "The latest saved scan is \(latest.engineCall) on \(latest.pair) with engine score \(latest.score). \(latest.evidenceLines.first ?? "No evidence was recorded.")"
         } else {

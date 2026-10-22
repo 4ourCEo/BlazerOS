@@ -24,13 +24,10 @@ public final class LightningDeskModel: ObservableObject {
         )
         strikeStore = StrikeStore(url: root.appendingPathComponent("strike_positions.json"))
         let diagnosticsURL = root.appendingPathComponent("model_diagnostics.jsonl")
-        if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *) {
-            assistant = DeskAssistant.appleOnDevice(diagnosticsURL: diagnosticsURL)
-        } else {
-            assistant = DeskAssistant(
-                engine: UnavailableModelEngine(reason: .unsupportedOS),
-                diagnosticsURL: diagnosticsURL
-            )
+        assistant = AssistantSession(diagnosticsURL: diagnosticsURL)
+        assistant.contextProvider = { [weak self] in
+            guard let self else { return .empty }
+            return AssistantContextBuilder.make(journal: self.storedJournal, ledgerRows: self.ledgerRows)
         }
     }
     @Published public var pair: String = "EUR/USD"
@@ -100,36 +97,12 @@ public final class LightningDeskModel: ObservableObject {
     @Published var voiceSession = VoiceSession()
 
     // MARK: - On-device assistant (explanations only; never execution authority)
-    private let assistant: DeskAssistant
-    @Published public private(set) var assistantAvailability: AssistantAvailability = .unknown
-    @Published public private(set) var assistantStatus: AssistantStatus = .idle
-    @Published public private(set) var assistantOrigin: AssistantOrigin?
-    @Published public private(set) var assistantAnswer: CoachAnswer?
-    @Published public private(set) var assistantScanExplanation: ScanExplanation?
-    @Published public private(set) var assistantJournalDraft: JournalDraft?
-    @Published public private(set) var assistantDebrief: SessionDebrief?
-    @Published public private(set) var assistantComparison: ScanComparison?
-    @Published public private(set) var assistantResearch: [ResearchSuggestion] = []
-    @Published public private(set) var assistantError: String?
-    @Published public private(set) var assistantRequestState: AssistantRequestState?
-    /// Optional AI surfaces. The execution workflow remains usable when this is off.
-    @Published public var assistantEnabled: Bool = UserDefaults.standard.object(forKey: "blazer.assistant_enabled") as? Bool ?? true {
-        didSet {
-            UserDefaults.standard.set(assistantEnabled, forKey: "blazer.assistant_enabled")
-            if !assistantEnabled {
-                assistantStatus = .idle
-                assistantAnswer = nil
-                assistantScanExplanation = nil
-                assistantJournalDraft = nil
-                assistantDebrief = nil
-                assistantComparison = nil
-                assistantResearch = []
-                assistantError = nil
-                assistantOrigin = nil
-                assistantRequestState = nil
-            }
-        }
-    }
+    //
+    // State and operations live in `AssistantSession`. This model keeps a reference so the
+    // desk can offer optional explanations without owning assistant state.
+
+    public let assistant: AssistantSession
+
     /// Whether spoken audio debriefing plays when a 60s binary position expires.
     @Published public var voiceDebriefEnabled: Bool = UserDefaults.standard.object(forKey: "blazer.voice_debrief_enabled") as? Bool ?? true {
         didSet {
@@ -574,8 +547,19 @@ public final class LightningDeskModel: ObservableObject {
             marketMode = .fx
         }
         #endif
+        // Verify the pinned engine hash and prove it can produce a verdict before any scan.
+        // A failed boot leaves isReady false, so ScanKernel reports SCAN ENGINE OFFLINE
+        // instead of evaluating on an unverified script.
+        let engineBoot = await StrategyEngine.boot()
+        if !engineBoot.ok {
+            let detail = engineBoot.detail ?? "verification failed"
+            diagLog("ENGINE_BOOT_FAILED \(detail)")
+            notice = "Scan engine offline: \(detail)"
+        } else {
+            diagLog("ENGINE_BOOT_OK \(StrategyEngine.engineHealth.sha?.prefix(12) ?? "?")")
+        }
         await reloadFromDisk()
-        Task { await refreshAssistantAvailability() }
+        Task { await assistant.refreshAvailability() }
         // Finish any settlement that was interrupted by a crash or a failed write.
         if pendingSaveCount > 0 {
             let remaining = await persistence.reconcilePendingSettlements()
@@ -604,9 +588,9 @@ public final class LightningDeskModel: ObservableObject {
         }
         if ProcessInfo.processInfo.environment["BLAZER_ASSISTANT_DEMO"] == "1" {
             activeTab = .coach
-            await explainLatestScan()
-            await askAssistant("Why did this scan return WAIT?")
-            await requestSessionDebrief()
+            await assistant.explainLatestScan()
+            await assistant.ask("Why did this scan return WAIT?")
+            await assistant.requestDebrief()
         }
         #endif
         await withTaskGroup(of: Void.self) { group in
@@ -789,7 +773,7 @@ public final class LightningDeskModel: ObservableObject {
                         ask: envelope.ask,
                         spread: envelope.spread,
                         expirySeconds: envelope.expirySeconds ?? Timing.expirySec,
-                        engineSHA: envelope.engineSHA ?? EngineIdentity.pinnedSHA1,
+                        engineSHA: envelope.engineSHA ?? EngineIdentity.loadedSHA1() ?? "unverified",
                         scannedAt: Self.evaluationDate(signal.asOfMs, fallback: started)
                     )
                     commitsByAsset[asset] = assetCommit
@@ -1551,25 +1535,21 @@ public final class LightningDeskModel: ObservableObject {
             return
         }
 
-        guard let gate = StrategyEngine.slippageGate(
+        let gate = StrategyEngine.slippageGate(
             asset: commit.asset,
             side: cabinetSide,
             strike: commit.strike,
             bid: quote.bid,
             ask: quote.ask
-        ) else {
-            commit.veto = "Gate offline"
-            armedAt = nil
-            noteVeto("Gate offline")
-            self.commit = commit
-            publishFrame()
-            return
-        }
+        )
         commit.driftPips = gate.adverseDriftPips
         if gate.veto {
-            commit.veto = "Slippage"
+            // A nil reason means the gate evaluated and refused; a reason means it could not run.
+            let veto = gate.reason == nil ? "Slippage" : "Gate offline"
+            commit.veto = veto
             armedAt = nil
-            noteVeto("Slippage")
+            noteVeto(veto)
+            if let reason = gate.reason { diagLog("SLIPPAGE_GATE \(reason)") }
         }
         self.commit = commit
     }
@@ -1600,7 +1580,7 @@ public final class LightningDeskModel: ObservableObject {
     /// No live quote is passed. The Coach sees only seal + evidence + question.
     func askCoach(for entry: ReplayEntry) {
         let seal = ParitySeal(
-            engineSHA1: EngineIdentity.pinnedSHA1,
+            engineSHA1: EngineIdentity.loadedSHA1() ?? "unverified",
             fingerprint: entry.fingerprint,
             score: entry.score,
             side: entry.verb,
@@ -1610,11 +1590,7 @@ public final class LightningDeskModel: ObservableObject {
         voiceSession.start(
             seal: seal,
             evidence: entry.why,
-            using: FoundationCoachService(
-                allowsModel: assistantEnabled,
-                assistant: assistant,
-                context: assistantContext()
-            )
+            using: assistant.coachService()
         )
     }
 
@@ -1630,122 +1606,6 @@ public final class LightningDeskModel: ObservableObject {
 
     // MARK: - On-device assistant actions (explanations only)
 
-    public func refreshAssistantAvailability() async {
-        if case .generating = assistantStatus { return }
-        assistantStatus = .checking
-        let value = await assistant.availability(force: true)
-        assistantAvailability = value
-        if value.isReady {
-            assistantStatus = .idle
-            assistantError = nil
-        } else {
-            assistantStatus = .unavailable(value.detail)
-            assistantError = value.detail
-        }
-    }
-
-    public func askAssistant(_ question: String) async {
-        guard assistantEnabled else { assistantError = "On-device assistant is off."; return }
-        let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        let context = assistantContext()
-        let generation = nextAssistantGeneration()
-        assistantStatus = .generating(.coachAnswer)
-        assistantError = nil
-        let result = await assistant.answer(trimmed, context: context)
-        guard generation == assistantGeneration else { return }
-        assistantAnswer = result.value
-        assistantOrigin = result.origin
-        assistantRequestState = result.requestState
-        assistantStatus = result.isModelGenerated ? .idle : .basicFallback
-        assistantError = result.isModelGenerated ? nil : result.diagnostic.failure
-    }
-
-    public func explainLatestScan() async {
-        guard assistantEnabled else { assistantError = "On-device assistant is off."; return }
-        let context = assistantContext()
-        guard let scan = context.scans.first else {
-            assistantError = "No saved scan is available to explain."
-            return
-        }
-        let generation = nextAssistantGeneration()
-        assistantStatus = .generating(.scanExplanation)
-        assistantError = nil
-        let result = await assistant.explainScan(scan, context: context)
-        guard generation == assistantGeneration else { return }
-        assistantScanExplanation = result.value
-        assistantOrigin = result.origin
-        assistantRequestState = result.requestState
-        assistantStatus = result.isModelGenerated ? .idle : .basicFallback
-        assistantError = result.isModelGenerated ? nil : result.diagnostic.failure
-    }
-
-    public func requestSessionDebrief() async {
-        guard assistantEnabled else { assistantError = "On-device assistant is off."; return }
-        let context = assistantContext()
-        let generation = nextAssistantGeneration()
-        assistantStatus = .generating(.sessionDebrief)
-        assistantError = nil
-        let result = await assistant.debrief(context: context)
-        guard generation == assistantGeneration else { return }
-        assistantDebrief = result.value
-        assistantOrigin = result.origin
-        assistantRequestState = result.requestState
-        assistantStatus = result.isModelGenerated ? .idle : .basicFallback
-        assistantError = result.isModelGenerated ? nil : result.diagnostic.failure
-    }
-
-    public func compareLatestScans() async {
-        guard assistantEnabled else { assistantError = "On-device assistant is off."; return }
-        let context = assistantContext()
-        guard context.scans.count >= 2 else {
-            assistantError = "At least two saved scans are required for a comparison."
-            return
-        }
-        let generation = nextAssistantGeneration()
-        assistantStatus = .generating(.scanComparison)
-        assistantError = nil
-        let result = await assistant.compare(context.scans[1], context.scans[0])
-        guard generation == assistantGeneration else { return }
-        assistantComparison = result.value
-        assistantOrigin = result.origin
-        assistantRequestState = result.requestState
-        assistantStatus = result.isModelGenerated ? .idle : .basicFallback
-        assistantError = result.isModelGenerated ? nil : result.diagnostic.failure
-    }
-
-    public func requestResearchSuggestions() async {
-        guard assistantEnabled else { assistantError = "On-device assistant is off."; return }
-        let context = assistantContext()
-        let generation = nextAssistantGeneration()
-        assistantStatus = .generating(.researchSuggestions)
-        assistantError = nil
-        let result = await assistant.researchSuggestions(context: context)
-        guard generation == assistantGeneration else { return }
-        assistantResearch = result.value
-        assistantOrigin = result.origin
-        assistantRequestState = result.requestState
-        assistantStatus = result.isModelGenerated ? .idle : .basicFallback
-        assistantError = result.isModelGenerated ? nil : result.diagnostic.failure
-    }
-
-    public func draftJournalNote(_ note: String) async {
-        guard assistantEnabled else { assistantError = "On-device assistant is off."; return }
-        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        let context = assistantContext()
-        let generation = nextAssistantGeneration()
-        assistantStatus = .generating(.journalDraft)
-        assistantError = nil
-        let result = await assistant.journalDraft(note: trimmed, context: context)
-        guard generation == assistantGeneration else { return }
-        assistantJournalDraft = result.value
-        assistantOrigin = result.origin
-        assistantRequestState = result.requestState
-        assistantStatus = result.isModelGenerated ? .idle : .basicFallback
-        assistantError = result.isModelGenerated ? nil : result.diagnostic.failure
-    }
-
     /// Saves a generated annotation only after the user explicitly confirms it.
     /// The original voice note is never overwritten.
     public func saveAssistantJournalDraft(_ draft: JournalDraft, entryID: String) async {
@@ -1760,25 +1620,14 @@ public final class LightningDeskModel: ObservableObject {
                 lesson: Lesson(text: draft.lesson)
             )
             await reloadFromDisk()
-            assistantError = nil
+            assistant.setError(nil)
         } catch {
-            assistantError = "The journal draft could not be saved."
+            assistant.setError("The journal draft could not be saved.")
         }
     }
 
     public func assistantDiagnostics(limit: Int = 20) async -> [AssistantDiagnostic] {
-        await assistant.recentDiagnostics(limit: limit)
-    }
-
-    private var assistantGeneration = 0
-
-    private func nextAssistantGeneration() -> Int {
-        assistantGeneration += 1
-        return assistantGeneration
-    }
-
-    private func assistantContext() -> AssistantContext {
-        AssistantContextBuilder.make(journal: storedJournal, ledgerRows: ledgerRows)
+        await assistant.diagnostics(limit: limit)
     }
 
     /// Save a spoken voice note to a journal entry.
@@ -1800,31 +1649,22 @@ public final class LightningDeskModel: ObservableObject {
             hash: entry.fingerprint
         )
         coachExplanation = PromptBuilder.sealedCard(brief)
-        guard assistantEnabled else { return }
-        let context = assistantContext()
-        guard let scan = context.scans.first(where: { $0.id == id }) else { return }
-        assistantStatus = .generating(.scanExplanation)
-        let result = await assistant.explainScan(scan, context: context)
+        guard let outcome = await assistant.explain(scanID: id) else { return }
         guard openReplayID == id else { return }
-        assistantScanExplanation = result.value
-        assistantOrigin = result.origin
-        assistantRequestState = result.requestState
-        assistantStatus = result.isModelGenerated ? .idle : .basicFallback
-        assistantError = result.isModelGenerated ? nil : result.diagnostic.failure
-        if result.isModelGenerated {
-            let evidence = result.value.evidenceUsed.isEmpty
-                ? "No evidence was recorded."
-                : result.value.evidenceUsed.joined(separator: " · ")
-            coachExplanation = CoachExplanation(
-                summary: result.value.summary,
-                confidence: "Sealed",
-                bullets: [
-                    "Engine: \(scan.engineCall) · score \(scan.score)",
-                    "Evidence: \(evidence)",
-                    result.value.coachNote,
-                ]
-            )
-        }
+        let explanation = outcome.explanation
+        let scan = outcome.scan
+        let evidence = explanation.evidenceUsed.isEmpty
+            ? "No evidence was recorded."
+            : explanation.evidenceUsed.joined(separator: " · ")
+        coachExplanation = CoachExplanation(
+            summary: explanation.summary,
+            confidence: "Sealed",
+            bullets: [
+                "Engine: \(scan.engineCall) · score \(scan.score)",
+                "Evidence: \(evidence)",
+                explanation.coachNote,
+            ]
+        )
     }
 
     /// Sealed coach explanation for the latest recorded scan, or the currently open replay.
@@ -1950,7 +1790,7 @@ public final class LightningDeskModel: ObservableObject {
             ask: position.scanInput?.ask,
             spread: position.scanInput?.spread,
             expirySeconds: position.scanInput?.expirySeconds ?? Timing.expirySec,
-            engineSHA: position.scanInput?.engineSHA ?? EngineIdentity.pinnedSHA1,
+            engineSHA: position.scanInput?.engineSHA ?? EngineIdentity.loadedSHA1() ?? "unverified",
             policy: position.scanInput?.policy ?? "baseline",
             scannedAt: entry.scannedAt,
             veto: entry.veto
@@ -2157,168 +1997,6 @@ extension LightningDeskModel {
         trade.expiresAt = trade.enteredAt.addingTimeInterval(trade.durationSec)
         activeTrade = trade
         await handleTradeExpiry(trade)
-    }
-
-    /// Device-only diagnostic: prove Apple’s on-device model is available and generating.
-    /// No execution state is touched. Invoked only with BLAZER_FM_SELFTEST=1 in DEBUG.
-    public func runAssistantSelfTestForTesting() async {
-        let availability = await assistant.availability(force: true)
-        print("PHONE_FM_AVAIL \(availability)")
-        guard availability.isReady else { return }
-        let scan = ScanRecordContext(
-            id: "phone-selftest",
-            fullFingerprint: String(repeating: "A", count: 40),
-            pair: "EUR/USD",
-            engineCall: "WAIT",
-            score: 44,
-            evidence: "Trend is up (+18) · Range is tight",
-            veto: nil,
-            evaluationTime: Date(),
-            quoteMid: 1.1,
-            spread: 0.0002,
-            m1Count: 80,
-            m5Count: 40,
-            engineSHA: "phone-selftest",
-            expirySeconds: 60,
-            isActionable: false,
-            blockingReason: "Range is tight",
-            recordedVerb: "WAIT"
-        )
-        let context = AssistantContext(
-            generatedAt: Date(),
-            scans: [scan],
-            performance: .empty
-        )
-        let result = await assistant.explainScan(scan, context: context, timeout: 30)
-        print("PHONE_FM_RESULT origin=\(result.origin.rawValue) decision=\(result.value.decision) score=\(result.value.score) latencyMs=\(result.diagnostic.latencyMs) issues=\(result.diagnostic.validationIssues)")
-    }
-
-    /// Device-only diagnostic: exercise the bounded Coach request with a full context.
-    /// Uses the same `answer` path as the Coach panel. No execution state is touched.
-    /// Invoked only with BLAZER_FM_COACH_SELFTEST=1 in DEBUG.
-    public func runBoundedCoachSelfTestForTesting() async {
-        let availability = await assistant.availability(force: true)
-        print("PHONE_COACH_AVAIL ready=\(availability.isReady) detail=\(availability.detail)")
-        guard availability.isReady else { return }
-        let now = Date()
-        func scan(at index: Int) -> ScanRecordContext {
-            let first = index == 0
-            let pair = first ? "EUR/USD" : "GBP/USD"
-            let evaluationTime = now.addingTimeInterval(Double(-index * 120))
-            let fingerprint = String(repeating: first ? "A" : "B", count: 40)
-            return ScanRecordContext(
-                id: "phone-coach-scan-\(index)",
-                fullFingerprint: fingerprint,
-                pair: pair,
-                engineCall: "WAIT",
-                score: 44 + index,
-                evidence: "Completed M5 bars show a tight range. Spread widened before the evaluation. Momentum is not aligned with the higher-timeframe trend.",
-                veto: first ? nil : "Spread above the pair ceiling.",
-                evaluationTime: evaluationTime,
-                quoteMid: 1.1 + Double(index) * 0.01,
-                spread: 0.0002,
-                m1Count: 80,
-                m5Count: 40,
-                engineSHA: "phone-selftest",
-                expirySeconds: 60,
-                isActionable: false,
-                blockingReason: "Range is tight; no completed-bar displacement.",
-                recordedVerb: "WAIT"
-            )
-        }
-        let scans = [scan(at: 0), scan(at: 1)]
-
-        func entry(at index: Int) -> ConfirmedEntryContext {
-            let pair = index.isMultiple(of: 2) ? "EUR/USD" : "GBP/USD"
-            let side = index.isMultiple(of: 2) ? "HIGH" : "LOW"
-            let outcomes = ["MISS", "MISS", "HIT", "UNRESOLVED"]
-            let recordedAt = now.addingTimeInterval(Double(-index * 600))
-            let enteredAt = now.addingTimeInterval(Double(-index * 600 - 30))
-            let entryQuote = 1.1 + Double(index) * 0.001
-            let expiryPrice = 1.1005 + Double(index) * 0.001
-            return ConfirmedEntryContext(
-                id: "entry-\(index)",
-                pair: pair,
-                side: side,
-                outcome: outcomes[index],
-                recordedAt: recordedAt,
-                enteredAt: enteredAt,
-                horizonSeconds: 60,
-                entryQuote: entryQuote,
-                expiryPrice: expiryPrice,
-                stake: 1,
-                payout: 0.92,
-                lateEntry: index == 3,
-                recordID: "phone-coach-scan-\(index % 2)"
-            )
-        }
-        let entries = [entry(at: 0), entry(at: 1), entry(at: 2), entry(at: 3)]
-
-        func gap(at index: Int) -> ObservationGap {
-            let kinds: [ObservationGap.Kind] = [
-                .missingConfirmation, .lateEntry, .staleFeed, .unresolvedExpiry,
-            ]
-            let pair = index.isMultiple(of: 2) ? "EUR/USD" : "GBP/USD"
-            return ObservationGap(
-                id: "gap-\(index)",
-                pair: pair,
-                kind: kinds[index],
-                detail: "The venue result was not captured before the app was backgrounded; the expiry observation remains unresolved.",
-                recordID: "phone-coach-scan-\(index % 2)"
-            )
-        }
-        let gaps = [gap(at: 0), gap(at: 1), gap(at: 2), gap(at: 3)]
-
-        let notes = [
-            JournalNoteContext(
-                id: "note-0",
-                pair: "EUR/USD",
-                note: "Waited for the beam but the venue rejected the stake; recorded only after returning to the desk.",
-                createdAt: now
-            )
-        ]
-        let performance = PerformanceSummary(
-            sampleSize: 3, wins: 1, losses: 2, ties: 0, unresolved: 1,
-            winRate: 1.0 / 3.0, breakEven: 1.0 / (1.0 + EntryQuality.assumedPayout),
-            expectancy: (1.0 / 3.0) * EntryQuality.assumedPayout - (2.0 / 3.0),
-            confirmedOnly: true,
-            caveat: "Small venue-confirmed sample. Descriptive only."
-        )
-        let context = AssistantContext(
-            generatedAt: now, scans: scans, confirmedEntries: entries,
-            performance: performance, gaps: gaps, notes: notes
-        )
-        print("PHONE_COACH_CONTEXT scans=\(context.scans.count) entries=\(context.confirmedEntries.count) gaps=\(context.gaps.count) notes=\(context.notes.count)")
-        let started = Date()
-        let result = await assistant.answer(
-            "Why did the latest scan return WAIT, and what is missing from the record?",
-            context: context,
-            timeout: 30
-        )
-        let d = result.diagnostic
-        let tokens = d.contextTokens.map(String.init) ?? "nil"
-        let limit = d.contextLimit.map(String.init) ?? "nil"
-        print("PHONE_COACH_RESULT origin=\(result.origin.rawValue) state=\(result.requestState.rawValue) latencyMs=\(String(format: "%.1f", d.latencyMs)) wallMs=\(String(format: "%.1f", Date().timeIntervalSince(started) * 1000)) tokens=\(tokens) limit=\(limit) method=\(d.contextMethod ?? "nil") retries=\(d.retryCount.map(String.init) ?? "nil") omitted=\(d.omitted?.count ?? 0) issues=\(d.validationIssues) failure=\(d.failure ?? "none") answerChars=\(result.value.answer.count) citations=\(result.value.citations)")
-
-        let debriefStarted = Date()
-        let debrief = await assistant.debrief(context: context, timeout: 30)
-        let dd = debrief.diagnostic
-        let debriefTokens = dd.contextTokens.map(String.init) ?? "nil"
-        let debriefLimit = dd.contextLimit.map(String.init) ?? "nil"
-        print("PHONE_DEBRIEF_RESULT origin=\(debrief.origin.rawValue) state=\(debrief.requestState.rawValue) latencyMs=\(String(format: "%.1f", dd.latencyMs)) wallMs=\(String(format: "%.1f", Date().timeIntervalSince(debriefStarted) * 1000)) tokens=\(debriefTokens) limit=\(debriefLimit) method=\(dd.contextMethod ?? "nil") retries=\(dd.retryCount.map(String.init) ?? "nil") omitted=\(dd.omitted?.count ?? 0) issues=\(dd.validationIssues) failure=\(dd.failure ?? "none") summary=\(debrief.value.summary)")
-
-        let compare = await assistant.compare(scans[0], scans[1], timeout: 30)
-        print("PHONE_COMPARE_RESULT origin=\(compare.origin.rawValue) state=\(compare.requestState.rawValue) issues=\(compare.diagnostic.validationIssues) failure=\(compare.diagnostic.failure ?? "none") citations=\(compare.value.citations)")
-
-        let draft = await assistant.journalDraft(
-            note: "I waited for the beam and recorded the entry after returning from the broker.",
-            context: context,
-            timeout: 30
-        )
-        print("PHONE_DRAFT_RESULT origin=\(draft.origin.rawValue) state=\(draft.requestState.rawValue) issues=\(draft.diagnostic.validationIssues) failure=\(draft.diagnostic.failure ?? "none") summaryChars=\(draft.value.summary.count)")
-
-        let research = await assistant.researchSuggestions(context: context, timeout: 40)
-        print("PHONE_RESEARCH_RESULT origin=\(research.origin.rawValue) state=\(research.requestState.rawValue) issues=\(research.diagnostic.validationIssues) failure=\(research.diagnostic.failure ?? "none") suggestions=\(research.value.count)")
     }
 
     /// Test-only seam: persist the frozen scan exactly as a real scan does.

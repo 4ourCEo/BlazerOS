@@ -26,10 +26,10 @@ struct BlazerOSPhoneApp: App {
                 .task {
                     #if DEBUG
                     if ProcessInfo.processInfo.environment["BLAZER_FM_SELFTEST"] == "1" {
-                        await model.runAssistantSelfTestForTesting()
+                        await model.assistant.runAssistantSelfTestForTesting()
                     }
                     if ProcessInfo.processInfo.environment["BLAZER_FM_COACH_SELFTEST"] == "1" {
-                        await model.runBoundedCoachSelfTestForTesting()
+                        await model.assistant.runBoundedCoachSelfTestForTesting()
                     }
                     #endif
                 }

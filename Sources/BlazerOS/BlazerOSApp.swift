@@ -36,7 +36,7 @@ struct BlazerOSMain: App {
                 .task {
                     #if DEBUG
                     if ProcessInfo.processInfo.environment["BLAZER_FM_COACH_SELFTEST"] == "1" {
-                        await model.runBoundedCoachSelfTestForTesting()
+                        await model.assistant.runBoundedCoachSelfTestForTesting()
                     }
                     #endif
                 }

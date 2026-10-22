@@ -75,12 +75,25 @@ public enum AssistantValidation {
         return values
     }
 
+    /// Engine decisions appear as `TAP HIGH` / `TAP LOW` in the sealed record, while guided
+    /// generation has historically described them as `CALL` / `PUT`. Validation compares the
+    /// direction, not the vocabulary; anything unrecognised stays as-is and therefore fails.
+    public static func canonicalDecision(_ raw: String) -> String {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        switch value {
+        case "CALL", "HIGH", "TAP HIGH", "BUY", "LONG": return "TAP HIGH"
+        case "PUT", "LOW", "TAP LOW", "SELL", "SHORT": return "TAP LOW"
+        case "WAIT", "HOLD", "NONE", "NO TRADE", "NO-TRADE": return "WAIT"
+        default: return value
+        }
+    }
+
     public static func validate(
         _ explanation: ScanExplanation,
         against scan: ScanRecordContext
     ) -> [String] {
         var issues: [String] = []
-        if explanation.decision.uppercased() != scan.engineCall.uppercased() {
+        if canonicalDecision(explanation.decision) != canonicalDecision(scan.engineCall) {
             issues.append("decision \(explanation.decision) does not match sealed \(scan.engineCall)")
         }
         if explanation.score != scan.score {

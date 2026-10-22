@@ -63,6 +63,8 @@ public actor DeskAssistant {
         \(AssistantPrompts.preamble)
 
         Explain this EXACT frozen scan. The decision and score are authoritative; restate them.
+        The sealed decision is \(scan.engineCall) and the sealed score is \(scan.score).
+        Restate both exactly; never translate the decision into CALL or PUT.
         Use only evidence lines present in the record. If evidence is missing, say so.
         Do not output any other numbers, prices, probabilities, or performance claims.
         The 8-second action window is the only timing contract.

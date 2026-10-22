@@ -5,26 +5,32 @@ import SwiftUI
 /// deterministic record; the model only narrates it.
 struct CoachAssistantPanel: View {
     @ObservedObject var model: LightningDeskModel
+    @ObservedObject private var assistant: AssistantSession
     @State private var question = ""
     @State private var reflection = ""
     @State private var saveMessage: String?
+
+    init(model: LightningDeskModel) {
+        self._model = ObservedObject(wrappedValue: model)
+        self._assistant = ObservedObject(wrappedValue: model.assistant)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
             actions
             questionBox
-            if let error = model.assistantError {
+            if let error = assistant.error {
                 Text(error)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(DeskInk.coral)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if let answer = model.assistantAnswer { answerCard(answer) }
-            if let explanation = model.assistantScanExplanation { explanationCard(explanation) }
-            if let debrief = model.assistantDebrief { debriefCard(debrief) }
-            if let comparison = model.assistantComparison { comparisonCard(comparison) }
-            if !model.assistantResearch.isEmpty { researchCard }
+            if let answer = assistant.answer { answerCard(answer) }
+            if let explanation = assistant.scanExplanation { explanationCard(explanation) }
+            if let debrief = assistant.debrief { debriefCard(debrief) }
+            if let comparison = assistant.comparison { comparisonCard(comparison) }
+            if !assistant.research.isEmpty { researchCard }
             journalDraftCard
         }
         .padding(16)
@@ -34,7 +40,7 @@ struct CoachAssistantPanel: View {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .strokeBorder(DeskInk.violet.opacity(0.22), lineWidth: 0.6)
         )
-        .task { await model.refreshAssistantAvailability() }
+        .task { await assistant.refreshAvailability() }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("On-device assistant")
     }
@@ -42,9 +48,9 @@ struct CoachAssistantPanel: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Image(systemName: model.assistantAvailability.isReady ? "apple.intelligence" : "text.bubble")
+                Image(systemName: assistant.availability.isReady ? "apple.intelligence" : "text.bubble")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(model.assistantAvailability.isReady ? DeskInk.emerald : DeskInk.slate)
+                    .foregroundStyle(assistant.availability.isReady ? DeskInk.emerald : DeskInk.slate)
                 Text("On-Device Assistant")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(DeskInk.ink)
@@ -56,16 +62,19 @@ struct CoachAssistantPanel: View {
                     .padding(.horizontal, 7)
                     .padding(.vertical, 3)
                     .background(originColor.opacity(0.12), in: Capsule())
-                Toggle("", isOn: $model.assistantEnabled)
+                Toggle("", isOn: Binding(
+                    get: { assistant.enabled },
+                    set: { assistant.enabled = $0 }
+                ))
                     .labelsHidden()
                     .tint(DeskInk.violet)
                     .accessibilityLabel("Enable on-device assistant")
             }
-            Text(model.assistantAvailability.detail)
+            Text(assistant.availability.detail)
                 .font(.system(size: 11, weight: .regular))
                 .foregroundStyle(DeskInk.slate)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(model.assistantRequestState?.label ?? model.assistantStatus.label)
+            Text(assistant.requestState?.label ?? assistant.status.label)
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(DeskInk.slate.opacity(0.85))
         }
@@ -74,10 +83,10 @@ struct CoachAssistantPanel: View {
     private var actions: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                action("Explain latest", "sparkles") { await model.explainLatestScan() }
-                action("Debrief", "list.bullet.rectangle") { await model.requestSessionDebrief() }
-                action("Compare scans", "rectangle.on.rectangle") { await model.compareLatestScans() }
-                action("Research ideas", "flask") { await model.requestResearchSuggestions() }
+                action("Explain latest", "sparkles") { await assistant.explainLatestScan() }
+                action("Debrief", "list.bullet.rectangle") { await assistant.requestDebrief() }
+                action("Compare scans", "rectangle.on.rectangle") { await assistant.compareLatestScans() }
+                action("Research ideas", "flask") { await assistant.requestResearchSuggestions() }
             }
         }
     }
@@ -101,7 +110,7 @@ struct CoachAssistantPanel: View {
                     .foregroundStyle(question.trimmingCharacters(in: .whitespaces).isEmpty ? DeskInk.slate : DeskInk.electric)
             }
             .buttonStyle(.plain)
-            .disabled(question.trimmingCharacters(in: .whitespaces).isEmpty || !model.assistantEnabled)
+            .disabled(question.trimmingCharacters(in: .whitespaces).isEmpty || !assistant.enabled)
             .accessibilityLabel("Ask the on-device coach")
         }
     }
@@ -217,7 +226,7 @@ struct CoachAssistantPanel: View {
 
     private var researchCard: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ForEach(model.assistantResearch) { suggestion in
+            ForEach(assistant.research) { suggestion in
                 VStack(alignment: .leading, spacing: 3) {
                     Text(suggestion.title)
                         .font(.system(size: 12, weight: .semibold))
@@ -249,12 +258,12 @@ struct CoachAssistantPanel: View {
                 .background(Color.black.opacity(0.18), in: RoundedRectangle(cornerRadius: 10))
             HStack {
                 Button("Draft annotations") {
-                    Task { await model.draftJournalNote(reflection) }
+                    Task { await assistant.draftJournalNote(reflection) }
                 }
                 .buttonStyle(.bordered)
                 .disabled(reflection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 Spacer()
-                if let draft = model.assistantJournalDraft {
+                if let draft = assistant.journalDraft {
                     Button("Save to latest entry") {
                         Task {
                             if let id = model.journal.first?.id {
@@ -266,7 +275,7 @@ struct CoachAssistantPanel: View {
                     .buttonStyle(.borderedProminent)
                 }
             }
-            if let draft = model.assistantJournalDraft {
+            if let draft = assistant.journalDraft {
                 Text(draft.summary)
                     .font(.system(size: 12))
                     .foregroundStyle(DeskInk.ink)
@@ -320,33 +329,33 @@ struct CoachAssistantPanel: View {
             .background(DeskInk.electric.opacity(0.1), in: Capsule())
         }
         .buttonStyle(.plain)
-        .disabled(isGenerating || !model.assistantEnabled)
+        .disabled(isGenerating || !assistant.enabled)
     }
 
     private var isGenerating: Bool {
-        if case .generating = model.assistantStatus { return true }
+        if case .generating = assistant.status { return true }
         return false
     }
 
     private func ask() {
         let text = question
         question = ""
-        Task { await model.askAssistant(text) }
+        Task { await assistant.ask(text) }
     }
 
     private var originLabel: String {
-        switch model.assistantOrigin {
+        switch assistant.origin {
         case .appleOnDevice: return "APPLE ON-DEVICE"
         case .deterministicFallback: return "BASIC FALLBACK"
-        case nil: return model.assistantAvailability.isReady ? "READY" : "BASIC FALLBACK"
+        case nil: return assistant.availability.isReady ? "READY" : "BASIC FALLBACK"
         }
     }
 
     private var originColor: Color {
-        switch model.assistantOrigin {
+        switch assistant.origin {
         case .appleOnDevice: return DeskInk.emerald
         case .deterministicFallback: return DeskInk.violet
-        case nil: return model.assistantAvailability.isReady ? DeskInk.slate : DeskInk.violet
+        case nil: return assistant.availability.isReady ? DeskInk.slate : DeskInk.violet
         }
     }
 }

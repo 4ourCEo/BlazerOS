@@ -28,7 +28,9 @@ private func sampleScan(
         expirySeconds: 60,
         isActionable: actionable,
         blockingReason: blocking,
-        recordedVerb: actionable ? "TAP HIGH" : "WAIT"
+        // Must agree with engineCall. A hardcoded TAP HIGH here made the fixture contradict
+        // itself and sent the real model the wrong direction.
+        recordedVerb: actionable ? AssistantValidation.canonicalDecision(call) : "WAIT"
     )
 }
 
@@ -635,6 +637,40 @@ private struct BudgetEngine: OnDeviceModelEngine {
         #expect(result.value.decision == "WAIT")
         #expect(result.value.score == 44)
         #expect(result.diagnostic.validationIssues.isEmpty || result.origin == .deterministicFallback)
+    }
+    #endif
+}
+
+@Test func realAppleOnDeviceAcceptsAnActionableLowDecision() async throws {
+    #if canImport(FoundationModels)
+    if #available(macOS 26.0, iOS 26.0, *) {
+        let assistant = DeskAssistant.appleOnDevice()
+        let availability = await assistant.availability()
+        guard availability == .ready else {
+            return // No on-device model in this environment; recorded in diagnostics.
+        }
+        // Production records store TAP LOW, not PUT. This is the exact shape that used to
+        // fail validation because the generation guide named a different vocabulary.
+        let scan = sampleScan(
+            call: "TAP LOW",
+            score: 96,
+            evidence: "Trend is down (-18) · Broke the prior low (-16) · Fall is extended (-12)",
+            actionable: true
+        )
+        let result = await assistant.explainScan(
+            scan,
+            context: sampleContext(scan: scan),
+            timeout: 30
+        )
+        print("FM_ACTIONABLE origin=\(result.origin.rawValue) decision=\(result.value.decision) score=\(result.value.score) issues=\(result.diagnostic.validationIssues)")
+
+        // Whether the model answers or the service falls back, the sealed direction and score
+        // must survive. A model answer is only allowed through when it validates cleanly.
+        #expect(AssistantValidation.canonicalDecision(result.value.decision) == "TAP LOW")
+        #expect(result.value.score == 96)
+        if result.origin == .appleOnDevice {
+            #expect(result.diagnostic.validationIssues.isEmpty)
+        }
     }
     #endif
 }

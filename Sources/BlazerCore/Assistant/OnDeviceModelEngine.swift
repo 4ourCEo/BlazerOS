@@ -178,7 +178,7 @@ public struct SystemModelEngine: OnDeviceModelEngine {
 struct GeneratedScanExplanation: Codable, Sendable {
     @Guide(description: "One or two sentences explaining the sealed decision. Do not include any numbers.")
     var summary: String
-    @Guide(description: "Must exactly equal the sealed decision: CALL, PUT, or WAIT.")
+    @Guide(description: "Must exactly equal the sealed decision shown in the record: TAP HIGH, TAP LOW, or WAIT.")
     var decision: String
     @Guide(description: "Must exactly equal the sealed engine score.")
     var score: Int
