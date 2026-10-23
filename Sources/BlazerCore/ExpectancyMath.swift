@@ -49,14 +49,15 @@ public enum ExpectancyMath: Sendable {
         fraction: Double = 0.25,
         maxRiskCeiling: Double = maxAccountRiskCeiling
     ) -> Double {
-        guard bankroll.isFinite, bankroll > 0, fraction.isFinite, (0...1).contains(fraction),
-              maxRiskCeiling.isFinite, (0...maxAccountRiskCeiling).contains(maxRiskCeiling) else { return 0.0 }
+        guard bankroll.isFinite, bankroll > 0, fraction.isFinite, fraction >= 0,
+              maxRiskCeiling.isFinite, maxRiskCeiling >= 0 else { return 0.0 }
         let kelly = fullKellyFraction(winRate: winRate, payoutRatio: payoutRatio)
         guard kelly > 0 else { return 0.0 } // Negative or zero EV -> Flat is a position
 
         let fractionalKelly = kelly * fraction
         let effectiveRisk = min(fractionalKelly, maxRiskCeiling)
-        return bankroll * effectiveRisk
+        let result = bankroll * effectiveRisk
+        return result.isFinite ? result : 0
     }
 
     /// Market posture recommendation derived directly from mathematical edge.

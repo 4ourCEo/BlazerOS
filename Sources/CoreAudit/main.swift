@@ -65,6 +65,10 @@ struct CoreAudit {
         check("clock boundary does not split correlated block", block.blocks == 1 && block.effectiveSize == 1)
         check("extreme clustering timestamp does not trap", EvidenceClustering.adjust([.init(pair: "EUR/USD", capturedAtMs: .greatestFiniteMagnitude, won: true)]).effectiveSize == 1)
         check("infinite bankroll fails closed", ExpectancyMath.recommendedStake(bankroll: .infinity, winRate: 0.9) == 0)
+        check("numeric guards preserve configured risk ceiling", ExpectancyMath.recommendedStake(bankroll: 10_000,
+            winRate: 0.65, payoutRatio: 0.88, fraction: 0.25, maxRiskCeiling: 0.05) == 500)
+        check("sizing arithmetic overflow fails closed", ExpectancyMath.recommendedStake(bankroll: 1e300,
+            winRate: 1, payoutRatio: 0.88, fraction: 1e300, maxRiskCeiling: 1e300) == 0)
         check("invalid Wilson wins fail closed", EdgeEvidence.wilsonScoreInterval(wins: 11, total: 10).lower == 0)
         do {
             let cutoff = Date(timeIntervalSince1970: 1_800_000_000)
@@ -77,6 +81,10 @@ struct CoreAudit {
             let report = try ExecutionIntelligence.report(rows: rows, asOf: cutoff)
             check("payout follows actual winning row", abs((report.actualExpectancy ?? 1) + 0.45) < 1e-12)
             check("ledger payout matches actual winning row", abs(LedgerStatsEngine.evaluate(pair: "EUR/USD", rows: rows).expectancy + 0.45) < 1e-12)
+            let aboveOne = [row(0, won: true, payout: 1.2), row(1, won: false, payout: 1.2)]
+            let aboveOneReport = try ExecutionIntelligence.report(rows: aboveOne, asOf: cutoff)
+            check("recorded net payouts above one remain supported", abs((aboveOneReport.actualExpectancy ?? -1) - 0.1) < 1e-12
+                && abs(LedgerStatsEngine.evaluate(pair: "EUR/USD", rows: aboveOne).expectancy - 0.1) < 1e-12)
             check("missing payout never imputed as actual", try ExecutionIntelligence.report(rows: [row(0, won: true, payout: nil)], asOf: cutoff).actualExpectancy == nil)
             check("report input order is reproducible", report == (try ExecutionIntelligence.report(rows: rows.reversed(), asOf: cutoff)))
             check("duplicate arms excluded", try ExecutionIntelligence.report(rows: [rows[0], rows[0]], asOf: cutoff).resolved == 0)

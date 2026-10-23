@@ -118,3 +118,11 @@ private func executionRow(_ id: Int, won: Bool, payout: Double? = 0.88, source: 
     let synthetic = try ExecutionIntelligence.report(rows: [row], references: [reference(1, source: "synthetic")], asOf: cutoff)
     #expect(synthetic.quality.referenceComparisons == 0)
 }
+
+@Test func actualPayoutRatioHasNoInventedOneHundredPercentCeiling() throws {
+    let rows = [executionRow(0, won: true, payout: 1.2), executionRow(1, won: false, payout: 1.2)]
+    let report = try ExecutionIntelligence.report(rows: rows, asOf: cutoff)
+    #expect(report.payoutCoverage == 2)
+    #expect(abs(report.actualExpectancy! - 0.1) < 1e-12)
+    #expect(abs(LedgerStatsEngine.evaluate(pair: "EUR/USD", rows: rows).expectancy - 0.1) < 1e-12)
+}

@@ -58,16 +58,16 @@ public struct PairEdgeStats: Sendable, Equatable {
         self.referenceSampleSize = referenceSampleSize
         self.referenceWins = referenceWins
 
-        let fallbackPayout = payoutRatio.isFinite && payoutRatio > 0 && payoutRatio <= 1 ? payoutRatio : 0.88
+        let fallbackPayout = payoutRatio.isFinite && payoutRatio > 0 && payoutRatio <= 1e100 ? payoutRatio : 0.88
         // Resolve the payout that each resolved row actually paid.
         let resolvedPayouts: [Double]
         let recordedCount: Int
         if let perRowPayouts, perRowPayouts.count == sampleSize, sampleSize > 0 {
             resolvedPayouts = perRowPayouts.map { value in
-                guard let value, value.isFinite, value > 0, value <= 1 else { return fallbackPayout }
+                guard let value, value.isFinite, value > 0, value <= 1e100 else { return fallbackPayout }
                 return value
             }
-            recordedCount = perRowPayouts.compactMap { $0 }.filter { $0.isFinite && $0 > 0 && $0 <= 1 }.count
+            recordedCount = perRowPayouts.compactMap { $0 }.filter { $0.isFinite && $0 > 0 && $0 <= 1e100 }.count
         } else {
             resolvedPayouts = []
             recordedCount = 0

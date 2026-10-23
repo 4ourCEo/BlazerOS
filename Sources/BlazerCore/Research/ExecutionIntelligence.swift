@@ -135,7 +135,7 @@ public enum ExecutionIntelligence {
         return finite.reduce(0) { $0 + $1 / Double(finite.count) }
     }
     private static func validPayout(_ value: Double?) -> Double? {
-        guard let value, value.isFinite, value > 0, value <= 1 else { return nil }
+        guard let value, value.isFinite, value > 0, value <= 1e100 else { return nil }
         return value
     }
     /// Strict read-only loader shared by both report commands. Corruption aborts export.
