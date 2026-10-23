@@ -164,7 +164,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				B20000000000000000000005 /* BlazerCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -309,9 +308,6 @@
 				G10000000000000000000004 /* Intents */,
 			);
 			name = BlazerIntents;
-			packageProductDependencies = (
-				D20000000000000000000004 /* BlazerCore */,
-			);
 			productName = BlazerIntents;
 			productReference = F10000000000000000000004 /* BlazerIntents.framework */;
 			productType = "com.apple.product-type.framework";
