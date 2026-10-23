@@ -126,3 +126,29 @@ private func executionRow(_ id: Int, won: Bool, payout: Double? = 0.88, source: 
     #expect(abs(report.actualExpectancy! - 0.1) < 1e-12)
     #expect(abs(LedgerStatsEngine.evaluate(pair: "EUR/USD", rows: rows).expectancy - 0.1) < 1e-12)
 }
+
+@Test func pairIntervalsRespectExpiryOverlapAndMissingEntryTimes() {
+    var first = executionRow(0, won: true)
+    var second = executionRow(1, won: true)
+    first.horizonSeconds = 300; second.horizonSeconds = 300
+    let stats = LedgerStatsEngine.evaluate(pair: "EUR/USD", rows: [first, second])
+    let nominal = EdgeEvidence.wilsonScoreInterval(wins: 2, total: 2)
+    #expect(stats.lower95 < nominal.lower)
+    first.enteredAt = nil
+    let incomplete = LedgerStatsEngine.evaluate(pair: "EUR/USD", rows: [first, second])
+    #expect(incomplete.lower95 == 0)
+    #expect(incomplete.upper95 == 1)
+    first.enteredAt = second.enteredAt
+    first.horizonSeconds = nil
+    let missingHorizon = LedgerStatsEngine.evaluate(pair: "EUR/USD", rows: [first, second])
+    #expect(missingHorizon.lower95 == 0 && missingHorizon.upper95 == 1)
+}
+
+@Test func pairEvidenceExcludesConflictingUnresolvedOrCrossPairArms() {
+    let first = executionRow(0, won: true)
+    var conflict = first
+    conflict.outcome = "UNRESOLVED"
+    #expect(LedgerStatsEngine.evaluate(pair: "EUR/USD", rows: [first, conflict]).sampleSize == 0)
+    conflict.outcome = "HIT"; conflict.pair = "GBP/USD"
+    #expect(LedgerStatsEngine.evaluate(pair: "EUR/USD", rows: [first, conflict]).sampleSize == 0)
+}

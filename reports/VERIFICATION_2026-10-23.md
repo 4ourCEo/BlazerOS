@@ -6,7 +6,7 @@ Host: arm64 macOS; active developer directory `/Library/Developer/CommandLineToo
 | --- | --- |
 | `scripts/check-engine-pin.sh` | PASS; main `7c02e550e2e6…`, control `1a1d264d44ee…` |
 | `scripts/check-intents-constants.sh` | PASS |
-| `swift run -c release -Xswiftc -DBLAZER_DISABLE_FOUNDATION_MODELS CoreAudit` | **52/52 PASS**, exit 0; numeric/domain/conversion, concurrency, payout matching, provenance, stable digest, chronology, corruption preservation and telemetry isolation checks |
+| `swift run -c release -Xswiftc -DBLAZER_DISABLE_FOUNDATION_MODELS CoreAudit` | **54/54 PASS**, exit 0; numeric/domain/conversion, concurrency, payout matching, provenance, stable digest, chronology, corruption preservation and telemetry isolation checks |
 | Same flags, `Parity` | **43/43 PASS**, exit 0; golden fingerprint and parity contract preserved |
 | Same flags, `Persist` | **59/59 PASS**, exit 0; persistence/recovery, measurement provenance and offline/CloudKit security checks |
 | `swift build --target BlazerCore -Xswiftc -DBLAZER_DISABLE_FOUNDATION_MODELS` | PASS on the earlier core checkpoint; final release CoreAudit also compiles final core and crypto dependencies |
@@ -33,3 +33,7 @@ CI now includes CoreAudit, Persist, Soak and iOS Release compilation in addition
 Final review preserved caller-supplied finite risk configurations and recorded net payouts above 100%; only invalid numerics and arithmetic overflow fail closed. Local CoreAudit now passes **52/52**, including the added configuration/payout cases. The draft PR's latest checks must validate this follow-up. Refer to [PR #10](https://github.com/4ourCEo/BlazerOS/pull/10) for final head and CI results. No physical-device/model-generation or venue-data evidence is inferred from CI.
 
 The report exporter was also verified for byte-identical repeat output, matching the committed empty-archive artifact, no source writes, and corrupt-input refusal with source preservation.
+
+[CI run #30](https://github.com/4ourCEo/BlazerOS/actions/runs/40015354999), head `4400c473160180d8acef377d562ede39168150f0`, passed **223/223 Swift tests**, full build, engine pins, parity 43/43, CoreAudit 52/52, Persist 59/59 and Soak 10/10. Xcode 26.6.0 passed iOS Debug, Release and **13/13 simulator tests** on iPhone 16e, including execution recovery, same-bars Mac seal parity and largest Dynamic Type layouts.
+
+The last uncertainty review then made pair intervals expiry-aware, withheld bounds when entry time or horizon is missing, and excluded duplicate arm IDs across unresolved/cross-pair rows. Local CoreAudit passes **54/54** with those cases. Latest PR checks validate this final core follow-up; prior-head CI results above remain explicitly scoped to their recorded SHAs.

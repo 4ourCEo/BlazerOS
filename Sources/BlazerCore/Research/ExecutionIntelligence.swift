@@ -174,7 +174,8 @@ public enum ExecutionIntelligence {
             return cohort.reduce(0.0) { $0 + ($1.outcome == "HIT" ? $1.payout! : -1) } / Double(cohort.count)
         }
         let clustered = EvidenceClustering.adjust(confirmed.compactMap { row in
-            guard let entered = row.enteredAt, entered <= asOf else { return nil }
+            guard let entered = row.enteredAt, entered <= asOf,
+                  let horizon = row.horizonSeconds, [60, 180, 300].contains(horizon) else { return nil }
             return ClusteredObservation(pair: row.pair, capturedAtMs: entered.timeIntervalSince1970 * 1000,
                                         won: row.outcome == "HIT")
         }, bucketMs: Double(max(60, confirmed.compactMap(\.horizonSeconds).max() ?? 60)) * 1000)

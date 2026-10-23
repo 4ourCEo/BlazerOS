@@ -46,7 +46,8 @@ public struct PairEdgeStats: Sendable, Equatable {
         /// Pass `nil` (or a count that does not match `sampleSize`) to score a flat payout.
         perRowPayouts: [Double?]? = nil,
         perRowWins: [Bool]? = nil,
-        observations: [ClusteredObservation]? = nil
+        observations: [ClusteredObservation]? = nil,
+        clusteringWindowMs: Double = EvidenceClustering.defaultBucketMs
     ) {
         let sampleSize = max(0, suppliedSampleSize)
         let wins = min(sampleSize, max(0, suppliedWins))
@@ -99,9 +100,10 @@ public struct PairEdgeStats: Sendable, Equatable {
             let wr = Double(wins) / Double(sampleSize)
             self.winRate = wr
             let (lower, upper) = EdgeEvidence.wilsonScoreInterval(wins: wins, total: sampleSize)
-            let clustered = observations.map { EvidenceClustering.adjust($0) }
-            self.lower95 = clustered?.lower95 ?? lower
-            self.upper95 = clustered?.upper95 ?? upper
+            let clustered = observations.map { EvidenceClustering.adjust($0, bucketMs: clusteringWindowMs) }
+            let completeTiming = clustered?.nominalSize == sampleSize
+            self.lower95 = completeTiming ? (clustered?.lower95 ?? 0) : 0
+            self.upper95 = completeTiming ? (clustered?.upper95 ?? 1) : 1
             // Equal stakes: a win returns `payout`, a loss returns -1.
             if let perRowWins, perRowWins.count == sampleSize, resolvedPayouts.count == sampleSize {
                 self.expectancy = zip(perRowWins, resolvedPayouts).reduce(0.0) {
@@ -182,9 +184,9 @@ public enum LedgerStatsEngine {
     /// - Parameter payoutRatio: Fallback only. A row's own `payout` is preferred, so a book
     ///   written at 80% is not scored against an assumed 88%.
     public static func evaluate(pair: String, rows: [LedgerRow], payoutRatio: Double = 0.88) -> PairEdgeStats {
-        let pairRows = rows.filter { $0.pair == pair && ($0.outcome == "HIT" || $0.outcome == "MISS") }
-        let unique = Dictionary(grouping: pairRows, by: \.outcomeEventID).values
+        let unique = Dictionary(grouping: rows, by: \.outcomeEventID).values
             .filter { $0.count == 1 }.compactMap(\.first)
+            .filter { $0.pair == pair && ($0.outcome == "HIT" || $0.outcome == "MISS") }
         let confirmed = unique.filter { $0.labelSource == "venue-confirmed" }
         let reference = unique.filter { $0.labelSource != "venue-confirmed" }
         let wins = confirmed.filter { $0.outcome == "HIT" }.count
@@ -201,11 +203,13 @@ public enum LedgerStatsEngine {
             referenceWins: referenceWins,
             perRowPayouts: confirmed.map(\.payout),
             perRowWins: confirmed.map { $0.outcome == "HIT" },
-            observations: confirmed.map {
-                ClusteredObservation(pair: $0.pair,
-                    capturedAtMs: ($0.enteredAt ?? $0.timestamp).timeIntervalSince1970 * 1000,
-                    won: $0.outcome == "HIT")
-            }
+            observations: confirmed.compactMap {
+                guard let entered = $0.enteredAt, let horizon = $0.horizonSeconds,
+                      [60, 180, 300].contains(horizon) else { return nil }
+                return ClusteredObservation(pair: $0.pair,
+                    capturedAtMs: entered.timeIntervalSince1970 * 1000, won: $0.outcome == "HIT")
+            },
+            clusteringWindowMs: Double(max(60, confirmed.compactMap(\.horizonSeconds).max() ?? 60)) * 1000
         )
     }
 

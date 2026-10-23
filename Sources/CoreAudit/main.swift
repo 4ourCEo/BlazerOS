@@ -81,13 +81,27 @@ struct CoreAudit {
             let report = try ExecutionIntelligence.report(rows: rows, asOf: cutoff)
             check("payout follows actual winning row", abs((report.actualExpectancy ?? 1) + 0.45) < 1e-12)
             check("ledger payout matches actual winning row", abs(LedgerStatsEngine.evaluate(pair: "EUR/USD", rows: rows).expectancy + 0.45) < 1e-12)
+            var overlap = rows
+            overlap[0].outcome = "HIT"; overlap[1].outcome = "HIT"
+            overlap[0].horizonSeconds = 300; overlap[1].horizonSeconds = 300
+            let overlapStats = LedgerStatsEngine.evaluate(pair: "EUR/USD", rows: overlap)
+            check("pair interval respects expiry overlap", overlapStats.lower95 < EdgeEvidence.wilsonScoreInterval(wins: 2, total: 2).lower)
+            overlap[0].enteredAt = nil
+            let missingTime = LedgerStatsEngine.evaluate(pair: "EUR/USD", rows: overlap)
+            overlap[0].enteredAt = rows[0].enteredAt
+            overlap[0].horizonSeconds = nil
+            let missingHorizon = LedgerStatsEngine.evaluate(pair: "EUR/USD", rows: overlap)
+            check("pair interval withheld without entry timing or horizon", missingTime.lower95 == 0 && missingTime.upper95 == 1
+                && missingHorizon.lower95 == 0 && missingHorizon.upper95 == 1)
             let aboveOne = [row(0, won: true, payout: 1.2), row(1, won: false, payout: 1.2)]
             let aboveOneReport = try ExecutionIntelligence.report(rows: aboveOne, asOf: cutoff)
             check("recorded net payouts above one remain supported", abs((aboveOneReport.actualExpectancy ?? -1) - 0.1) < 1e-12
                 && abs(LedgerStatsEngine.evaluate(pair: "EUR/USD", rows: aboveOne).expectancy - 0.1) < 1e-12)
             check("missing payout never imputed as actual", try ExecutionIntelligence.report(rows: [row(0, won: true, payout: nil)], asOf: cutoff).actualExpectancy == nil)
             check("report input order is reproducible", report == (try ExecutionIntelligence.report(rows: rows.reversed(), asOf: cutoff)))
-            check("duplicate arms excluded", try ExecutionIntelligence.report(rows: [rows[0], rows[0]], asOf: cutoff).resolved == 0)
+            var unresolvedDuplicate = rows[0]; unresolvedDuplicate.outcome = "UNRESOLVED"
+            check("duplicate arms excluded", try ExecutionIntelligence.report(rows: [rows[0], rows[0]], asOf: cutoff).resolved == 0
+                && LedgerStatsEngine.evaluate(pair: "EUR/USD", rows: [rows[0], unresolvedDuplicate]).sampleSize == 0)
             let book = (0..<300).map { row($0, won: $0 < 250, payout: 0.88) }
             check("nominal success cannot promote", !LedgerStatsEngine.evaluate(pair: "EUR/USD", rows: book).isProvenEdge)
             let context = AssistantContextBuilder.make(journal: [], ledgerRows: book, now: cutoff)
