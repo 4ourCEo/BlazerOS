@@ -32,7 +32,7 @@ public struct CompletedBar: Sendable, Equatable {
     }
 }
 
-/// Fixed-capacity circular buffer of completed M1 bars. O(1) append.
+/// Fixed-capacity circular buffer of completed M1 bars. Timestamp replacement is O(n).
 public actor CompletedBarRing {
     private let capacity: Int
     private var slots: [CompletedBar?]
@@ -65,7 +65,8 @@ public actor CompletedBarRing {
     }
 
     /// Replace ring contents with a completed batch (one pair’s M1 history for SCAN).
-    /// Incomplete / invalid bars are dropped; duplicate timestamps keep the last row.
+    /// Legacy append-order API: caller supplies ascending timestamps. Invalid bars are
+    /// dropped and duplicate timestamps keep the last row. Scans use loadAndFetch instead.
     public func loadCompleted(_ bars: [CompletedBar]) {
         head = 0
         stored = 0
@@ -75,6 +76,16 @@ public actor CompletedBarRing {
         for bar in bars {
             _ = append(bar)
         }
+    }
+
+    /// One actor hop prevents a concurrent scan from replacing this scan's history.
+    /// Refuse truncation or reordered/invalid inputs: neither may silently change a scan.
+    public func loadAndFetch(_ bars: [CompletedBar]) -> [CompletedBar] {
+        guard bars.count <= capacity,
+              bars.allSatisfy({ $0.complete && $0.isFiniteOHLC }),
+              zip(bars, bars.dropFirst()).allSatisfy({ $0.time < $1.time }) else { return [] }
+        loadCompleted(bars)
+        return fetchLatestBars(count: bars.count)
     }
 
     /// Newest completed bars in time order.

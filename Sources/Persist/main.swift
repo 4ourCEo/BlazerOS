@@ -539,7 +539,7 @@ struct PersistCheck {
             }
 
             let statsEmpty = LedgerStatsEngine.evaluate(pair: "EUR/USD", rows: loaded)
-            results.check("stats engine marks missing calibration provenance", statsEmpty.statusBadge == "UNVERIFIED PRIOR" && statsEmpty.sampleSize == 0, statsEmpty.statusBadge)
+            results.check("stats engine marks missing calibration provenance", statsEmpty.statusBadge.contains("UNVERIFIED PRIOR") && statsEmpty.statusBadge.contains("INSUFFICIENT EVIDENCE") && statsEmpty.sampleSize == 0, statsEmpty.statusBadge)
 
             let statsGBP = LedgerStatsEngine.evaluate(pair: "GBP/USD", rows: loaded)
             results.check(

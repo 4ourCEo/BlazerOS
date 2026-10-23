@@ -48,12 +48,15 @@ public final class LightningDeskModel: ObservableObject {
             root: root.appendingPathComponent("Research", isDirectory: true)
                 .appendingPathComponent("oanda-proxy", isDirectory: true)
         )
+        executionObservationStore = ExecutionObservationStore(
+            root: root.appendingPathComponent("Research", isDirectory: true)
+                .appendingPathComponent("execution-quality", isDirectory: true))
         strikeStore = StrikeStore(url: root.appendingPathComponent("strike_positions.json"))
         let diagnosticsURL = root.appendingPathComponent("model_diagnostics.jsonl")
         assistant = AssistantSession(diagnosticsURL: diagnosticsURL)
         assistant.contextProvider = { [weak self] in
             guard let self else { return .empty }
-            return AssistantContextBuilder.make(journal: self.storedJournal, ledgerRows: self.ledgerRows)
+            return AssistantContextBuilder.make(journal: self.storedJournal, ledgerRows: self.ledgerRows, observations: self.executionObservations)
         }
     }
     @Published public var pair: String = "EUR/USD"
@@ -387,6 +390,24 @@ public final class LightningDeskModel: ObservableObject {
     }
 
     private let persistence: PersistenceCoordinator
+    private let executionObservationStore: ExecutionObservationStore
+    @Published public private(set) var executionObservations: [ExecutionObservation] = []
+    @Published public private(set) var executionObservationIssue: String?
+    @Published public private(set) var edgeVerificationReport: EdgeVerificationReport?
+    private func refreshExecutionIntelligence() {
+        do {
+            edgeVerificationReport = try ExecutionIntelligence.report(rows: ledgerRows, journal: storedJournal,
+                observations: executionObservations, references: referenceOutcomes, asOf: Date())
+        } catch { executionObservationIssue = "Evidence report unavailable: \(error.localizedDescription)" }
+    }
+    private func saveExecutionObservation(_ observation: ExecutionObservation) async {
+        do {
+            try await executionObservationStore.record(observation)
+            executionObservations = try await executionObservationStore.load()
+            refreshExecutionIntelligence()
+        } catch { executionObservationIssue = "Execution-quality archive unavailable: \(error.localizedDescription)" }
+    }
+
     private let referenceStore: ReferenceOutcomeStore
     private var session: OandaSession?
     private var armID: String?
@@ -1435,6 +1456,10 @@ public final class LightningDeskModel: ObservableObject {
             if let failure = DeskEntryGate.veto(context) {
                 entryIssue = Self.message(for: failure)
                 DeskHaptics.veto()
+                if let commit, let armID {
+                    await saveExecutionObservation(ExecutionObservation(armID: armID, commit: commit,
+                        quote: quote, kind: "rejected", reason: Self.message(for: failure), regime: selectedSignal?.features?.regime))
+                }
                 return
             }
         }
@@ -1501,6 +1526,8 @@ public final class LightningDeskModel: ObservableObject {
             DeskHaptics.veto()
             return
         }
+        let entryObservation = ExecutionObservation(armID: tradeID, commit: commit,
+            quote: liveQuote, kind: "manual-entry", regime: selectedSignal.features?.regime, now: enteredAt)
         activeTrade = trade
         activeTradeQuote = liveQuote
         pendingTrade = trade
@@ -1509,6 +1536,7 @@ public final class LightningDeskModel: ObservableObject {
         entryIssue = nil
         DeskHaptics.tradeLocked()
         publishFrame()
+        await saveExecutionObservation(entryObservation)
     }
 
     /// True when a signal still exists but the eight-second action window has closed, so the
@@ -1953,6 +1981,9 @@ public final class LightningDeskModel: ObservableObject {
             replay($0, bars: restored.bars(for: $0.fullFingerprint ?? $0.fingerprint))
         }
         referenceOutcomes = await referenceStore.outcomes()
+        do { executionObservations = try await executionObservationStore.load() }
+        catch { executionObservationIssue = "Execution-quality archive unavailable: \(error.localizedDescription)" }
+        refreshExecutionIntelligence()
         for entry in journal {
             if candlesByAsset[entry.pair] == nil && !entry.candles.isEmpty {
                 candlesByAsset[entry.pair] = entry.candles

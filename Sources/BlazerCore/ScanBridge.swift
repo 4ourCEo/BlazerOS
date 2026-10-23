@@ -491,6 +491,11 @@ public enum StrategyEngine {
                 throw ScanError.contract("confidence \(confidence) outside 0...100")
             }
         }
+        if let opportunity = signal.opportunity {
+            guard opportunity.isFinite, (0.0...100.0).contains(opportunity) else {
+                throw ScanError.contract("opportunity \(opportunity) outside 0...100")
+            }
+        }
         if let direction = signal.directionScore {
             guard direction.isFinite, (-0.001...100.001).contains(direction) else {
                 throw ScanError.contract("directionScore \(direction) outside 0...100")

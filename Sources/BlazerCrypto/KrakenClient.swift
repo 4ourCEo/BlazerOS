@@ -58,31 +58,9 @@ public enum KrakenClient {
         // Kraken includes the current in-progress candle as the last row
         let completedRows = rows.dropLast(1)
 
-        let candles: [CryptoCandle] = completedRows.compactMap { row in
-            guard row.count >= 8,
-                  let timeSec = (row[0] as? NSNumber).map(\.doubleValue),
-                  let open    = Double("\(row[1])"),
-                  let high    = Double("\(row[2])"),
-                  let low     = Double("\(row[3])"),
-                  let close   = Double("\(row[4])"),
-                  let vwap    = Double("\(row[5])"),
-                  let vol     = Double("\(row[6])"),
-                  let count   = (row[7] as? NSNumber).map(\.doubleValue)
-            else { return nil }
-
-            // Derive quoteVolume: base vol × vwap price ≈ USDT volume
-            let quoteVol = vol * vwap
-
-            return CryptoCandle(
-                time:        timeSec * 1000,  // Kraken → ms
-                open:        open,
-                high:        high,
-                low:         low,
-                close:       close,
-                volume:      vol,
-                quoteVolume: quoteVol,
-                trades:      Int(count)
-            )
+        let candles = completedRows.compactMap { CryptoCandle.fromKraken(row: $0) }
+        guard candles.count == completedRows.count else {
+            throw CTFeedError.decodingError("Invalid completed Kraken candle")
         }
 
         guard candles.count >= 60 else {
@@ -106,7 +84,7 @@ public enum KrakenClient {
            let askArr       = ticker["a"] as? [Any], let askStr = askArr.first as? String,
            let realBid      = Double(bidStr),
            let realAsk      = Double(askStr),
-           realAsk > realBid
+           CryptoCandle.isValidQuote(bid: realBid, ask: realAsk)
         {
             bid = realBid
             ask = realAsk
@@ -138,7 +116,7 @@ public enum KrakenClient {
               let askArr     = ticker["a"] as? [Any], let askStr = askArr.first as? String,
               let bid        = Double(bidStr),
               let ask        = Double(askStr),
-              ask > bid
+              CryptoCandle.isValidQuote(bid: bid, ask: ask)
         else { return nil }
 
         return LiveQuote(

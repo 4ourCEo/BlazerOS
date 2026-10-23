@@ -4,6 +4,8 @@ import LightningDesk
 
 struct Options {
     var synthetic = false
+    var edgeReport = false
+    var asOf: Date?
     var stats = false
     var replay = false
     var continuous = false
@@ -23,6 +25,7 @@ struct Options {
             switch arg {
             case "--help", "-h": help = true
             case "--benchmark", "-b": synthetic = true
+            case "--edge-report": edgeReport = true
             case "--stats", "-s": stats = true
             case "--bootstrap": stats = true; bootstrap = true
             case "--experiment": experiment = true
@@ -31,10 +34,16 @@ struct Options {
             case "--daemon", "-d": daemon = true; continuous = true; primeOnly = true
             case "--prime-only", "--smart-schedule": primeOnly = true
             case "--all-policies": policies = ["control"] + ScanPolicy.allCases.map(\.rawValue)
-            case "--root", "--policy", "--max-events":
+            case "--root", "--policy", "--max-events", "--as-of":
                 index += 1
                 guard index < arguments.count else { throw ScanError.failed("Missing value for \(arg)") }
                 let value = arguments[index]
+                if arg == "--as-of" {
+                    guard let seconds = Double(value), seconds.isFinite, seconds >= 0, seconds < 253_402_300_800 else {
+                        throw ScanError.failed("Invalid report cutoff (Unix seconds)")
+                    }
+                    asOf = Date(timeIntervalSince1970: seconds)
+                }
                 if arg == "--root" { root = URL(fileURLWithPath: value, isDirectory: true) }
                 if arg == "--policy" {
                     guard value == "control" || ScanPolicy(rawValue: value) != nil else { throw ScanError.failed("Unknown policy \(value)") }
@@ -250,26 +259,72 @@ final class ResearchRunner {
         print("Replayed \(matches) frozen events with matching side, conviction, evidence and veto narrative.")
     }
 
+    func printEdgeReport() async throws {
+        guard let archiveRoot = options.root, let cutoff = options.asOf else {
+            throw ScanError.failed("--edge-report requires --root (desk storage) and --as-of (Unix seconds) for reproducibility")
+        }
+        let report = try await ExecutionIntelligence.loadReport(root: archiveRoot, asOf: cutoff)
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        print(String(decoding: try encoder.encode(report), as: UTF8.self))
+    }
+
     func runExperiment() async throws {
         let events = try await store.events()
         let outcomes = try await store.outcomes()
+
         for policy in options.policies {
             let engine = policy == "control" ? StrategyEngine.controlSHA1 : (EngineIdentity.loadedSHA1() ?? "unverified")
-            let experiment = ResearchExperiment(
-                name: "chronological \(policy) evaluation",
-                policy: policy,
-                engineSHA: engine,
-                acceptanceCriteria: "Held-out cohort has positive assumed-payout expectancy with a lower Wilson bound above 50% after at least 30 resolved outcomes.",
-                rejectionCriteria: "Held-out cohort has non-positive expectancy or its lower Wilson bound remains below 50%.",
-                notes: "Generated locally. No live activation."
-            )
-            try await store.record(experiment)
+
+            // Quote the payout the archive actually recorded, not a hard-coded 88%. When the
+            // archive is mixed, the lowest rate is the one promotion must clear.
+            let policyEvents = events.filter {
+                ($0.signal.policy ?? ScanPolicy.baseline.rawValue) == policy && $0.engineSHA == engine
+            }
+            let payouts = policyEvents.map(\.assumedPayout).filter { $0.isFinite && $0 > 0 }
+            let meanPayout = payouts.isEmpty
+                ? EntryQuality.assumedPayout
+                : payouts.reduce(0, +) / Double(payouts.count)
+            let minimumPayout = payouts.min() ?? EntryQuality.assumedPayout
+            let breakEven = 1.0 / (1.0 + minimumPayout)
+            let breakEvenText = String(format: "%.2f", breakEven * 100)
+            let payoutText = String(format: "%.1f", minimumPayout * 100)
+
+            // Reuse the first experiment for this policy/engine so its held-out boundary
+            // stays frozen. Creating a new record every run silently re-uses the holdout.
+            let stored = try await store.experiments()
+            let experiment: ResearchExperiment
+            if let existing = stored.first(where: {
+                $0.policy == policy && $0.engineSHA == engine && $0.hasFrozenHoldout
+            }) {
+                experiment = existing
+            } else {
+                let splitAt = ResearchEvaluator.splitDate(
+                    events: events, policy: policy, engineSHA: engine, splitFraction: 0.7
+                )
+                experiment = ResearchExperiment(
+                    name: "chronological \(policy) evaluation",
+                    policy: policy,
+                    engineSHA: engine,
+                    splitAt: splitAt,
+                    payoutRatio: meanPayout,
+                    acceptanceCriteria: "Held-out cohort has positive expectancy and a cluster-adjusted lower Wilson bound above the \(breakEvenText)% break-even implied by the lowest recorded payout (\(payoutText)%), after at least 250 independent clustered events, prospective registration and venue confirmation.",
+                    rejectionCriteria: "Held-out cohort has non-positive expectancy, fewer than 250 independent clustered events, or a cluster-adjusted lower Wilson bound at or below the \(breakEvenText)% break-even.",
+                    notes: "Generated locally. No live activation. Retrospective split is exploratory. Proxy/synthetic outcomes never establish venue edge. Independent validation and authorization required."
+                )
+                try await store.record(experiment)
+            }
+
             let report = ResearchEvaluator.evaluate(experiment: experiment, events: events, outcomes: outcomes)
             try await store.record(report)
+
+            print("EXPERIMENT \(policy): splitFrozen=\(report.isHoldoutFrozen) breakEven=\(String(format: "%.2f%%", (report.breakEvenWinRate ?? breakEven) * 100)) acceptance=\(report.acceptanceSatisfied ? "MET" : "NOT MET")")
             for cohort in [report.train, report.test] {
                 let rate = cohort.winRate.map { String(format: "%.1f%%", $0 * 100) } ?? "unavailable"
                 let ev = cohort.expectancy.map { String(format: "%+.4f", $0) } ?? "unavailable"
-                print("EXPERIMENT \(policy) \(cohort.label): n=\(cohort.resolved) H=\(cohort.highSignals) L=\(cohort.lowSignals) WAIT=\(cohort.waitSignals) accepted=\(cohort.acceptedEntries)/\(cohort.candidates) WR=\(rate) EV88=\(ev) balanced=\(report.highLowBalanced)")
+                let blocks = cohort.blocks.map(String.init) ?? "·"
+                let nEff = cohort.effectiveSampleSize.map { String(format: "%.1f", $0) } ?? "·"
+                print("EXPERIMENT \(policy) \(cohort.label): n=\(cohort.resolved) blocks=\(blocks) nEff=\(nEff) H=\(cohort.highSignals) L=\(cohort.lowSignals) WAIT=\(cohort.waitSignals) accepted=\(cohort.acceptedEntries)/\(cohort.candidates) WR=\(rate) EV=\(ev) balanced=\(report.highLowBalanced)")
                 print("  \(cohort.caveat)")
             }
         }
@@ -320,10 +375,11 @@ struct ForwardTestApp {
         do {
             let options = try Options(Array(CommandLine.arguments.dropFirst()))
             if options.help {
-                print("ForwardTest [--benchmark | --stats | --bootstrap | --replay | --experiment] [--root PATH] [--policy baseline|continuation|reversal|regime|control | --all-policies] [--max-events N] [--prime-only] [--continuous | --daemon]")
+                print("ForwardTest [--edge-report --root DESK_PATH --as-of UNIX_SECONDS | --benchmark | --stats | --bootstrap | --replay | --experiment] [--root PATH] [--policy baseline|continuation|reversal|regime|control | --all-policies] [--max-events N] [--prime-only] [--continuous | --daemon]")
                 return
             }
             let runner = ResearchRunner(options: options)
+            if options.edgeReport { try await runner.printEdgeReport(); return }
             if options.experiment { try await runner.runExperiment(); return }
             if options.stats { try await runner.printStats(); return }
             if options.replay { try await runner.replay(); return }

@@ -1,0 +1,40 @@
+{
+  "asOf" : "2026-10-23T23:00:00Z",
+  "candidateBlocks" : 0,
+  "chronologicalCohorts" : [
+
+  ],
+  "cohorts" : [
+
+  ],
+  "duplicateOrConflictingIDs" : 0,
+  "effectiveSampleSize" : 0,
+  "excludedUnconfirmed" : 0,
+  "findings" : [
+
+  ],
+  "inputDigest" : "4c61b5aa8c4958ccb5c2ed09aaf18bdac7bb8c6df4096e203a855fd4d0f32318",
+  "limitations" : [
+    "250 nominal rows do not establish 250 independent prime-window basket events.",
+    "No resolved observations. No confidence interval is possible.",
+    "Actual expectancy requires recorded payouts for every resolved entry; missing payouts are never imputed here.",
+    "No registered prospective stopping rule, independently verified dependence model or independent validation supplied. No promotion is authorized.",
+    "Historical rows may lack entry telemetry, regime and policy metadata. Missingness and scan selection can bias results.",
+    "Timing measures scan-to-record latency, not venue fill latency. Reference disagreement is descriptive, not a counterfactual profit claim.",
+    "Market-window cohorts are not market regimes. Chronological, leakage-purged analysis is available separately through ResearchEvaluator; repeated holdout inspection remains exploratory."
+  ],
+  "payoutCoverage" : 0,
+  "quality" : {
+    "closedScansWithoutRecordedEntry" : 0,
+    "quoteCoverage" : 0,
+    "recordedEntries" : 0,
+    "referenceComparisons" : 0,
+    "referenceDisagreements" : 0,
+    "rejectedAttempts" : 0,
+    "timingCoverage" : 0
+  },
+  "resolved" : 0,
+  "schemaVersion" : "edge-verification-v1",
+  "status" : "INSUFFICIENT EVIDENCE",
+  "wins" : 0
+}

@@ -14,17 +14,18 @@ public enum ExpectancyMath: Sendable {
     /// Formula: BreakEven = 1 / (1 + payoutRatio)
     /// At 88% (0.88) payout: 1 / 1.88 ≈ 53.19%
     public static func breakEvenWinRate(payoutRatio: Double = standardPayout) -> Double {
-        guard payoutRatio > 0 else { return 1.0 }
+        guard payoutRatio.isFinite, payoutRatio > 0 else { return 1.0 }
         return 1.0 / (1.0 + payoutRatio)
     }
 
     /// Computes the net expected value (EV) per unit of risk for a given win rate and broker payout ratio.
     /// Formula: EV = (WinRate * Payout) - ((1 - WinRate) * 1.0)
     public static func expectedValue(winRate: Double, payoutRatio: Double = standardPayout, stake: Double = 1.0) -> Double {
-        guard winRate.isFinite, payoutRatio.isFinite, stake.isFinite else { return 0.0 }
+        guard winRate.isFinite, payoutRatio.isFinite, stake.isFinite, payoutRatio > 0, stake >= 0 else { return 0.0 }
         let clampedRate = max(0.0, min(1.0, winRate))
         let evPerUnit = (clampedRate * payoutRatio) - ((1.0 - clampedRate) * 1.0)
-        return evPerUnit * stake
+        let result = evPerUnit * stake
+        return result.isFinite ? result : 0
     }
 
     /// Full Kelly criterion fraction for fixed-payout binary contracts.
@@ -32,7 +33,7 @@ public enum ExpectancyMath: Sendable {
     /// where p is win rate and b is net payout ratio.
     /// Returns 0.0 if expectancy is non-positive (instructing the trader to stay flat).
     public static func fullKellyFraction(winRate: Double, payoutRatio: Double = standardPayout) -> Double {
-        guard payoutRatio > 0, winRate.isFinite else { return 0.0 }
+        guard payoutRatio.isFinite, payoutRatio > 0, winRate.isFinite else { return 0.0 }
         let ev = expectedValue(winRate: winRate, payoutRatio: payoutRatio)
         guard ev > 0 else { return 0.0 }
         return min(1.0, ev / payoutRatio)
@@ -48,7 +49,8 @@ public enum ExpectancyMath: Sendable {
         fraction: Double = 0.25,
         maxRiskCeiling: Double = maxAccountRiskCeiling
     ) -> Double {
-        guard bankroll > 0 else { return 0.0 }
+        guard bankroll.isFinite, bankroll > 0, fraction.isFinite, (0...1).contains(fraction),
+              maxRiskCeiling.isFinite, (0...maxAccountRiskCeiling).contains(maxRiskCeiling) else { return 0.0 }
         let kelly = fullKellyFraction(winRate: winRate, payoutRatio: payoutRatio)
         guard kelly > 0 else { return 0.0 } // Negative or zero EV -> Flat is a position
 
@@ -69,6 +71,7 @@ public enum ExpectancyMath: Sendable {
 
     /// Evaluates current trading posture from sample size and win rate.
     public static func evaluatePosture(wins: Int, sampleSize: Int, payoutRatio: Double = standardPayout) -> Posture {
+        guard wins >= 0, wins <= sampleSize, payoutRatio.isFinite, payoutRatio > 0 else { return .stayFlat }
         guard sampleSize >= 15 else { return .calibrating }
         let be = breakEvenWinRate(payoutRatio: payoutRatio)
         let wr = Double(wins) / Double(sampleSize)
@@ -103,7 +106,7 @@ public enum ExpectancyMath: Sendable {
         iterations: Int = 500,
         payoutRatio: Double = standardPayout
     ) -> BootstrapResult? {
-        guard sampleSize > 0, wins >= 0, wins <= sampleSize, iterations > 0 else { return nil }
+        guard sampleSize > 0, wins >= 0, wins <= sampleSize, iterations > 0, payoutRatio.isFinite, payoutRatio > 0 else { return nil }
         let observedRate = Double(wins) / Double(sampleSize)
         let be = breakEvenWinRate(payoutRatio: payoutRatio)
 

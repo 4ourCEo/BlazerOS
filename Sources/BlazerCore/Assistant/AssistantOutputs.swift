@@ -73,7 +73,7 @@ public struct CoachAnswer: Codable, Sendable, Equatable {
                 text = "There are no venue-confirmed outcomes yet, so no performance claim can be made."
             } else {
                 let rate = p.winRate.map { String(format: "%.1f%%", $0 * 100) } ?? "unavailable"
-                text = "Confirmed outcomes: \(p.wins) wins and \(p.losses) losses out of \(p.sampleSize). Descriptive win rate \(rate); assumed payout break-even \(String(format: "%.1f%%", p.breakEven * 100))."
+                text = "Confirmed outcomes: \(p.wins) wins and \(p.losses) losses out of \(p.sampleSize). Descriptive win rate \(rate); break-even \(String(format: "%.1f%%", p.breakEven * 100)) (\(p.payoutBasis ?? "assumed payout"))."
             }
         } else if lower.contains("low"), let latest,
                   AssistantValidation.canonicalDecision(latest.engineCall) == "TAP LOW" {

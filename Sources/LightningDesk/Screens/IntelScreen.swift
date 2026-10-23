@@ -23,6 +23,7 @@ public struct IntelScreen: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 16) {
                     currentStatusCard
+                    executionEvidenceCard
                     scheduleCards
                     notificationsSection
                     pairConvictionSection
@@ -40,6 +41,48 @@ public struct IntelScreen: View {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
         }
+    }
+
+    private var executionEvidenceCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("VERIFIED EDGE · EXECUTION QUALITY")
+                .font(.system(size: 11, weight: .bold))
+            Text(model.edgeVerificationReport?.status ?? "INSUFFICIENT EVIDENCE")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(DeskInk.electric)
+            if let report = model.edgeVerificationReport {
+                Text("Confirmed \(report.wins)/\(report.resolved) · Candidate blocks \(report.candidateBlocks) · Effective N \(String(format: "%.1f", report.effectiveSampleSize))")
+                    .font(.system(size: 11, design: .monospaced))
+                Text(report.actualExpectancy.map { "Recorded payout EV: \(String(format: "%+.4f", $0)) per unit risk" }
+                    ?? "Recorded payout EV unavailable · payout coverage \(report.payoutCoverage)/\(report.resolved)")
+                    .font(.system(size: 11))
+                Text(report.quality.meanScanToRecordMs.map { "Mean scan-to-record: \(String(format: "%.1f", $0 / 1000))s · timing records \(report.quality.timingCoverage)" }
+                    ?? "Entry timing unavailable for historical records")
+                    .font(.system(size: 11))
+                Text("Rejected attempts \(report.quality.rejectedAttempts) · Closed scans without recorded entry \(report.quality.closedScansWithoutRecordedEntry)")
+                    .font(.system(size: 11))
+                DisclosureGroup("Evidence quality and market / expiry breakdown") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Quote-age coverage: \(report.quality.quoteCoverage) · Reference disagreements: \(report.quality.referenceDisagreements)/\(report.quality.referenceComparisons)")
+                        ForEach(report.cohorts.prefix(8), id: \.key) { cohort in
+                            Text("\(cohort.key) · \(cohort.wins)/\(cohort.resolved) · " + (cohort.actualExpectancy.map { String(format: "EV %+.4f", $0) } ?? "payout incomplete"))
+                        }
+                        if let finding = report.findings.first {
+                            Text("Research finding: \(finding.hypothesis). \(finding.evidence) \(finding.limitation)")
+                        }
+                        Text("Block independence remains unverified. At least 250 independent clustered prime-window events across the six-asset basket and independent prospective validation are required. Recording time is not venue fill time.")
+                    }
+                    .font(.system(size: 10))
+                }
+            }
+            if let issue = model.executionObservationIssue {
+                Text(issue).font(.system(size: 11)).foregroundStyle(DeskInk.coral)
+            }
+        }
+        .foregroundStyle(DeskInk.slate)
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DeskInk.surface, in: RoundedRectangle(cornerRadius: 16))
     }
 
     // MARK: - Header
@@ -467,7 +510,7 @@ public struct IntelScreen: View {
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .foregroundStyle(DeskInk.slate)
                     Spacer()
-                    Text("95% CI: ±10–13%")
+                    Text("Intervals depend on local evidence")
                         .font(.system(size: 10, weight: .medium, design: .monospaced))
                         .foregroundStyle(DeskInk.slate.opacity(0.8))
                 }
@@ -491,7 +534,9 @@ public struct IntelScreen: View {
 
     private func dynamicConvictionRow(pair: String) -> some View {
         let stats = model.edgeStats(for: pair)
-        let ratePct = String(format: "%.1f%%", stats.winRate * 100)
+        let ratePct = stats.sampleSize > 0
+            ? String(format: "%.1f%% [%.1f–%.1f]", stats.winRate * 100, stats.lower95 * 100, stats.upper95 * 100)
+            : "unavailable"
         let isEdge = stats.isProvenEdge
         let isWarning = stats.statusBadge.contains("CHOP")
         let driftStr: String
@@ -499,14 +544,7 @@ public struct IntelScreen: View {
             let sign = avgDrift >= 0 ? "+" : ""
             driftStr = "\(sign)\(String(format: "%.1f", avgDrift))p"
         } else {
-            switch pair {
-            case "GBP/USD", "USD/JPY": driftStr = "+0.3p"
-            case "GBP/JPY": driftStr = "+0.2p"
-            case "XAU/USD": driftStr = "+0.4p"
-            case "USD/CAD": driftStr = "-0.4p"
-            case "EUR/GBP": driftStr = "+0.0p"
-            default: driftStr = "0.0p"
-            }
+            driftStr = "unavailable"
         }
         return convictionRow(
             pair: pair,
@@ -519,27 +557,31 @@ public struct IntelScreen: View {
     }
 
     private func convictionRow(pair: String, tag: String, winRate: String, drift: String, isEdge: Bool, isWarning: Bool = false) -> some View {
-        HStack {
-            Text(pair)
-                .font(.system(size: 13, weight: .bold, design: .monospaced))
-                .foregroundStyle(DeskInk.ink)
-
-            Text(tag)
-                .font(.system(size: 9, weight: .heavy))
-                .foregroundStyle(isWarning ? DeskInk.coral : (isEdge ? DeskInk.emerald : DeskInk.slate))
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background((isWarning ? DeskInk.coral : (isEdge ? DeskInk.emerald : DeskInk.slate)).opacity(0.16), in: RoundedRectangle(cornerRadius: 4))
-
-            Spacer()
-
-            Text("Drift \(drift)")
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                .foregroundStyle(DeskInk.slate.opacity(0.8))
-
-            Text(winRate)
-                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                .foregroundStyle(isWarning ? DeskInk.coral : (isEdge ? DeskInk.emerald : DeskInk.slate))
+        let tint = isWarning ? DeskInk.coral : (isEdge ? DeskInk.emerald : DeskInk.slate)
+        return VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(pair)
+                    .font(.system(size: 13, weight: .bold, design: .monospaced))
+                    .foregroundStyle(DeskInk.ink)
+                Spacer()
+                Text(winRate)
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundStyle(tint)
+            }
+            HStack(alignment: .top, spacing: 8) {
+                Text(tag)
+                    .font(.system(size: 9, weight: .heavy))
+                    .foregroundStyle(tint)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(tint.opacity(0.16), in: RoundedRectangle(cornerRadius: 4))
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                Text("Drift \(drift)")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(DeskInk.slate.opacity(0.8))
+            }
         }
+        .padding(.vertical, 3)
     }
 }
