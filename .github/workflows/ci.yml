@@ -28,6 +28,9 @@ jobs:
       - name: Engine pin drift
         run: ./scripts/check-engine-pin.sh
 
+      - name: Intents constants drift
+        run: ./scripts/check-intents-constants.sh
+
       - name: Build
         run: swift build
 
