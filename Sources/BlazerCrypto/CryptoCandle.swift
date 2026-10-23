@@ -29,6 +29,14 @@ public struct CryptoCandle: Sendable, Equatable {
         self.trades      = trades
     }
 
+    /// Validity boundary for untrusted candle data before scoring.
+    public var isValidMarketInput: Bool {
+        [time, open, high, low, close, volume, quoteVolume].allSatisfy { $0.isFinite }
+            && time >= 0 && low >= 0 && high >= low
+            && open >= low && open <= high && close >= low && close <= high
+            && volume >= 0 && quoteVolume >= 0 && trades >= 0
+    }
+
     // MARK: - Derived Properties
 
     /// Absolute body size (close - open, signed positive if bullish)
@@ -65,7 +73,8 @@ public struct CryptoCandle: Sendable, Equatable {
               let tradesVal   = row[8].doubleValue
         else { return nil }
 
-        return CryptoCandle(
+        guard tradesVal.isFinite, tradesVal >= 0, tradesVal < Double(Int.max) else { return nil }
+        let candle = CryptoCandle(
             time:        time,
             open:        open,
             high:        high,
@@ -75,6 +84,7 @@ public struct CryptoCandle: Sendable, Equatable {
             quoteVolume: quoteVol,
             trades:      Int(tradesVal)
         )
+        return candle.isValidMarketInput ? candle : nil
     }
 }
 
