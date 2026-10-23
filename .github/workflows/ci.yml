@@ -63,8 +63,9 @@ jobs:
       # BlazerTests covers the desk layout and the iPhone execution flow. It only
       # runs from the Xcode project, so it needs a concrete simulator. Ask
       # xcodebuild which destinations it accepts instead of guessing from simctl.
-      # The simulator is booted up front and parallel testing is off: cloning
-      # devices is what made this step hang until the job timeout once.
+      # Parallel testing is off: the clone devices are what made this step hang
+      # until the job timeout once. The step is bounded so a stuck simulator
+      # fails fast instead of blocking the required check for the job timeout.
       - name: Run the iPhone tests
         timeout-minutes: 15
         run: |
@@ -83,7 +84,8 @@ jobs:
             exit 1
           fi
           echo "Testing on $udid"
-          xcrun simctl bootstatus "$udid" -b
+          # Clear devices left behind by the image so xcodebuild boots a clean one.
+          xcrun simctl shutdown all || true
           xcodebuild \
             -project iPhone/BlazerOS.xcodeproj \
             -scheme BlazerOS \
