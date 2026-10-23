@@ -63,7 +63,10 @@ jobs:
       # BlazerTests covers the desk layout and the iPhone execution flow. It only
       # runs from the Xcode project, so it needs a concrete simulator. Ask
       # xcodebuild which destinations it accepts instead of guessing from simctl.
+      # The step is bounded: a stuck simulator fails in minutes instead of
+      # holding the required check open for the whole job timeout.
       - name: Run the iPhone tests
+        timeout-minutes: 15
         run: |
           set -o pipefail
           destinations=$(xcodebuild \
@@ -80,6 +83,8 @@ jobs:
             exit 1
           fi
           echo "Testing on $udid"
+          # Clear devices left behind by the image so xcodebuild boots a clean one.
+          xcrun simctl shutdown all || true
           xcodebuild \
             -project iPhone/BlazerOS.xcodeproj \
             -scheme BlazerOS \
