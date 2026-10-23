@@ -52,6 +52,16 @@ public enum CryptoEngine {
         asset: String = "BTC/USDT"
     ) -> Signal {
         let candles = batch.candles
+        // Invalid provider data must fail closed before any floating-point to Int conversion.
+        guard candles.allSatisfy(\.isValidMarketInput),
+              batch.bid.isFinite, batch.ask.isFinite,
+              batch.bid > 0, batch.ask >= batch.bid,
+              CTAssets.pipScale(for: asset).isFinite,
+              CTAssets.pipScale(for: asset) > 0 else {
+            return Signal(side: "WAIT", conviction: 0,
+                          why: "Invalid market data", evidence: [],
+                          highScore: 0, lowScore: 0, atrPips: 0, volumeSurge: 0)
+        }
         guard candles.count >= 22 else {
             return waitSignal(why: "Insufficient candles (\(candles.count) < 22)", candles: candles, asset: asset)
         }
