@@ -8,9 +8,9 @@ let package = Package(
         .iOS(.v17),
     ],
     products: [
-        .library(name: "BlazerCore", targets: ["BlazerCore"]),
-        .library(name: "BlazerCrypto", targets: ["BlazerCrypto"]),
-        .library(name: "LightningDesk", targets: ["LightningDesk"]),
+        .library(name: "BlazerCore", type: .static, targets: ["BlazerCore"]),
+        .library(name: "BlazerCrypto", type: .static, targets: ["BlazerCrypto"]),
+        .library(name: "LightningDesk", type: .static, targets: ["LightningDesk"]),
         .executable(name: "BlazerOS", targets: ["BlazerOS"]),
         .executable(name: "ForwardTest", targets: ["ForwardTest"]),
     ],

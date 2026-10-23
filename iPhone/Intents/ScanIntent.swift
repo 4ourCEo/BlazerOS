@@ -1,5 +1,4 @@
 import AppIntents
-import BlazerCore
 import Foundation
 
 /// "Scan with Blazer" opens the existing six-market walk. It does not score or choose a side.
@@ -10,10 +9,16 @@ public struct ScanIntent: AppIntent {
 
     public init() {}
 
+    /// Mirrors `PhoneTarget` in BlazerCore. The Intents framework deliberately does not link
+    /// the engine: a framework loaded into the app that links BlazerCore makes Xcode build a
+    /// dynamic copy alongside the app's static one, which duplicates every class in the process.
+    private static let appGroup = "group.com.blazer.os"
+    private static let pendingScanKey = "blazer.pendingScan"
+
     @MainActor
     public func perform() async throws -> some IntentResult {
-        let defaults = UserDefaults(suiteName: PhoneTarget.appGroup)
-        defaults?.set(true, forKey: PhoneTarget.pendingScanKey)
+        let defaults = UserDefaults(suiteName: Self.appGroup)
+        defaults?.set(true, forKey: Self.pendingScanKey)
         return .result()
     }
 }

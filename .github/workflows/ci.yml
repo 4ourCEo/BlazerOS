@@ -28,6 +28,9 @@ jobs:
       - name: Engine pin drift
         run: ./scripts/check-engine-pin.sh
 
+      - name: Intents constants drift
+        run: ./scripts/check-intents-constants.sh
+
       - name: Build
         run: swift build
 
@@ -39,7 +42,7 @@ jobs:
 
   ios-app:
     name: iPhone app build
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 45
 
     steps:
