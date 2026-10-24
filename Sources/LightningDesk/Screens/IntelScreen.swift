@@ -213,12 +213,17 @@ public struct IntelScreen: View {
             let isSupreme = currentWindow.isSupremePrime
             let isTactical = currentWindow.isTactical
             let cryptoMode = model.marketMode == .crypto
-            let headerColor: Color = cryptoMode
-                ? cryptoFeedTint(model.feed)
-                : (isSupreme ? DeskInk.emerald : (isTactical ? DeskInk.electric : DeskInk.violet))
-            let headerText: String = cryptoMode
-                ? "₿ \(model.feed.rawValue)"
-                : (isSupreme ? "SUPREME PRIME" : (isTactical ? "TACTICAL" : "OFF-PEAK"))
+            let otcMode = model.marketMode == .otc
+            let headerColor: Color = otcMode
+                ? (model.otcSignalConnectionState == .live ? DeskInk.emerald : DeskInk.violet)
+                : (cryptoMode
+                    ? cryptoFeedTint(model.feed)
+                    : (isSupreme ? DeskInk.emerald : (isTactical ? DeskInk.electric : DeskInk.violet)))
+            let headerText: String = otcMode
+                ? "OTC RESEARCH"
+                : (cryptoMode
+                    ? "₿ \(model.feed.rawValue)"
+                    : (isSupreme ? "SUPREME PRIME" : (isTactical ? "TACTICAL" : "OFF-PEAK")))
 
             HStack(spacing: 6) {
                 Circle()
@@ -254,11 +259,18 @@ public struct IntelScreen: View {
         let isTactical = currentWindow.isTactical
         let cardColor: Color = isSupreme ? DeskInk.emerald : (isTactical ? DeskInk.electric : DeskInk.violet)
 
-        let statusTitle: String = model.marketMode == .crypto
-            ? "₿ CRYPTO DESK · \(model.feed.rawValue)"
-            : (isSupreme ? "👑 SUPREME PRIME ACTIVE" : (isTactical ? "🌙 TACTICAL LATE-NIGHT (BURSTS ONLY)" : "⚠️ OFF-PEAK CONSOLIDATION"))
-        let statBadge: String = isSupreme ? "MORNING RESEARCH WINDOW" : (isTactical ? "BURSTS ONLY · THIN LIQUIDITY" : "OUTSIDE RESEARCH WINDOW")
-        let statColor: Color = isSupreme ? DeskInk.emerald : (isTactical ? DeskInk.electric : DeskInk.coral)
+        let otcMode = model.marketMode == .otc
+        let statusTitle: String = otcMode
+            ? "🔬 OTC RESEARCH · \(model.otcSignalConnectionState.rawValue.uppercased())"
+            : (model.marketMode == .crypto
+                ? "₿ CRYPTO DESK · \(model.feed.rawValue)"
+                : (isSupreme ? "👑 SUPREME PRIME ACTIVE" : (isTactical ? "🌙 TACTICAL LATE-NIGHT (BURSTS ONLY)" : "⚠️ OFF-PEAK CONSOLIDATION")))
+        let statBadge: String = otcMode
+            ? "READ-ONLY · NOT AN ENTRY SIGNAL"
+            : (isSupreme ? "MORNING RESEARCH WINDOW" : (isTactical ? "BURSTS ONLY · THIN LIQUIDITY" : "OUTSIDE RESEARCH WINDOW"))
+        let statColor: Color = otcMode
+            ? DeskInk.violet
+            : (isSupreme ? DeskInk.emerald : (isTactical ? DeskInk.electric : DeskInk.coral))
 
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
@@ -342,6 +354,9 @@ public struct IntelScreen: View {
     }
 
     private func liveCountdownText() -> String {
+        if model.marketMode == .otc {
+            return "60s OTC RESEARCH HORIZON · NO EXECUTION GATE"
+        }
         if model.marketMode == .crypto {
             return "₿ CRYPTO · 24/7 — NO FX SESSION GATE"
         }
@@ -372,6 +387,9 @@ public struct IntelScreen: View {
     }
 
     private func statusExplanation(_ window: MarketEdgeWindow) -> String {
+        if model.marketMode == .otc {
+            return "OTC research is read-only. The deterministic HIGH/LOW/WAIT score is a feature ranking, not a calibrated probability, and it cannot authorize an entry. Real Pocket Option observations and broker-confirmed outcomes remain unverified."
+        }
         if model.marketMode == .crypto {
             return "Crypto trades 24/7. No London/New York overlap gate and no weekend closure. Trade when the feed is live and the setup is valid."
         }

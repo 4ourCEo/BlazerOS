@@ -146,6 +146,10 @@ struct LiveDeskMarketDataService: DeskMarketDataServing {
                 veto: nil
             )
 
+        case .otc:
+            // OTC research never flows through the production market-data transport.
+            throw DeskMarketDataError.unavailable(asset)
+
         case .crypto:
             guard let batch = try await transport.fetchCryptoBundle(asset: asset),
                   !batch.candles.isEmpty else {
@@ -182,6 +186,8 @@ struct LiveDeskMarketDataService: DeskMarketDataServing {
             }
             let batch = await transport.fetchFXQuotes(assets: assets, session: session)
             return MarketQuoteResult(quotes: batch.quotes, status: MarketTransportStatus(batch.transport))
+        case .otc:
+            return MarketQuoteResult(quotes: [], status: .network)
         case .crypto:
             var quotes: [LiveQuote] = []
             for asset in assets {
@@ -203,6 +209,9 @@ struct LiveDeskMarketDataService: DeskMarketDataServing {
         case .fx:
             guard let session else { return [] }
             return await transport.fetchFXCandles(asset: asset, session: session, count: count)
+        case .otc:
+            // OTC candles are supplied by the read-only research provider.
+            return []
         case .crypto:
             guard let batch = try? await transport.fetchCryptoBundle(asset: asset) else { return [] }
             return batch.candles.map {

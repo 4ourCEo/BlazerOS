@@ -253,6 +253,8 @@ public enum EntryGateFailure: Error, Sendable, Equatable {
     case activePositionExists
     case noArmedBeam
     case unsupportedExpiry
+    /// OTC research signals can never inherit production execution eligibility.
+    case researchOnly
 }
 
 /// Spoken note attached to a fingerprint. Tags are annotations. They are not scan inputs.

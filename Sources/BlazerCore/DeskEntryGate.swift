@@ -17,6 +17,8 @@ public enum DeskEntryGate {
         public var historical: Bool
         public var armedAt: Date?
         public var armID: String?
+        /// True for OTC research mode. It is an unconditional veto, independent of scan state.
+        public var researchOnly: Bool
 
         public init(
             commit: ScanCommit?,
@@ -30,7 +32,8 @@ public enum DeskEntryGate {
             scanning: Bool,
             historical: Bool,
             armedAt: Date?,
-            armID: String?
+            armID: String?,
+            researchOnly: Bool = false
         ) {
             self.commit = commit
             self.frame = frame
@@ -44,11 +47,13 @@ public enum DeskEntryGate {
             self.historical = historical
             self.armedAt = armedAt
             self.armID = armID
+            self.researchOnly = researchOnly
         }
     }
 
     /// Returns nil only when every execution precondition holds.
     public static func veto(_ context: Context, now: Date = Date()) -> EntryGateFailure? {
+        if context.researchOnly { return .researchOnly }
         if context.activeTrade != nil { return .activePositionExists }
         if context.awaitingOutcome || context.settlementInFlight { return .activePositionExists }
         if context.scanning { return .noArmedBeam }

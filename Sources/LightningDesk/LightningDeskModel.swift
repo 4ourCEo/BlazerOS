@@ -4,9 +4,12 @@ import BlazerCore
 import BlazerCrypto
 
 /// Desk market mode. `.crypto` uses the shared BlazerCrypto engine; `.fx` uses OANDA.
+/// `.otc` is an isolated research-only Pocket Option mode: it never produces a production
+/// commit, frame, armed beam, or entry.
 public enum DeskMarket: String, Sendable, CaseIterable, Equatable {
     case crypto
     case fx
+    case otc
 }
 
 /// Post-settlement receipt. Presentation only: the ledger row is already written.
@@ -67,6 +70,9 @@ public final class LightningDeskModel: ObservableObject {
         otcValidationPipeline = OTCValidationPipeline(
             root: root.appendingPathComponent("Research", isDirectory: true)
                 .appendingPathComponent("otc-validation", isDirectory: true))
+        otcSignalStore = OTCResearchSignalStore(
+            root: root.appendingPathComponent("Research", isDirectory: true)
+                .appendingPathComponent("otc-signals", isDirectory: true))
         strikeStore = StrikeStore(url: root.appendingPathComponent("strike_positions.json"))
         let diagnosticsURL = root.appendingPathComponent("model_diagnostics.jsonl")
         assistant = AssistantSession(diagnosticsURL: diagnosticsURL)
@@ -106,6 +112,7 @@ public final class LightningDeskModel: ObservableObject {
     private var receiptDismissTask: Task<Void, Never>?
     /// Live mid quote for the selected pair. An entry on another pair never leaks in.
     public var currentPrice: Double? {
+        if marketMode == .otc { return otcSignal?.quotePrice }
         if let trade = activeTrade, trade.pair == pair { return trade.currentPrice }
         if let quote, quote.asset == pair { return quote.mid }
         return nil
@@ -121,7 +128,27 @@ public final class LightningDeskModel: ObservableObject {
     /// The visible watchlist is derived from `pairs`; `book` sides reset on the next scan.
     /// Never mutate other @Published state here — publishing from inside a SwiftUI view
     /// update crashes the app.
-    @Published public var marketMode: DeskMarket = .fx
+    @Published public var marketMode: DeskMarket = .fx {
+        didSet {
+            guard marketMode != oldValue else { return }
+            // A mode change while an entry is being persisted could hide its execution state.
+            guard !entryInFlight, pendingTrade == nil else {
+                marketMode = oldValue
+                notice = "Resolve the entry before switching markets"
+                return
+            }
+            if marketMode == .otc {
+                prepareOTCResearchMode()
+            } else if oldValue == .otc {
+                // Do not let OTC research bars masquerade as the next market until its scan runs.
+                candles = []
+                frame = nil
+                pair = marketMode == .crypto
+                    ? (CTAssets.watchlist.first ?? "BTC/USDT")
+                    : (Assets.watchlist.first ?? "EUR/USD")
+            }
+        }
+    }
     /// True while the offline fixture is being shown. It suppresses the missing-credential cover
     /// without pretending a live Keychain session exists.
     @Published public private(set) var isDemoDesk = false
@@ -292,8 +319,12 @@ public final class LightningDeskModel: ObservableObject {
         }
         refreshTrackedStrikePositions()
         Task {
-            await refreshActiveTradeQuote()
-            await refreshQuote()
+            if marketMode == .otc {
+                await refreshOTCSignal()
+            } else {
+                await refreshActiveTradeQuote()
+                await refreshQuote()
+            }
             // A Siri request can arrive while a session is already loaded. Consume it here
             // instead of waiting for the next Keychain read.
             await consumePendingScanIfReady()
@@ -456,6 +487,13 @@ public final class LightningDeskModel: ObservableObject {
     public var otcProviderFactory: @Sendable (OTChartsConfiguration) -> OTChartsProvider = {
         OTChartsProvider(configuration: $0)
     }
+    /// Signal evaluation consumes the provider protocol, so the read-only research path is
+    /// testable without a network. It shares the same credential and source as capture.
+    public var otcSignalProviderFactory: @Sendable (OTChartsConfiguration) -> any ShadowMarketObservationProvider = {
+        OTChartsProvider(configuration: $0)
+    }
+    /// Injectable evaluation clock so research timing and replay tests are deterministic.
+    public var otcSignalClock: @Sendable () -> Date = { Date() }
     @Published public private(set) var otcAPIKeyConfigured = false
     @Published public private(set) var otcConnectionState: ShadowConnectionState = .disabled
     @Published public private(set) var manualBrokerObservations: [ManualBrokerChartObservation] = []
@@ -468,6 +506,23 @@ public final class LightningDeskModel: ObservableObject {
     @Published public private(set) var otcObservedTicks = 0
     @Published public private(set) var otcObservedTickRate: Double?
     @Published public private(set) var otcValidationReport: OTCValidationReport?
+    // OTC research signal surface. These values are presentation and research only; they are
+    // never read by DeskEntryGate, lockInTrade, the ledger, or scan publication.
+    @Published public private(set) var otcSignal: OTCResearchSignal?
+    @Published public private(set) var otcSignalHistory: [OTCResearchSignal] = []
+    @Published public private(set) var otcAvailableInstruments: [OTCInstrumentIdentity] = [
+        OTCInstrumentCatalog.pocketOptionEURUSDOTC
+    ]
+    @Published public private(set) var otcSelectedInstrumentID =
+        OTCInstrumentCatalog.pocketOptionEURUSDOTC.instrumentID
+    @Published public private(set) var otcSignalIssue: String?
+    @Published public private(set) var otcSignalRefreshing = false
+    /// Connection state of the latest signal evaluation. Capture telemetry uses
+    /// `otcConnectionState` separately so a one-shot read cannot claim an active capture.
+    @Published public private(set) var otcSignalConnectionState: ShadowConnectionState = .disabled
+    @Published public private(set) var otcLastPayoutPercent: Double?
+    @Published public private(set) var otcReplayReport: OTCReplayReport?
+    private let otcSignalStore: OTCResearchSignalStore
     private var otcCaptureTask: Task<Void, Never>?
     private var otcCaptureWatchdog: Task<Void, Never>?
     private var otcCaptureRunID: UUID?
@@ -700,6 +755,125 @@ public final class LightningDeskModel: ObservableObject {
         }
     }
 
+    /// Evaluates one bounded, read-only OTC research snapshot. This is the only path that
+    /// produces an `otcSignal`; it never writes `commit`, `frame`, `armedAt`, or the ledger.
+    public func refreshOTCSignal() async {
+        guard marketMode == .otc, !otcSignalRefreshing else { return }
+        otcSignalRefreshing = true
+        otcSignalConnectionState = .connecting
+        defer { otcSignalRefreshing = false }
+        let key: String
+        do {
+            guard let stored = try otcCredentialVault.get(KeychainKey.otchartsAPIKey),
+                  !stored.isEmpty else {
+                otcSignalIssue = "Add an OTCharts API key to evaluate OTC research signals."
+                otcSignalConnectionState = .disabled
+                return
+            }
+            key = stored
+        } catch {
+            otcSignalIssue = "OTC research credential is unavailable."
+            otcSignalConnectionState = .disabled
+            return
+        }
+        let provider = otcSignalProviderFactory(
+            OTChartsConfiguration(apiKey: key, enabled: true))
+        let service = OTCResearchDeskService(
+            provider: provider, store: otcSignalStore, now: otcSignalClock)
+        let refreshed = await service.refresh(identityID: otcSelectedInstrumentID)
+        // A mode change or suspension while the provider was in flight must not publish.
+        guard marketMode == .otc, backgroundedAt == nil else { return }
+        guard let snapshot = refreshed else {
+            otcSignalIssue = "OTC research provider returned no usable instruments."
+            otcSignalConnectionState = .degraded
+            return
+        }
+        otcAvailableInstruments = snapshot.instruments
+        otcSelectedInstrumentID = snapshot.selectedInstrumentID
+        otcSignalConnectionState = snapshot.connectionState
+        otcSignalIssue = snapshot.issue
+        otcSignal = snapshot.signal
+        otcLastPayoutPercent = snapshot.payoutPercent
+        pair = snapshot.signal.instrument.displaySymbol
+        candles = snapshot.candles.map {
+            Candle(time: $0.providerTimestamp.normalized.timeIntervalSince1970,
+                   open: $0.open, high: $0.high, low: $0.low, close: $0.close)
+        }
+        if !candles.isEmpty {
+            candleCache.store(candles, for: CandleCache.Key(market: .otc, asset: otcSelectedInstrumentID))
+        }
+        if !otcSignalHistory.contains(where: { $0.id == snapshot.signal.id }) {
+            otcSignalHistory.append(snapshot.signal)
+            if otcSignalHistory.count > 200 {
+                otcSignalHistory.removeFirst(otcSignalHistory.count - 200)
+            }
+        }
+        // Research evaluation must never become a production frame or armed beam.
+        frame = nil
+    }
+
+    /// Re-evaluates every archived OTC record without look-ahead and compares the challenger with
+    /// the pinned engine on eligible inputs. The report can never promote a strategy or authorize
+    /// entry; it is a research artifact.
+    public func refreshOTCReplayReport() async {
+        do {
+            let records = try await otcSignalStore.records(limit: 120)
+            guard !records.isEmpty else {
+                otcReplayReport = nil
+                return
+            }
+            let adapter = PinnedEngineOTCAdapter()
+            var pinned: [String: OTCPinnedEngineEvaluation] = [:]
+            for record in records {
+                if Task.isCancelled || marketMode != .otc { return }
+                // The provider currently supplies price-only ticks. Do not manufacture a spread
+                // for the comparison arm; record its absence instead.
+                guard record.input.quote.bid != nil, record.input.quote.ask != nil else { continue }
+                pinned[record.input.snapshotID] = await adapter.evaluate(
+                    record.input, configuration: record.configuration)
+            }
+            guard marketMode == .otc else { return }
+            otcReplayReport = OTCResearchReplay.run(
+                records: records, pinnedEvaluations: pinned)
+        } catch {
+            otcReplayReport = nil
+            otcResearchIssue = "OTC replay archive unavailable"
+        }
+    }
+
+    /// Switches the OTC research instrument within the provider-verified catalogue. It never
+    /// changes the FX or crypto execution instrument.
+    public func selectOTCInstrument(_ instrumentID: String) async {
+        guard marketMode == .otc,
+              otcAvailableInstruments.contains(where: { $0.instrumentID == instrumentID })
+        else { return }
+        guard instrumentID != otcSelectedInstrumentID else { return }
+        otcSelectedInstrumentID = instrumentID
+        otcSignal = nil
+        pair = otcAvailableInstruments.first(where: { $0.instrumentID == instrumentID })?.displaySymbol
+            ?? OTCInstrumentCatalog.pocketOptionEURUSDOTC.displaySymbol
+        candles = candleCache.cached(CandleCache.Key(market: .otc, asset: otcSelectedInstrumentID))
+        await refreshOTCSignal()
+    }
+
+    /// Leaves no production scan, frame, beam, or pending entry behind when OTC research is shown.
+    private func prepareOTCResearchMode() {
+        invalidateScanRequests()
+        commit = nil
+        frame = nil
+        selectedSignal = nil
+        armedAt = nil
+        armID = nil
+        expired = false
+        historical = false
+        cabinetSide = "WAIT"
+        scanning = false
+        scanStep = nil
+        pair = otcAvailableInstruments.first(where: { $0.instrumentID == otcSelectedInstrumentID })?.displaySymbol
+            ?? OTCInstrumentCatalog.pocketOptionEURUSDOTC.displaySymbol
+        candles = candleCache.cached(CandleCache.Key(market: .otc, asset: otcSelectedInstrumentID))
+    }
+
     public func recordManualOTCObservation(
         brokerPrice: String,
         providerPrice: String,
@@ -754,7 +928,7 @@ public final class LightningDeskModel: ObservableObject {
     private var settlementInFlight = false
     private var selectedSignal: EngineSignal?
     private var pendingExpiry: ResearchOutcome?
-    private var entryInFlight = false
+    @Published private var entryInFlight = false
     private var pendingTrade: ActiveTrade?
     /// Label source to reuse when a failed settlement is retried.
     private var pendingLabelSource = "manual-unverified"
@@ -773,7 +947,11 @@ public final class LightningDeskModel: ObservableObject {
 
     /// Watchlist for the active market mode. Crypto uses the shared BlazerCrypto list.
     public var pairs: [String] {
-        marketMode == .crypto ? CTAssets.watchlist : Assets.watchlist
+        switch marketMode {
+        case .crypto: return CTAssets.watchlist
+        case .fx: return Assets.watchlist
+        case .otc: return otcAvailableInstruments.map(\.displaySymbol)
+        }
     }
 
     public func select(pair next: String) {
@@ -782,6 +960,13 @@ public final class LightningDeskModel: ObservableObject {
             return
         }
         guard next != pair else { return }
+        if marketMode == .otc {
+            guard let instrument = otcAvailableInstruments.first(where: {
+                $0.displaySymbol == next
+            }) else { return }
+            Task { await selectOTCInstrument(instrument.instrumentID) }
+            return
+        }
         invalidateScanRequests()
         pair = next
 
@@ -852,18 +1037,25 @@ public final class LightningDeskModel: ObservableObject {
     }
 
     public func side(for asset: String) -> String? {
-        book.first(where: { $0.asset == asset })?.side ?? cabinetSideByAsset[asset]
+        if marketMode == .otc { return otcSignal?.decision.rawValue }
+        return book.first(where: { $0.asset == asset })?.side ?? cabinetSideByAsset[asset]
     }
 
     /// True while a settlement write is in progress. Used to freeze navigation.
     public var isSettlementInFlight: Bool { settlementInFlight }
+    /// True while an entry is being persisted. Market changes are refused during this window.
+    public var isEntryInFlight: Bool { entryInFlight }
 
     public func score(for asset: String) -> Int? {
-        commitsByAsset[asset]?.score
+        if marketMode == .otc { return otcSignal?.score }
+        return commitsByAsset[asset]?.score
     }
 
     public func candles(for asset: String) -> [Candle] {
-        candleCache.cached(CandleCache.Key(market: marketMode, asset: asset))
+        let key = marketMode == .otc
+            ? CandleCache.Key(market: .otc, asset: otcSelectedInstrumentID)
+            : CandleCache.Key(market: marketMode, asset: asset)
+        return candleCache.cached(key)
     }
 
     public func strike(for asset: String) -> Double? {
@@ -873,6 +1065,8 @@ public final class LightningDeskModel: ObservableObject {
     /// Loads normalized completed candles through the service cache. Broker networking and cache
     /// policy are intentionally absent from the SwiftUI facade.
     public func loadCandles(for asset: String, force: Bool = false) async {
+        // OTC bars arrive from the read-only research provider, never from the FX transport.
+        guard marketMode != .otc else { return }
         let market = marketMode
         let key = CandleCache.Key(market: market, asset: asset)
         let bars = await candleCache.load(key, force: force) { @MainActor [weak self] in
@@ -974,6 +1168,11 @@ public final class LightningDeskModel: ObservableObject {
         entryIssue = nil
         isDemoDesk = false
         let market = marketMode
+        if market == .otc {
+            prepareOTCResearchMode()
+            await refreshOTCSignal()
+            return
+        }
         let cryptoAsset = CTAssets.watchlist.contains(pair) ? pair : (CTAssets.watchlist.first ?? "BTC/USDT")
         await enqueueScan(
             market: market,
@@ -988,6 +1187,8 @@ public final class LightningDeskModel: ObservableObject {
     }
 
     private func enqueueScan(market: DeskMarket, asset: String?, assets: [String]) async {
+        // OTC is research-only. It may never enter the production scan worker.
+        guard market != .otc else { return }
         guard activeTrade == nil, !awaitingOutcome, !settlementInFlight else {
             notice = "Resolve the current outcome before scanning"
             return
@@ -1001,6 +1202,7 @@ public final class LightningDeskModel: ObservableObject {
             switch request.market {
             case .fx: await self.performFXScan(request)
             case .crypto: await self.performCryptoScan(request)
+            case .otc: return
             }
         }
     }
@@ -1691,6 +1893,7 @@ public final class LightningDeskModel: ObservableObject {
         case .activePositionExists: return "Resolve the current position before entry"
         case .noArmedBeam: return "No armed beam to enter"
         case .unsupportedExpiry: return "Unsupported expiry"
+        case .researchOnly: return "OTC research signals cannot authorize entries"
         }
     }
 
@@ -1808,6 +2011,12 @@ public final class LightningDeskModel: ObservableObject {
     /// the eight-second action window; the delay is still recorded so research can flag it.
     public func lockInTrade(duration: Double? = nil, late: Bool = false) async {
         guard !entryInFlight else { return }
+        // OTC is a research surface. It can never produce an armed beam or an entry.
+        guard marketMode != .otc else {
+            entryIssue = "OTC research signals cannot authorize entries"
+            DeskHaptics.veto()
+            return
+        }
 
         if late {
             guard canLogLateEntry else {
@@ -1828,7 +2037,8 @@ public final class LightningDeskModel: ObservableObject {
                 scanning: scanning,
                 historical: historical,
                 armedAt: armedAt,
-                armID: armID
+                armID: armID,
+                researchOnly: marketMode == .otc
             )
             if let failure = DeskEntryGate.veto(context) {
                 entryIssue = Self.message(for: failure)
@@ -2074,8 +2284,9 @@ public final class LightningDeskModel: ObservableObject {
         if notice == "Demo Desk (Offline)" {
             return
         }
-        // Crypto mode has its own feed; the OANDA quote loop must not clobber its state.
-        if marketMode == .crypto {
+        // Crypto mode has its own feed, and OTC is an isolated research provider. Neither may be
+        // clobbered by the OANDA quote loop.
+        if marketMode == .crypto || marketMode == .otc {
             return
         }
         let clock = Date()
@@ -2409,7 +2620,9 @@ public final class LightningDeskModel: ObservableObject {
                 candleCache.store(entry.candles, for: key, fetchedAt: .distantPast)
             }
         }
-        let selectedKey = CandleCache.Key(market: marketMode, asset: pair)
+        let selectedKey = marketMode == .otc
+            ? CandleCache.Key(market: .otc, asset: otcSelectedInstrumentID)
+            : CandleCache.Key(market: marketMode, asset: pair)
         let saved = candleCache.cached(selectedKey)
         if candles.isEmpty, !saved.isEmpty {
             candles = saved
@@ -2496,6 +2709,11 @@ public final class LightningDeskModel: ObservableObject {
 
 
     private func publishFrame() {
+        // Research mode never publishes an execution frame, even if stale state survived.
+        if marketMode == .otc, activeTrade == nil {
+            frame = nil
+            return
+        }
         guard let commit else {
             frame = nil
             return

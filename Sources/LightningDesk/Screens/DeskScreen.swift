@@ -33,9 +33,11 @@ struct DeskScreen: View {
             Spacer(minLength: 10)
 
             ScanControl(
-                scanning: model.scanning,
+                scanning: model.scanning || model.otcSignalRefreshing,
                 pair: model.pair,
-                title: model.scanStep ?? "Scan"
+                title: model.marketMode == .otc
+                    ? (model.otcSignalRefreshing ? "Evaluating OTC research" : "Refresh OTC research")
+                    : (model.scanStep ?? "Scan")
             ) {
                 Task { await model.scan() }
             }
@@ -45,26 +47,30 @@ struct DeskScreen: View {
             Picker("Market", selection: $model.marketMode) {
                 Text("Crypto").tag(DeskMarket.crypto)
                 Text("FX").tag(DeskMarket.fx)
+                Text("OTC").tag(DeskMarket.otc)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(maxWidth: 220)
-            .disabled(model.activeTrade != nil || model.awaitingOutcome || model.isSettlementInFlight)
+            .frame(maxWidth: 280)
+            .disabled(model.activeTrade != nil || model.awaitingOutcome
+                || model.isSettlementInFlight || model.isEntryInFlight)
             .padding(.bottom, 8)
 
-            Button {
-                DeskHaptics.tabSwitch()
-                showingStrikeSheet = true
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "target")
-                    Text("Track Strike Contract")
+            if model.marketMode != .otc {
+                Button {
+                    DeskHaptics.tabSwitch()
+                    showingStrikeSheet = true
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "target")
+                        Text("Track Strike Contract")
+                    }
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(DeskInk.electric)
                 }
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(DeskInk.electric)
+                .buttonStyle(.plain)
+                .padding(.bottom, 10)
             }
-            .buttonStyle(.plain)
-            .padding(.bottom, 10)
         }
         .animation(.easeOut(duration: 0.22), value: model.settleReceipt)
         .sheet(isPresented: $showingPrimeSchedule) {
@@ -92,13 +98,18 @@ struct DeskScreen: View {
                 DeskHaptics.tabSwitch()
                 model.activeTab = .intel
             } label: {
+                let otcMode = model.marketMode == .otc
                 let cryptoMode = model.marketMode == .crypto
-                let sessionColor: Color = cryptoMode
-                    ? cryptoFeedTint(model.feed)
-                    : (edgeWindow.isSupremePrime ? DeskInk.emerald : (edgeWindow.isTactical ? DeskInk.electric : (isOpen ? DeskInk.violet : DeskInk.coral)))
-                let sessionLabel: String = cryptoMode
-                    ? "₿ \(model.feed.rawValue)"
-                    : (edgeWindow.isSupremePrime ? "⚡ SUPREME PRIME" : (edgeWindow.isTactical ? "🌙 TACTICAL (BURSTS)" : "⚡ OFF-PEAK · \(FxSession.activeSessionName())"))
+                let sessionColor: Color = otcMode
+                    ? (model.otcSignalConnectionState == .live ? DeskInk.emerald : DeskInk.violet)
+                    : (cryptoMode
+                        ? cryptoFeedTint(model.feed)
+                        : (edgeWindow.isSupremePrime ? DeskInk.emerald : (edgeWindow.isTactical ? DeskInk.electric : (isOpen ? DeskInk.violet : DeskInk.coral))))
+                let sessionLabel: String = otcMode
+                    ? "🔬 OTC RESEARCH · \(model.otcSignalConnectionState.rawValue.uppercased())"
+                    : (cryptoMode
+                        ? "₿ \(model.feed.rawValue)"
+                        : (edgeWindow.isSupremePrime ? "⚡ SUPREME PRIME" : (edgeWindow.isTactical ? "🌙 TACTICAL (BURSTS)" : "⚡ OFF-PEAK · \(FxSession.activeSessionName())")))
 
                 HStack(spacing: 5) {
                     Circle()
@@ -132,7 +143,7 @@ struct DeskScreen: View {
             Spacer(minLength: 4)
 
             // Right: Either Hot Radar Switch OR Next Prime Countdown
-            if let leader, leader.asset != model.pair, leader.conviction >= 65 {
+            if let leader, model.marketMode != .otc, leader.asset != model.pair, leader.conviction >= 65 {
                 Button {
                     DeskHaptics.tabSwitch()
                     model.select(pair: leader.asset)
@@ -172,9 +183,11 @@ struct DeskScreen: View {
                     model.activeTab = .intel
                 } label: {
                     HStack(spacing: 4) {
-                        Text(edgeWindow.detailText)
+                        Text(model.marketMode == .otc ? "RESEARCH ONLY" : edgeWindow.detailText)
                             .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(edgeWindow.isPrime ? DeskInk.emerald : DeskInk.slate.opacity(0.85))
+                            .foregroundStyle(model.marketMode == .otc
+                                ? DeskInk.violet
+                                : (edgeWindow.isPrime ? DeskInk.emerald : DeskInk.slate.opacity(0.85)))
                         Image(systemName: "chevron.right")
                             .font(.system(size: 7, weight: .bold))
                             .foregroundStyle(edgeWindow.isPrime ? DeskInk.emerald.opacity(0.7) : DeskInk.slate.opacity(0.5))
@@ -204,7 +217,21 @@ struct DeskScreen: View {
         }
     }
 
+    @ViewBuilder
     private var hero: some View {
+        if model.marketMode == .otc {
+            OTCResearchCard(model: model)
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(heroSurface)
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .accessibilityElement(children: .contain)
+        } else {
+            tradingHero
+        }
+    }
+
+    private var tradingHero: some View {
         VStack(alignment: .leading, spacing: 14) {
             pairRow
             MiniCandleChart(
