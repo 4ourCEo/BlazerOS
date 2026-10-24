@@ -5,7 +5,7 @@
 - Working tree began clean on `upgrade/verified-execution-intelligence` at `f35fc69d158bf64f36b89c5bbe068f3fac77c5d3`, tree `b440493c6a5c12fe67da5d98154c03d56c831da7`.
 - The existing PR #10 is open as a draft at <https://github.com/4ourCEo/BlazerOS/pull/10>, based on `main` at `4449fd03c7fdf9d537b0f4d430f1bbee491d5f0c`; its head is the baseline commit above. It is preserved unchanged.
 - V2 work is isolated on `upgrade/blazeros-v2-60s-otc-research`, created from that verified PR #10 head. No existing worktree or branch was replaced.
-- The implementation is published on the V2 branch as [PR #11](https://github.com/4ourCEo/BlazerOS/pull/11), stacked on PR #10's implementation branch. The PR is open and GitHub reports it mergeable; CI run #33 is in progress.
+- The implementation is published on the V2 branch as [PR #11](https://github.com/4ourCEo/BlazerOS/pull/11), stacked on PR #10's implementation branch. The PR is open and GitHub reports it mergeable; current CI status is shown on the PR.
 - PR #10 already includes the statistical follow-up and execution-intelligence foundation. Mixed-payout return calculations, cash-P&L withholding for missing stake inputs, trusted/cohort-bound promotion review, effective N, preregistered complete test families, and Bonferroni correction are present. Their implementation and persisted ledger data were not changed here.
 - Issue #6's duplicate BlazerCore linkage fix is already on `main` (PR #8 / commit `0d956bb`); issue #6 is closed.
 - `LightningDeskModel.swift` remains large (about 2,300 lines after this work). Review found coupled scan orchestration and stale-response risks, so this change extracts only request scheduling. Execution state remains owned by the model.
