@@ -133,8 +133,9 @@ public struct SystemModelEngine: OnDeviceModelEngine {
         // `contextSize` and `tokenCount(for:)` arrived with the Xcode 27 SDK. An SDK that has
         // Foundation Models but not these calls still builds, using the documented window.
         let model = SystemLanguageModel.default
-        let contextSize = model.contextSize
-        if #available(iOS 26.4, macOS 26.4, visionOS 26.4, *) {
+        let reportedContextSize = model.contextSize
+        let contextSize = ModelBudgetPolicy.effectiveContextSize(reported: reportedContextSize)
+        if reportedContextSize > 0, #available(iOS 26.4, macOS 26.4, visionOS 26.4, *) {
             do {
                 let promptTokens = try await model.tokenCount(for: prompt)
                 let instructionTokens = try await model.tokenCount(for: Instructions(instructions))
