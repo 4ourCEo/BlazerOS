@@ -75,14 +75,18 @@ public struct IntelScreen: View {
                     }
                     .font(.system(size: 11, weight: .semibold))
                 }
-                Text("Session: \(model.otcConnectionState.rawValue.uppercased()) · \(model.otcCapturedObservations) saved · \(model.otcObservedTicks) ticks\(model.otcObservedTickRate.map { String(format: " · %.1f/s", $0) } ?? "") · research-only")
+                Text("Session: \(model.otcConnectionState.rawValue.uppercased()) · \(model.otcCapturedObservations) saved · \(model.otcObservedTicks) ticks\(model.otcObservedTickRate.map { String(format: " · %.1f/s", $0) } ?? "")\(model.otcClockSkewSeconds.map { String(format: " · clock %+.0fs", $0) } ?? "") · interruptions \(model.otcConnectionInterruptions) · research-only")
                     .font(.system(size: 10, design: .monospaced))
                 if let report = model.otcValidationReport {
-                    Text("Samples \(report.totalSamples) · 60s transitions \(report.sixtySecondComparableTransitions) · agreements \(report.sixtySecondDirectionAgreements)")
+                    Text("Samples \(report.totalSamples) · 60s transitions \(report.sixtySecondComparableTransitions) · agreements \(report.sixtySecondDirectionAgreements) · synthetic \(report.syntheticSampleCount)")
                         .font(.system(size: 10, design: .monospaced))
                     Text(report.status)
                         .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(report.capturedLiveVendorData ? DeskInk.electric : DeskInk.slate)
+                        .foregroundStyle(report.hasProviderOTCObservation ? DeskInk.electric : DeskInk.slate)
+                    if let oldest = report.oldestCapturedAt, let newest = report.newestCapturedAt {
+                        Text("Retained archive: \(oldest.formatted(date: .abbreviated, time: .shortened)) → \(newest.formatted(date: .abbreviated, time: .shortened)) · limit \(report.retentionLimit)")
+                            .font(.system(size: 10, design: .monospaced))
+                    }
                 }
                 Button("Disconnect and remove API key") {
                     model.disconnectAndRemoveOTChartsAPIKey()

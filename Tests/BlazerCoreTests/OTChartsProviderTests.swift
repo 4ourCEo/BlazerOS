@@ -194,7 +194,7 @@ private func provider(_ transport: MockOTChartsTransport, enabled: Bool = true,
         standardOrigin: nil, otcOrigin: nil))
     let report = try await pipeline.report()
     #expect(report.totalSamples == 1)
-    #expect(!report.capturedLiveVendorData)
+    #expect(!report.hasProviderOTCObservation)
     #expect(report.status == "UNVERIFIED")
 }
 
@@ -307,12 +307,26 @@ private func validationObservation(identity: ShadowMarketIdentity, provider: Str
 }
 
 @MainActor
-@Test func boundedCapturePersistsIndependentSamplesAndNeverAuthorizesEntry() async throws {
+private func otcModel(root: URL, transport: MockOTChartsTransport) -> LightningDeskModel {
+    let otcRoot = root.appendingPathComponent("Research", isDirectory: true)
+        .appendingPathComponent("otc-validation", isDirectory: true)
+    let service = LiveOTCResearchService(
+        root: otcRoot,
+        provider: OTChartsProvider(
+            configuration: OTChartsConfiguration(apiKey: "otc_test_secret", enabled: true),
+            transport: transport,
+            clock: FixedOTCClock(value: Date(timeIntervalSince1970: 1_700_010_000))))
+    return LightningDeskModel(
+        storageRoot: root,
+        marketData: LiveDeskMarketDataService(),
+        otcArchive: service,
+        otcResearchServiceFactory: { _ in service })
+}
+
+@MainActor
+@Test func boundedCapturePersistsProviderSamplesWithoutEntryAuthority() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
-    let model = LightningDeskModel(storageRoot: root)
-    model.otcCredentialVault = InMemoryKeychainVault()
-    model.saveOTChartsAPIKey("otc_test_secret")
 
     let symbols = #"{"venue":"otc","symbols":[{"symbol":"EURUSD_otc","name":"EUR/USD OTC","payout":88,"open":true}]}"#
     let tick = OTChartsServerEvent(name: "tick",
@@ -320,10 +334,9 @@ private func validationObservation(identity: ShadowMarketIdentity, provider: Str
     let transport = MockOTChartsTransport(
         responses: [OTChartsHTTPResponse(data: Data(symbols.utf8), statusCode: 200)],
         streams: [eventStream([OTChartsServerEvent(name: "connected", data: "{}"), tick])])
-    model.otcProviderFactory = { configuration in
-        OTChartsProvider(configuration: configuration, transport: transport,
-                         clock: FixedOTCClock(value: Date(timeIntervalSince1970: 1_700_010_000)))
-    }
+    let model = otcModel(root: root, transport: transport)
+    model.otcCredentialVault = InMemoryKeychainVault()
+    model.saveOTChartsAPIKey("otc_test_secret")
 
     model.startOTCResearchCapture(duration: 30)
     #expect(model.otcCaptureActive)
@@ -340,27 +353,33 @@ private func validationObservation(identity: ShadowMarketIdentity, provider: Str
     let report = try #require(model.otcValidationReport)
     #expect(report.totalSamples == 1)
     #expect(report.containsSyntheticData == false)
-    #expect(report.capturedLiveVendorData)
-    #expect(report.status == "LIVE VENDOR DATA — NO PAIRED COMPARISON")
+    #expect(report.hasProviderOTCObservation)
+    #expect(report.status == "PROVIDER DATA — NO PAIRED COMPARISON")
+
+    // The persisted evidence itself must carry no execution authority.
+    let archive = root.appendingPathComponent("Research/otc-validation/paired-observations")
+    let file = try #require(try FileManager.default.contentsOfDirectory(
+        at: archive, includingPropertiesForKeys: nil).first)
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .millisecondsSince1970
+    let sample = try decoder.decode(OTCValidationSample.self, from: Data(contentsOf: file))
+    #expect(sample.otc?.researchOnly == true)
+    #expect(sample.otc?.mayAuthorizeEntry == false)
 }
 
 @MainActor
 @Test func backgroundingStopsTheResearchCaptureAndClearsConnectionState() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
-    let model = LightningDeskModel(storageRoot: root)
-    model.otcCredentialVault = InMemoryKeychainVault()
-    model.saveOTChartsAPIKey("otc_test_secret")
 
     let symbols = #"{"venue":"otc","symbols":[{"symbol":"EURUSD_otc","name":"EUR/USD OTC","payout":88,"open":true}]}"#
     let never = AsyncThrowingStream<OTChartsServerEvent, any Error> { _ in }
     let transport = MockOTChartsTransport(
         responses: [OTChartsHTTPResponse(data: Data(symbols.utf8), statusCode: 200)],
         streams: [never])
-    model.otcProviderFactory = { configuration in
-        OTChartsProvider(configuration: configuration, transport: transport,
-                         clock: FixedOTCClock(value: Date(timeIntervalSince1970: 1_700_010_000)))
-    }
+    let model = otcModel(root: root, transport: transport)
+    model.otcCredentialVault = InMemoryKeychainVault()
+    model.saveOTChartsAPIKey("otc_test_secret")
 
     model.startOTCResearchCapture(duration: 300)
     #expect(model.otcCaptureActive)
@@ -419,6 +438,11 @@ private func validationObservation(identity: ShadowMarketIdentity, provider: Str
     #expect(retained.count == 5)
     #expect(retained.map(\.capturedAt) == retained.map(\.capturedAt).sorted())
     #expect(retained.first?.capturedAt == Date(timeIntervalSince1970: base + 5))
+    let report = try await pipeline.report()
+    #expect(report.totalSamples == 5)
+    #expect(report.retentionLimit == 5)
+    #expect(report.oldestCapturedAt == Date(timeIntervalSince1970: base + 5))
+    #expect(report.newestCapturedAt == Date(timeIntervalSince1970: base + 9))
 }
 
 @Test func manualObservationCandleTimeMustNotPostDateTheObservation() async throws {
@@ -461,6 +485,6 @@ private func validationObservation(identity: ShadowMarketIdentity, provider: Str
     #expect(report.sixtySecondDirectionAgreements == 1)
     #expect(report.staleWeekendReferencesExcluded == 1)
     #expect(report.containsSyntheticData)
-    #expect(!report.capturedLiveVendorData)
+    #expect(!report.hasProviderOTCObservation)
     #expect(report.status == "UNVERIFIED")
 }

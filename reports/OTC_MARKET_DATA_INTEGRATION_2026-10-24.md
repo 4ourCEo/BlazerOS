@@ -35,6 +35,17 @@ the trading engine or Foundation Models. No order or account endpoint exists in 
 
 No subscription was purchased and no third party received a Pocket Option credential.
 
+## Integration with PR #12
+
+This branch is stacked on `upgrade/blazeros-v2-market-data-modularization` and merges PR #13's
+research layer into it rather than replacing either branch. `LightningDeskModel` keeps PR #12's
+`DeskMarketDataServing`, `MarketDataTransporting`, `CandleCache` and `ScanOperationCoordinator`
+boundaries for OANDA/Binance and scan-worker lifetime. A new `DeskOTCResearchServing` boundary owns
+OTC provider construction, streaming, validation persistence and the manual archive, so the facade
+has no `URLSession`, `OandaClient`, `BinanceClient`, provider construction or scan-worker lifetime.
+Research capture and scan scheduling are independent; backgrounding cancels both, and neither can
+publish execution state.
+
 ## Implementation
 
 - `ShadowMarketObservationProvider` extends PR #11's shadow architecture with typed source and
@@ -56,19 +67,27 @@ No subscription was purchased and no third party received a Pocket Option creden
   It does not retry invisibly, extend timestamps, or surface raw remote error text in the UI.
 - One explicit Intel-screen action starts a bounded (default five-minute) capture. It never runs
   automatically, stops on backgrounding, and cancels a stalled stream through a watchdog. The
-  session persists at most one sample per second while keeping a live tick counter and rate, so a
-  dense stream cannot flood the main actor or the archive.
+  returned stream also has an explicit cancellation handle, so a stop finishes the consumer even
+  when the provider never yields another element. The session persists at most one sample per
+  second while keeping a live tick counter, rate, clock skew and interruption count, so a dense
+  stream cannot flood the main actor or the archive.
 - `OTCValidationPipeline` persists immutable paired observations with a retention cap and
-  chronological pruning. Direction is measured once per non-overlapping 60-second bucket, not per
-  adjacent tick, so overlapping transitions cannot inflate agreement. Flat buckets do not count as
-  agreement, and standard/OTC identity must be continuous across a pair.
+  chronological pruning. Direction is measured open-to-open once per non-overlapping 60-second
+  bucket keyed on the OTC provider's source time, not per adjacent tick. The compared prints must
+  span 40–80 seconds and pass the same 3-second skew gate as the descriptive metrics. Flat buckets
+  do not count as agreement, and standard/OTC identity must be continuous across a pair. The report
+  exposes its retained coverage window and synthetic-sample count instead of implying that the
+  archive is complete or clean.
 - A stale weekend OANDA reference is excluded. The standard leg is reused only when the FX market
   is open, the desk quote is for EUR/USD and no more than five seconds old. OANDA remains a
-  standard-market reference, never Pocket Option settlement data.
+  standard-market reference, never Pocket Option settlement data. The service, not the facade,
+  constructs that reference observation.
 - The Intel screen can save/remove the independent API key and capture the visible Pocket Option
   instrument, broker price, optional provider price, candle time (ISO 8601), payout, screenshot
   reference, agreement, and confidence. Manual records are isolated research evidence and cannot
   settle or authorize a trade.
+- A systematic provider-clock offset is surfaced as a live diagnostic rather than silently
+  excluding every sample. The fixed UTC+2 correction remains an unverified vendor assumption.
 
 ## Evidence state
 
@@ -82,10 +101,27 @@ No subscription was purchased and no third party received a Pocket Option creden
 | Live entry authorization | **DISABLED / PROHIBITED** |
 | Research promotion | **INSUFFICIENT EVIDENCE** |
 
-Documentation payloads and deterministic tests are not live market evidence. `capturedLiveVendorData`
-means only that a real, non-synthetic OTC vendor print exists in the archive; it never means
-verified, matched, settlement-equivalent, or promotion-ready. The report status distinguishes
-"NO PAIRED COMPARISON" from "INDEPENDENT VALIDATION REQUIRED".
+Documentation payloads and deterministic tests are not live market evidence.
+`hasProviderOTCObservation` means only that the retained archive contains a non-synthetic-flagged
+OTC print from a configured provider source; it never means verified, matched,
+settlement-equivalent, or promotion-ready. The report status distinguishes
+"NO PAIRED COMPARISON" from "INDEPENDENT VALIDATION REQUIRED", and a synthetic sample forces
+`UNVERIFIED`.
+
+## Verification (integrated head)
+
+| Check | Result |
+|---|---|
+| `swift build` | PASS |
+| `swift test` | **288/288 PASS** |
+| Engine pin / intents drift | PASS |
+| Parity | **43/43 PASS** |
+| CoreAudit | **71/71 PASS** |
+| Persist | **59/59 PASS** |
+| Soak | **10/10 PASS** |
+| iOS Simulator Debug | PASS |
+| iOS Simulator Release | PASS |
+| iPhone simulator tests | **15/15 PASS** |
 
 ## Controlled transport coverage
 
@@ -94,27 +130,52 @@ duplicate-second ticks, future-dated ticks, wrong symbols, candle identity misma
 cancellation-ignoring producers, connection interruption and explicit reconnect, replacement,
 throttling, incomplete candles, expired quotes, Keychain loading/removal, archive corruption,
 retention pruning, non-overlapping 60-second bucketing, flat-bucket exclusion, stale weekend
-reference exclusion, and background capture stop. Scheduler tests continue to cover Siri/pending
-scans, scan supersession, and background invalidation; the production eight-second gate is
-unchanged.
+reference exclusion, and background capture stop. Integration tests exercise scan scheduling and
+OTC capture together, background cancellation of both, candle-cache isolation, archive/manual
+evidence persistence across relaunch without ledger mutation, demo-cache freshness, and the iOS
+Siri handoff after the scan coordinator releases ownership. Scheduler tests continue to cover
+Siri/pending scans, scan supersession, and background invalidation; the production eight-second
+gate is unchanged.
 
 ## Independent reviews
 
-Two delegated reviews (security/iOS architecture and market-data/quantitative integrity) ran
-against the working tree. Findings corrected before delivery:
+Two delegated reviews (Swift concurrency/architecture and execution
+integrity/quantitative provenance) ran against the integrated tree. Findings corrected before
+delivery:
 
-- Unbounded per-tick archive growth and a full-archive decode on every scan save removed: capture
-  is rate-limited to 1 Hz, the archive is capped and pruned, and the report is refreshed at launch,
-  on capture finish, or on explicit request.
-- Per-tick `@Published` churn removed by publishing tick telemetry at most once per second and
-  assigning connection state only on change.
-- A cancelled capture can no longer mutate a newer session: the run id is checked before and after
-  persistence.
-- Remote-controlled error text is no longer rendered in the UI.
-- The misleading `verifiedLiveEvidence` flag was replaced by `capturedLiveVendorData`, and the
-  60-second metric was corrected to non-overlapping buckets.
-- Future-dated ticks/candles, server-controlled event ids, transition identity continuity, manual
-  archive ordering, and manual candle-time capture were corrected or added.
+- OTC capture cancellation now has an explicit stream handle. A stop or backgrounding finishes the
+  consumer even when the provider never yields, so no stalled socket or task survives the session.
+- The OTC service owns instrument identity, provider construction, streaming, standard-reference
+  construction, validation persistence and the manual archive. The facade has no `URLSession`,
+  `OandaClient`, `BinanceClient`, provider construction or scan-worker lifetime.
+- Provider-domain types were removed from the facade; the desk now asks the service for its
+  research identity and standard reference.
+- The evidence flag was renamed to `hasProviderOTCObservation`. A synthetic-verification sample
+  forces `UNVERIFIED`, and the report exposes the synthetic count and retained coverage window.
+- The 60-second metric buckets on provider source time, compares the first print of each bucket,
+  requires 40–80 seconds of spacing, and applies the same 3-second skew gate as the descriptive
+  metrics. Overlapping adjacent-tick transitions no longer inflate agreement.
+- A dead `providerDisconnections` field was removed; the desk now counts real connection
+  interruption events from the capture stream.
+- Demo bars are cached as stale display fixtures, never as fresh transport data.
+- A systematic provider clock offset is surfaced as a diagnostic instead of silently emptying the
+  comparison.
+- Siri ingress now requires an idle scan coordinator, so it cannot replace an in-flight user scan.
+- Scan-triggered reloads no longer erase a live research error message.
+- Integration tests assert archived `researchOnly`/`mayAuthorizeEntry` flags, queue a real pending
+  Siri request on iOS, and cover cancellation, demo-cache, synthetic-labeling and coverage behavior.
+
+Residual risks:
+
+- The fixed UTC+2 provider normalization is a vendor claim. A DST or epoch change will produce a
+  visible clock-skew diagnostic and failed observations, not silently wrong comparisons. No live
+  key was available to validate it.
+- `ScanOperationCoordinator` still awaits a cancellation-ignoring transport. Real transports are
+  bounded by their own request timeouts; a provider that never returns would park scan ingress.
+- Backgrounding an armed but never-entered beam still offers an outcome prompt (pre-existing PR #11
+  behavior). It cannot create research evidence, but it is not a substitute for venue confirmation.
+- Retention keeps the newest 5,000 samples. Coverage shrinks as evidence ages; the report now
+  states the retained window rather than implying a complete archive.
 
 ## Next concrete step
 
@@ -128,10 +189,13 @@ for any Pocket Option session secret requires separate approval.
 
 ## Delivery classification
 
-- **IMPLEMENTED:** common contract, native REST/SSE adapter, bounded Keychain-controlled capture,
-  manual capture, validation archive/report with retention, and fail-closed transport seams.
-- **TESTED:** deterministic adapter, persistence, retention, security-boundary, bucketing, and
-  comparison behavior. Exact final suite/build totals are recorded in the pull request.
+- **IMPLEMENTED:** common contract, native REST/SSE adapter behind a `DeskOTCResearchServing`
+  boundary, bounded Keychain-controlled capture, manual capture, validation archive/report with
+  retention and coverage, and fail-closed transport seams. The facade keeps PR #12's market-data
+  and scan-coordinator boundaries and contains no direct broker networking.
+- **TESTED:** deterministic adapter, persistence, retention, security-boundary, bucketing,
+  integration, and comparison behavior. Exact final suite/build totals are recorded in the pull
+  request.
 - **VERIFIED:** code behavior and default-disabled/read-only boundaries only.
 - **RESEARCH-ONLY:** every provider observation, manual comparison, metric, and rolling evaluation.
 - **BLOCKED:** direct broker API, live provider accuracy, matched broker prices, real latency, and

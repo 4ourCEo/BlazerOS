@@ -45,7 +45,9 @@ public final class LightningDeskModel: ObservableObject {
     init(
         storageRoot: URL?,
         marketData: any DeskMarketDataServing,
-        candleCache: CandleCache = CandleCache()
+        candleCache: CandleCache = CandleCache(),
+        otcArchive: (any DeskOTCResearchServing)? = nil,
+        otcResearchServiceFactory: (@Sendable (String) -> any DeskOTCResearchServing)? = nil
     ) {
         if storageRoot == nil {
             FileLocations.migrateLegacyGroupStorageIfNeeded()
@@ -53,6 +55,11 @@ public final class LightningDeskModel: ObservableObject {
         let root = storageRoot ?? FileLocations.applicationSupport()
         self.marketData = marketData
         self.candleCache = candleCache
+        let otcRoot = root.appendingPathComponent("Research", isDirectory: true)
+            .appendingPathComponent("otc-validation", isDirectory: true)
+        self.otcArchive = otcArchive ?? LiveOTCResearchService(root: otcRoot)
+        self.otcResearchServiceFactory = otcResearchServiceFactory
+            ?? LiveOTCResearchService.streamingFactory(root: otcRoot)
         persistence = PersistenceCoordinator(root: root)
         referenceStore = ReferenceOutcomeStore(
             root: root.appendingPathComponent("Research", isDirectory: true)
@@ -61,12 +68,6 @@ public final class LightningDeskModel: ObservableObject {
         executionObservationStore = ExecutionObservationStore(
             root: root.appendingPathComponent("Research", isDirectory: true)
                 .appendingPathComponent("execution-quality", isDirectory: true))
-        manualBrokerObservationStore = ManualBrokerObservationStore(
-            root: root.appendingPathComponent("Research", isDirectory: true)
-                .appendingPathComponent("otc-validation", isDirectory: true))
-        otcValidationPipeline = OTCValidationPipeline(
-            root: root.appendingPathComponent("Research", isDirectory: true)
-                .appendingPathComponent("otc-validation", isDirectory: true))
         strikeStore = StrikeStore(url: root.appendingPathComponent("strike_positions.json"))
         let diagnosticsURL = root.appendingPathComponent("model_diagnostics.jsonl")
         assistant = AssistantSession(diagnosticsURL: diagnosticsURL)
@@ -449,13 +450,13 @@ public final class LightningDeskModel: ObservableObject {
 
     // MARK: - Personal OTC research (never an execution input)
 
-    private let manualBrokerObservationStore: ManualBrokerObservationStore
-    private let otcValidationPipeline: OTCValidationPipeline
+    /// OTC networking, streaming and validation live behind this research-only service.
+    private let otcArchive: any DeskOTCResearchServing
+    /// Creates a credential-scoped streaming service. Injectable for tests.
+    private let otcResearchServiceFactory: @Sendable (String) -> any DeskOTCResearchServing
+    private var otcActiveService: (any DeskOTCResearchServing)?
+    private var otcActiveStream: OTCResearchStream?
     public var otcCredentialVault: KeychainVault = SystemKeychainVault(service: "com.blazer.os.otc-research")
-    /// Injectable so the capture session is testable without touching the network.
-    public var otcProviderFactory: @Sendable (OTChartsConfiguration) -> OTChartsProvider = {
-        OTChartsProvider(configuration: $0)
-    }
     @Published public private(set) var otcAPIKeyConfigured = false
     @Published public private(set) var otcConnectionState: ShadowConnectionState = .disabled
     @Published public private(set) var manualBrokerObservations: [ManualBrokerChartObservation] = []
@@ -467,6 +468,9 @@ public final class LightningDeskModel: ObservableObject {
     /// Raw ticks observed in this session, refreshed at 1 Hz to avoid per-tick UI churn.
     @Published public private(set) var otcObservedTicks = 0
     @Published public private(set) var otcObservedTickRate: Double?
+    /// Local receipt minus normalized provider time. A large value indicates a clock-model drift.
+    @Published public private(set) var otcClockSkewSeconds: Double?
+    @Published public private(set) var otcConnectionInterruptions = 0
     @Published public private(set) var otcValidationReport: OTCValidationReport?
     private var otcCaptureTask: Task<Void, Never>?
     private var otcCaptureWatchdog: Task<Void, Never>?
@@ -479,7 +483,8 @@ public final class LightningDeskModel: ObservableObject {
     public func refreshOTCCredentialState() {
         do {
             otcAPIKeyConfigured = try otcCredentialVault.get(KeychainKey.otchartsAPIKey)?.isEmpty == false
-            otcResearchIssue = nil
+            // A scan-triggered reload must not erase a live capture failure message.
+            if !otcCaptureActive { otcResearchIssue = nil }
         } catch {
             otcAPIKeyConfigured = false
             otcResearchIssue = "OTC provider credential is unavailable"
@@ -540,14 +545,16 @@ public final class LightningDeskModel: ObservableObject {
             return
         }
 
-        let configuration = OTChartsConfiguration(apiKey: key, enabled: true)
-        let provider = otcProviderFactory(configuration)
+        let service = otcResearchServiceFactory(key)
         let runID = UUID()
+        otcActiveService = service
         otcCaptureRunID = runID
         otcCaptureActive = true
         otcCapturedObservations = 0
         otcObservedTicks = 0
         otcObservedTickRate = nil
+        otcClockSkewSeconds = nil
+        otcConnectionInterruptions = 0
         otcTicksThisCapture = 0
         otcFirstTickAt = nil
         otcLastTickPublishAt = nil
@@ -557,7 +564,7 @@ public final class LightningDeskModel: ObservableObject {
 
         let task = Task { [weak self] in
             guard let self else { return }
-            await self.runOTCCapture(provider: provider, runID: runID)
+            await self.runOTCCapture(service: service, runID: runID)
         }
         otcCaptureTask = task
         // A stalled stream must still respect the declared bound.
@@ -574,16 +581,22 @@ public final class LightningDeskModel: ObservableObject {
         otcCaptureTask = nil
         otcCaptureWatchdog = nil
         otcCaptureRunID = nil
+        otcActiveService = nil
+        otcActiveStream?.cancel()
+        otcActiveStream = nil
         otcCaptureActive = false
         otcConnectionState = .disabled
     }
 
-    private func runOTCCapture(provider: OTChartsProvider, runID: UUID) async {
+    private func runOTCCapture(service: any DeskOTCResearchServing, runID: UUID) async {
         defer { finishOTCCapture(runID: runID) }
+        guard !Task.isCancelled, otcCaptureRunID == runID else { return }
         do {
-            let instruments = try await provider.instruments()
+            let identity = service.researchIdentity
+            let instruments = try await service.instruments()
+            guard !Task.isCancelled, otcCaptureRunID == runID else { return }
             guard let availability = instruments.first(where: {
-                $0.identity == ShadowMarketDataFixtures.pocketOptionEURUSDOTC
+                $0.identity == identity
             }) else {
                 otcResearchIssue = "OTCharts did not list EUR/USD OTC; capture stopped"
                 otcConnectionState = .degraded
@@ -594,16 +607,26 @@ public final class LightningDeskModel: ObservableObject {
                 otcConnectionState = .degraded
                 return
             }
-            let updates = try await provider.updates(
-                for: [ShadowMarketDataFixtures.pocketOptionEURUSDOTC])
-            for try await update in updates {
+            let stream = try await service.updates(for: identity)
+            guard !Task.isCancelled, otcCaptureRunID == runID else {
+                stream.cancel()
+                return
+            }
+            otcActiveStream = stream
+            for try await update in stream.events {
                 if Task.isCancelled { break }
                 switch update {
                 case .connection(let state, _):
-                    if otcConnectionState != state { otcConnectionState = state }
+                    if otcConnectionState != state {
+                        if state == .disconnected || state == .degraded {
+                            otcConnectionInterruptions += 1
+                        }
+                        otcConnectionState = state
+                    }
                 case .observation(let observation):
                     if otcConnectionState != .live { otcConnectionState = .live }
-                    await recordOTCResearchObservation(observation, runID: runID)
+                    await recordOTCResearchObservation(
+                        observation, runID: runID, service: service)
                 }
             }
             // A clean end before the declared bound is an incomplete session, not a success.
@@ -626,14 +649,22 @@ public final class LightningDeskModel: ObservableObject {
         otcCaptureWatchdog?.cancel()
         otcCaptureWatchdog = nil
         otcCaptureRunID = nil
+        otcActiveService = nil
+        otcActiveStream?.cancel()
+        otcActiveStream = nil
         otcCaptureActive = false
         otcConnectionState = .disabled
         Task { await refreshOTCValidationReport() }
     }
 
     private func recordOTCResearchObservation(_ observation: ShadowMarketObservation,
-                                              runID: UUID) async {
+                                              runID: UUID,
+                                              service: any DeskOTCResearchServing) async {
         guard otcCaptureRunID == runID else { return }
+        guard observation.identity == service.researchIdentity else {
+            otcResearchIssue = "Provider returned an observation for a different instrument"
+            return
+        }
         guard observation.isValid, observation.verification != .syntheticTestFixture else {
             otcResearchIssue = "Provider returned an invalid research observation"
             return
@@ -641,7 +672,7 @@ public final class LightningDeskModel: ObservableObject {
         let now = Date()
         otcTicksThisCapture += 1
         if otcFirstTickAt == nil { otcFirstTickAt = now }
-        // Refresh tick telemetry at most once per second, never per tick.
+        // Refresh tick and clock telemetry at most once per second, never per tick.
         if otcLastTickPublishAt.map({ now.timeIntervalSince($0) >= 1 }) ?? true {
             otcObservedTicks = otcTicksThisCapture
             if let first = otcFirstTickAt {
@@ -649,18 +680,26 @@ public final class LightningDeskModel: ObservableObject {
                 otcObservedTickRate = elapsed > 0
                     ? Double(max(0, otcTicksThisCapture - 1)) / elapsed : nil
             }
+            // A systematic offset means the documented UTC+2 correction may not match the
+            // provider's current epoch (for example a DST shift). Surface it, never hide it.
+            let clockSkew = now.timeIntervalSince(observation.providerTimestamp.normalized)
+            otcClockSkewSeconds = clockSkew
+            if abs(clockSkew) > 120, otcResearchIssue == nil {
+                otcResearchIssue = "Provider clock offset is \(Int(clockSkew))s from the documented normalization"
+            }
             otcLastTickPublishAt = now
         }
         // Persist at most one sample per second so a dense stream cannot flood the archive or
         // the main actor. The 60-second bucket report does not need every tick.
         if let last = otcLastPersistAt, now.timeIntervalSince(last) < 1 { return }
-        let reference = standardReferenceObservation(at: now)
-        let sample = OTCValidationSample(
-            capturedAt: now, standard: reference, otc: observation,
-            standardOrigin: reference == nil ? nil : .independentAPI,
-            otcOrigin: .independentAPI)
+        let reference: ShadowMarketObservation?
+        if marketMode == .fx, FxSession.isOpen(now), let quote {
+            reference = service.standardReference(from: quote, at: now)
+        } else {
+            reference = nil
+        }
         do {
-            try await otcValidationPipeline.record(sample)
+            try await service.record(otc: observation, standard: reference, capturedAt: now)
             guard otcCaptureRunID == runID else { return }
             otcCapturedObservations += 1
             otcLastPersistAt = now
@@ -670,31 +709,9 @@ public final class LightningDeskModel: ObservableObject {
         }
     }
 
-    /// Reuses the desk's live OANDA mid only while the standard market is open and the quote is
-    /// recent. A weekend-closed OANDA print is never paired with an active OTC observation.
-    private func standardReferenceObservation(at now: Date) -> ShadowMarketObservation? {
-        guard marketMode == .fx, FxSession.isOpen(now), let quote,
-              quote.asset == "EUR/USD", quote.asOfMs > 0,
-              quote.bid.isFinite, quote.ask.isFinite, quote.mid.isFinite,
-              quote.bid > 0, quote.ask >= quote.bid else { return nil }
-        let asOf = quote.asOfMs / 1_000
-        guard asOf <= now.timeIntervalSince1970,
-              now.timeIntervalSince1970 - asOf <= 5 else { return nil }
-        let observation = ShadowMarketObservation(
-            source: ShadowDataSourceIdentity(providerID: "oanda.standard.v1",
-                displayName: "OANDA", venueID: "oanda", directBrokerConnection: false),
-            identity: ShadowMarketDataFixtures.standardEURUSD,
-            quote: ShadowQuote(price: quote.mid, bid: quote.bid, ask: quote.ask),
-            providerTimestamp: ShadowProviderTimestamp(rawUnixSeconds: asOf),
-            receivedAt: now, connectionState: .live,
-            verification: .unverifiedVendorData,
-            provenance: "OANDA midpoint reference; not Pocket Option settlement")
-        return observation.isValid ? observation : nil
-    }
-
     public func refreshOTCValidationReport() async {
         do {
-            otcValidationReport = try await otcValidationPipeline.report()
+            otcValidationReport = try await otcArchive.report()
         } catch {
             otcResearchIssue = "OTC validation archive unavailable: \(error.localizedDescription)"
         }
@@ -719,7 +736,7 @@ public final class LightningDeskModel: ObservableObject {
             ? nil : Double(payoutPercent)
         let screenshot = screenshotReference.trimmingCharacters(in: .whitespacesAndNewlines)
         let observation = ManualBrokerChartObservation(
-            identity: ShadowMarketDataFixtures.pocketOptionEURUSDOTC,
+            identity: otcArchive.researchIdentity,
             observedAt: Date(), brokerDisplayedPrice: broker, providerPrice: provider,
             candleTimestamp: candleTimestamp, payoutPercent: payout,
             screenshotReference: screenshot.isEmpty ? nil : screenshot,
@@ -729,8 +746,8 @@ public final class LightningDeskModel: ObservableObject {
             return
         }
         do {
-            try await manualBrokerObservationStore.record(observation)
-            manualBrokerObservations = try await manualBrokerObservationStore.observations()
+            try await otcArchive.recordManual(observation)
+            manualBrokerObservations = try await otcArchive.manualObservations()
             otcResearchIssue = nil
         } catch {
             otcResearchIssue = "Manual OTC observation could not be saved"
@@ -833,7 +850,9 @@ public final class LightningDeskModel: ObservableObject {
         let fixture = GoldenFixture.market()
         let bars = GoldenFixture.frozenBars(from: fixture)
         candles = bars
-        candleCache.store(bars, for: CandleCache.Key(market: marketMode, asset: pair))
+        // Demo bars are display fixtures, never a fresh transport observation.
+        candleCache.store(bars, for: CandleCache.Key(market: marketMode, asset: pair),
+                          fetchedAt: .distantPast)
         let signal = EngineSignal(
             asset: pair,
             cabinetSide: "WAIT",
@@ -1645,7 +1664,8 @@ public final class LightningDeskModel: ObservableObject {
     private func consumePendingScanIfReady() async -> Bool {
         #if os(iOS)
         guard backgroundedAt == nil, !scanning, activeTrade == nil,
-              !awaitingOutcome, !settlementInFlight else { return false }
+              !awaitingOutcome, !settlementInFlight,
+              scanCoordinator.isIdle else { return false }
         guard takePendingScanRequest() else { return false }
         await scan()
         return true
@@ -2370,7 +2390,7 @@ public final class LightningDeskModel: ObservableObject {
         let restoredManualObservations: [ManualBrokerChartObservation]
         let manualLoadIssue: String?
         do {
-            restoredManualObservations = try await manualBrokerObservationStore.observations()
+            restoredManualObservations = try await otcArchive.manualObservations()
             manualLoadIssue = nil
         } catch {
             restoredManualObservations = []
@@ -2389,7 +2409,7 @@ public final class LightningDeskModel: ObservableObject {
         executionObservations = restoredExecutionObservations
         executionObservationIssue = executionLoadIssue
         manualBrokerObservations = restoredManualObservations
-        otcResearchIssue = manualLoadIssue
+        if let manualLoadIssue { otcResearchIssue = manualLoadIssue }
         refreshOTCCredentialState()
         refreshExecutionIntelligence()
         // Attribute restored bars by persisted engine identity, not the mutable live watchlist.

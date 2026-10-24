@@ -48,16 +48,20 @@ public struct OTCValidationReport: Codable, Sendable, Equatable {
     public let meanAbsolutePriceDisplacement: Double?
     public let missingStandardObservations: Int
     public let missingOTCObservations: Int
-    public let providerDisconnections: Int
     /// Observations whose declared identity is the OTC session.
     public let otcSessionSamples: Int
     /// Observations captured on a Saturday or Sunday in the local calendar.
     public let calendarWeekendSamples: Int
     public let staleWeekendReferencesExcluded: Int
+    public let syntheticSampleCount: Int
     public let containsSyntheticData: Bool
-    /// True when at least one real, non-synthetic OTC observation was archived.
-    /// This is vendor data, not independently verified evidence.
-    public let capturedLiveVendorData: Bool
+    /// True when the retained archive contains a non-synthetic-flagged OTC observation from a
+    /// configured provider source. This is provider data, never broker or settlement verification.
+    public let hasProviderOTCObservation: Bool
+    /// Coverage of the retained archive after retention pruning.
+    public let oldestCapturedAt: Date?
+    public let newestCapturedAt: Date?
+    public let retentionLimit: Int
     public let status: String
 }
 
@@ -114,10 +118,10 @@ public actor OTCValidationPipeline {
         var displacements: [Double] = []
         var missingStandard = 0
         var missingOTC = 0
-        var disconnections = 0
         var otcSession = 0
         var calendarWeekend = 0
         var excludedWeekend = 0
+        var syntheticSamples = 0
         var paired: [(capturedAt: Date, standard: ShadowMarketObservation, otc: ShadowMarketObservation)] = []
 
         for sample in values {
@@ -127,8 +131,11 @@ public actor OTCValidationPipeline {
             }
             if sample.standard == nil { missingStandard += 1 }
             if sample.otc == nil { missingOTC += 1 }
-            if sample.standard?.connectionState == .disconnected || sample.otc?.connectionState == .disconnected {
-                disconnections += 1
+            if sample.standardOrigin == .syntheticTestFixture
+                || sample.otcOrigin == .syntheticTestFixture
+                || sample.standard?.verification == .syntheticTestFixture
+                || sample.otc?.verification == .syntheticTestFixture {
+                syntheticSamples += 1
             }
             guard let standard = sample.standard, let otc = sample.otc else { continue }
             let standardAge = sample.capturedAt.timeIntervalSince(standard.providerTimestamp.normalized)
@@ -151,21 +158,30 @@ public actor OTCValidationPipeline {
         }
 
         // A dense tick archive would make adjacent-sample deltas overlap and overstate the
-        // sample size. Direction is therefore measured once per aligned 60-second bucket.
+        // sample size. Direction is measured open-to-open once per aligned 60-second bucket,
+        // keyed on the OTC provider's own timestamp. The compared prints must actually span
+        // roughly a minute and share the same 3-second skew gate as the descriptive metrics.
         var previousByBucket: (key: Int, standard: ShadowMarketObservation, otc: ShadowMarketObservation)?
         var sixtyComparable = 0
         var sixtyAgreements = 0
         for entry in paired {
-            let key = Int(floor(entry.capturedAt.timeIntervalSince1970 / 60))
+            let key = Int(floor(entry.otc.providerTimestamp.normalized.timeIntervalSince1970 / 60))
             if let previous = previousByBucket {
                 if previous.key == key {
-                    // Keep the last print in the bucket.
-                    previousByBucket = (key, entry.standard, entry.otc)
+                    // Keep the first print in the bucket; do not let a later tick replace it.
                     continue
                 }
                 guard previous.key + 1 == key,
                       previous.standard.identity == entry.standard.identity,
                       previous.otc.identity == entry.otc.identity else {
+                    previousByBucket = (key, entry.standard, entry.otc)
+                    continue
+                }
+                let spacing = entry.otc.providerTimestamp.normalized
+                    .timeIntervalSince(previous.otc.providerTimestamp.normalized)
+                let skew = abs(entry.standard.providerTimestamp.normalized
+                    .timeIntervalSince(entry.otc.providerTimestamp.normalized))
+                guard (40...80).contains(spacing), skew <= maximumTimestampSkew else {
                     previousByBucket = (key, entry.standard, entry.otc)
                     continue
                 }
@@ -180,31 +196,24 @@ public actor OTCValidationPipeline {
             previousByBucket = (key, entry.standard, entry.otc)
         }
 
-        let synthetic = values.contains {
-            $0.standardOrigin == .syntheticTestFixture || $0.otcOrigin == .syntheticTestFixture
-        }
-        let liveOrigins: Set<OTCObservationOrigin> = [.directBrokerData, .independentAPI, .manualChartObservation]
-        // Live vendor data requires at least one real OTC observation. It never means
-        // independently verified, matched, or settlement-equivalent evidence.
-        let hasLiveOTC = values.contains { sample in
+        let synthetic = syntheticSamples > 0
+        let providerOrigins: Set<OTCObservationOrigin> =
+            [.directBrokerData, .independentAPI, .manualChartObservation]
+        // Provider data requires at least one real OTC observation and no synthetic sample in
+        // the retained window. It never means independently verified or settlement-equivalent.
+        let hasProviderOTC = values.contains { sample in
             guard let otc = sample.otc, let origin = sample.otcOrigin,
-                  liveOrigins.contains(origin),
+                  providerOrigins.contains(origin),
                   otc.verification != .syntheticTestFixture else { return false }
             return otc.identity.marketKind == .otc
         }
-        let capturedLive = hasLiveOTC && !synthetic && values.allSatisfy {
-            ($0.standardOrigin.map(liveOrigins.contains) ?? true)
-                && ($0.otcOrigin.map(liveOrigins.contains) ?? true)
-                && ($0.standard?.verification != .syntheticTestFixture)
-                && ($0.otc?.verification != .syntheticTestFixture)
-        }
         let status: String
-        if !capturedLive {
+        if !hasProviderOTC {
             status = "UNVERIFIED"
         } else if sixtyComparable > 0 {
-            status = "LIVE VENDOR DATA — INDEPENDENT VALIDATION REQUIRED"
+            status = "PROVIDER DATA — INDEPENDENT VALIDATION REQUIRED"
         } else {
-            status = "LIVE VENDOR DATA — NO PAIRED COMPARISON"
+            status = "PROVIDER DATA — NO PAIRED COMPARISON"
         }
         return OTCValidationReport(totalSamples: values.count,
             sixtySecondComparableTransitions: sixtyComparable,
@@ -213,12 +222,15 @@ public actor OTCValidationPipeline {
             meanAbsolutePriceDisplacement: mean(displacements),
             missingStandardObservations: missingStandard,
             missingOTCObservations: missingOTC,
-            providerDisconnections: disconnections,
             otcSessionSamples: otcSession,
             calendarWeekendSamples: calendarWeekend,
             staleWeekendReferencesExcluded: excludedWeekend,
+            syntheticSampleCount: syntheticSamples,
             containsSyntheticData: synthetic,
-            capturedLiveVendorData: capturedLive,
+            hasProviderOTCObservation: hasProviderOTC,
+            oldestCapturedAt: values.first?.capturedAt,
+            newestCapturedAt: values.last?.capturedAt,
+            retentionLimit: maximumSamples,
             status: status)
     }
 
