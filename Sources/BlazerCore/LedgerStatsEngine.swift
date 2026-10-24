@@ -11,7 +11,8 @@ public struct PairEdgeStats: Sendable, Equatable {
     public let lower95: Double
     public let upper95: Double
     /// Mean venue payout actually recorded on the resolved rows (falling back to the
-    /// supplied default when a row has no payout). This is the rate the expectancy uses.
+    /// supplied default when a row has no payout). Descriptive metadata only; never
+    /// substituted into the expectancy formula for a heterogeneous payout book.
     public let payoutRatio: Double
     /// Lowest payout seen in the cohort. Promotion must clear break-even at this rate,
     /// otherwise a high-payout subset can carry a losing book.
@@ -21,6 +22,9 @@ public struct PairEdgeStats: Sendable, Equatable {
     public let breakEvenRate: Double
     public let breakEvenRateAtMinimumPayout: Double
     public let expectancy: Double
+    public let expectancyAvailable: Bool
+    /// Actual equal-risk return; nil when winning payouts/outcome alignment are missing.
+    public let actualExpectancy: Double?
     public let statusBadge: String
     /// True only when every promotion criterion holds. The name is retained for existing
     /// call sites; it means "criteria met", not a guarantee of future edge.
@@ -42,7 +46,8 @@ public struct PairEdgeStats: Sendable, Equatable {
         verifiedOutcomes: Bool = false,
         referenceSampleSize: Int = 0,
         referenceWins: Int = 0,
-        /// Per-row payouts, in any order. `nil` entries fall back to `payoutRatio`.
+        /// Per-row payouts aligned exactly with `perRowWins`. Missing winning payouts
+        /// permit only an explicitly assumed descriptive estimate, never actual EV.
         /// Pass `nil` (or a count that does not match `sampleSize`) to score a flat payout.
         perRowPayouts: [Double?]? = nil,
         perRowWins: [Bool]? = nil,
@@ -58,6 +63,16 @@ public struct PairEdgeStats: Sendable, Equatable {
         self.losses = max(0, sampleSize - wins)
         self.referenceSampleSize = referenceSampleSize
         self.referenceWins = referenceWins
+        let aligned = perRowWins?.count == sampleSize && perRowPayouts?.count == sampleSize
+            && perRowWins?.filter({ $0 }).count == wins
+        if verifiedOutcomes, aligned, sampleSize > 0, let perRowWins, let perRowPayouts,
+           zip(perRowWins, perRowPayouts).allSatisfy({ won, payout in
+               !won || (payout.map { $0.isFinite && $0 > 0 && $0 <= 1e100 } ?? false)
+           }) {
+            self.actualExpectancy = zip(perRowWins, perRowPayouts).reduce(0.0) {
+                $0 + ($1.0 ? $1.1! : -1) / Double(sampleSize)
+            }
+        } else { self.actualExpectancy = nil }
 
         let fallbackPayout = payoutRatio.isFinite && payoutRatio > 0 && payoutRatio <= 1e100 ? payoutRatio : 0.88
         // Resolve the payout that each resolved row actually paid.
@@ -105,12 +120,18 @@ public struct PairEdgeStats: Sendable, Equatable {
             self.lower95 = completeTiming ? (clustered?.lower95 ?? 0) : 0
             self.upper95 = completeTiming ? (clustered?.upper95 ?? 1) : 1
             // Equal stakes: a win returns `payout`, a loss returns -1.
-            if let perRowWins, perRowWins.count == sampleSize, resolvedPayouts.count == sampleSize {
+            if aligned, let perRowWins, resolvedPayouts.count == sampleSize {
                 self.expectancy = zip(perRowWins, resolvedPayouts).reduce(0.0) {
-                    $0 + ($1.0 ? $1.1 : -1)
-                } / Double(sampleSize)
+                    $0 + ($1.0 ? $1.1 : -1) / Double(sampleSize)
+                }
+                self.expectancyAvailable = true
+            } else if perRowPayouts != nil || perRowWins != nil {
+                // An unordered payout list cannot be matched to winning outcomes.
+                self.expectancy = 0
+                self.expectancyAvailable = false
             } else {
-                self.expectancy = (wr * effectivePayout) - (1 - wr)
+                self.expectancy = (wr * fallbackPayout) - (1 - wr)
+                self.expectancyAvailable = true
             }
 
             // Counts alone cannot establish prospective independence, policy stability,
@@ -133,6 +154,7 @@ public struct PairEdgeStats: Sendable, Equatable {
                 + "Nominal 95% Wilson CI: [\(lowerPct), \(upperPct)]. "
                 + "Independence, holdout, basket coverage and policy stability still require validation. "
                 + (clustered?.caveat ?? "Clustering metadata unavailable.")
+                + (self.expectancyAvailable ? "" : " Expectancy unavailable: payout/outcome alignment missing.")
         } else if referenceSampleSize > 0 {
             // Reference observations are shown, but they are not broker outcomes
             // and can never promote a pair.
@@ -142,6 +164,7 @@ public struct PairEdgeStats: Sendable, Equatable {
             self.lower95 = lower
             self.upper95 = upper
             self.expectancy = (rwr * effectivePayout) - ((1.0 - rwr) * 1.0)
+            self.expectancyAvailable = true
             self.statusBadge = "INSUFFICIENT EVIDENCE · UNVERIFIED REFERENCE (n=\(referenceSampleSize))"
             self.meetsPromotionCriteria = false
             self.isProvenEdge = false
@@ -155,6 +178,7 @@ public struct PairEdgeStats: Sendable, Equatable {
             self.lower95 = max(0, prior - 0.12)
             self.upper95 = min(1.0, prior + 0.12)
             self.expectancy = (prior * effectivePayout) - ((1.0 - prior) * 1.0)
+            self.expectancyAvailable = true
             self.statusBadge = "INSUFFICIENT EVIDENCE · UNVERIFIED PRIOR"
             self.meetsPromotionCriteria = false
             self.isProvenEdge = false

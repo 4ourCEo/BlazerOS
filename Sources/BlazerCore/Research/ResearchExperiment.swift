@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Versioned experiment record for offline engine evaluation. It never modifies the live
@@ -138,6 +139,8 @@ public struct ResearchExperimentReport: Codable, Sendable, Equatable, Identifiab
     public var meetsAcceptance: Bool?
     /// Mathematical screening only; not independent validation or live authorization.
     public var screeningCriteriaMet: Bool?
+    public var heldOutDigest: String?
+    public var evidenceDecision: PromotionEvidenceDecision?
 
     public init(
         id: String = UUID().uuidString,
@@ -150,7 +153,9 @@ public struct ResearchExperimentReport: Codable, Sendable, Equatable, Identifiab
         payoutRatio: Double? = nil,
         breakEvenWinRate: Double? = nil,
         meetsAcceptance: Bool? = nil,
-        screeningCriteriaMet: Bool? = nil
+        screeningCriteriaMet: Bool? = nil,
+        heldOutDigest: String? = nil,
+        evidenceDecision: PromotionEvidenceDecision? = nil
     ) {
         self.id = id
         self.experimentID = experimentID
@@ -163,10 +168,18 @@ public struct ResearchExperimentReport: Codable, Sendable, Equatable, Identifiab
         self.breakEvenWinRate = breakEvenWinRate
         self.meetsAcceptance = meetsAcceptance
         self.screeningCriteriaMet = screeningCriteriaMet
+        self.heldOutDigest = heldOutDigest
+        self.evidenceDecision = evidenceDecision
     }
 
     /// Non-optional convenience view for callers and tests.
-    public var acceptanceSatisfied: Bool { meetsAcceptance ?? false }
+    public var acceptanceSatisfied: Bool {
+        // Old persisted nominal-count flags cannot qualify evidence by themselves.
+        meetsAcceptance == true && splitFrozen == true && screeningCriteriaMet == true
+            && evidenceDecision?.statisticalCriteriaMet == true
+            && (evidenceDecision?.verifiedEffectiveSampleSize ?? 0) >= PromotionEvidenceGate.minimumEffectiveSampleSize
+            && (evidenceDecision?.familyWiseAdjustedPValue ?? 1) < PromotionEvidenceGate.familyWiseAlpha
+    }
     public var isHoldoutFrozen: Bool { splitFrozen ?? false }
 }
 
@@ -199,7 +212,9 @@ public enum ResearchEvaluator {
     public static func evaluate(
         experiment: ResearchExperiment,
         events: [ResearchEvent],
-        outcomes: [ResearchOutcome]
+        outcomes: [ResearchOutcome],
+        evidenceReview: StatisticalEvidenceReview? = nil,
+        trustedReviewerIDs: Set<String> = []
     ) -> ResearchExperimentReport {
         let filtered = events
             .filter { ($0.signal.policy ?? ScanPolicy.baseline.rawValue) == experiment.policy }
@@ -344,6 +359,19 @@ public enum ResearchEvaluator {
         let conservativeBreakEven = 1.0 / (1.0 + testMinPayout)
         let testIDs = Set(testEvents.map(\.id))
         let testOutcomes = outcomes.filter { testIDs.contains($0.eventID) && $0.horizon == experiment.evaluationHorizon }
+        struct Cohort: Encodable { let events: [String]; let outcomes: [String] }
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        func canonical<T: Encodable>(_ values: [T]) throws -> [String] {
+            try values.map { String(decoding: try encoder.encode($0), as: UTF8.self) }.sorted()
+        }
+        let digest = (try? encoder.encode(Cohort(events: canonical(testEvents),
+            outcomes: canonical(testOutcomes)))).map {
+                SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined()
+            } ?? ""
+        let evidenceDecision = PromotionEvidenceGate.assess(nominalSize: test.resolved,
+            candidateBlocks: test.blocks ?? 0, cohortDigest: digest,
+            firstObservationAt: testEvents.map(\.capturedAt).min(), review: evidenceReview,
+            trustedReviewerIDs: trustedReviewerIDs)
         let prospective = experiment.splitAt.map { $0 >= experiment.createdAt } ?? false
         let meets = splitFrozen && prospective && balanced
             && Set(testEvents.map { $0.input.asset }) == Set(Assets.watchlist)
@@ -371,7 +399,9 @@ public enum ResearchEvaluator {
             // authorization exists in this research schema. Repeated report inspection
             // must never turn mathematical screening into accepted strategy evidence.
             meetsAcceptance: false,
-            screeningCriteriaMet: meets
+            screeningCriteriaMet: meets && evidenceDecision.statisticalCriteriaMet,
+            heldOutDigest: digest,
+            evidenceDecision: evidenceDecision
         )
     }
 }

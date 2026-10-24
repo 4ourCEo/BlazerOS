@@ -90,6 +90,8 @@ public struct VerifiedCohort: Codable, Sendable, Equatable {
     public var wins: Int
     public var payoutCoverage: Int
     public var actualExpectancy: Double?
+    public var netProfit: Double? = nil
+    public var meanProfitPerTrade: Double? = nil
     public var meanScanToRecordMs: Double? = nil
     public var meanSpread: Double? = nil
     public var meanAbsoluteDisplacement: Double? = nil
@@ -105,7 +107,7 @@ public struct ResearchFinding: Codable, Sendable, Equatable {
 
 /// Deterministic read-only report. No strategy or promotion authority.
 public struct EdgeVerificationReport: Codable, Sendable, Equatable {
-    public var schemaVersion = "edge-verification-v1"
+    public var schemaVersion = "edge-verification-v2"
     public var inputDigest: String
     public var asOf: Date
     public var status = "INSUFFICIENT EVIDENCE"
@@ -126,6 +128,10 @@ public struct EdgeVerificationReport: Codable, Sendable, Equatable {
     public var chronologicalCohorts: [VerifiedCohort]
     public var findings: [ResearchFinding]
     public var limitations: [String]
+    /// Cash is in the recorded stake units. No stake or exchange rate is imputed.
+    public var netProfit: Double? = nil
+    public var meanProfitPerTrade: Double? = nil
+    public var evidenceDecision: PromotionEvidenceDecision? = nil
 }
 
 public enum ExecutionIntelligence {
@@ -170,8 +176,7 @@ public enum ExecutionIntelligence {
         let payoutCoverage = confirmed.filter { validPayout($0.payout) != nil }.count
         let payoutsComplete = !confirmed.isEmpty && payoutCoverage == confirmed.count
         func expectancy(_ cohort: [LedgerRow]) -> Double? {
-            guard !cohort.isEmpty, cohort.allSatisfy({ validPayout($0.payout) != nil }) else { return nil }
-            return cohort.reduce(0.0) { $0 + ($1.outcome == "HIT" ? $1.payout! : -1) } / Double(cohort.count)
+            ConfirmedReturnSummary.evaluate(cohort).unitExpectancy
         }
         let clustered = EvidenceClustering.adjust(confirmed.compactMap { row in
             guard let entered = row.enteredAt, entered <= asOf,
@@ -228,8 +233,10 @@ public enum ExecutionIntelligence {
         }
         func cohort(_ key: String, _ rows: [LedgerRow]) -> VerifiedCohort {
             let telemetry = rows.compactMap(entry)
+            let returns = ConfirmedReturnSummary.evaluate(rows)
             return VerifiedCohort(key: key, resolved: rows.count, wins: rows.filter { $0.outcome == "HIT" }.count,
                 payoutCoverage: rows.filter { validPayout($0.payout) != nil }.count, actualExpectancy: expectancy(rows),
+                netProfit: returns.netProfit, meanProfitPerTrade: returns.meanProfitPerTrade,
                 meanScanToRecordMs: mean(telemetry.compactMap(\.scanToRecordMs)),
                 meanSpread: mean(telemetry.compactMap(\.spread)),
                 meanAbsoluteDisplacement: mean(telemetry.compactMap(\.strikeDisplacement).map(abs)))
@@ -275,7 +282,8 @@ public enum ExecutionIntelligence {
         let bytes = try encoder.encode(Inputs(rows: canonical(rows), journal: canonical(journal),
             observations: canonical(observations), references: canonical(references), splitAt: splitAt, asOf: asOf))
         let digest = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
-        return EdgeVerificationReport(inputDigest: digest, asOf: asOf, resolved: confirmed.count, wins: wins,
+        let returns = ConfirmedReturnSummary.evaluate(confirmed)
+        var result = EdgeVerificationReport(inputDigest: digest, asOf: asOf, resolved: confirmed.count, wins: wins,
             candidateBlocks: clustered.blocks, effectiveSampleSize: clustered.effectiveSize,
             lower95: clustered.nominalSize == confirmed.count && !confirmed.isEmpty ? clustered.lower95 : nil,
             upper95: clustered.nominalSize == confirmed.count && !confirmed.isEmpty ? clustered.upper95 : nil,
@@ -286,11 +294,17 @@ public enum ExecutionIntelligence {
             quality: quality, cohorts: cohorts, chronologicalSplitAt: splitAt, chronologicalCohorts: chronological, findings: findings,
             limitations: ["250 nominal rows do not establish 250 independent prime-window basket events.",
                 clustered.caveat,
-                "Actual expectancy requires recorded payouts for every resolved entry; missing payouts are never imputed here.",
+                "Unit expectancy requires each winning payout. Cash results require recorded stakes in comparable units; neither stakes nor FX conversions are imputed. Losses are full fixed-contract stake losses.",
                 "No registered prospective stopping rule, independently verified dependence model or independent validation supplied. No promotion is authorized.",
                 "Historical rows may lack entry telemetry, regime and policy metadata. Missingness and scan selection can bias results.",
                 "Timing measures scan-to-record latency, not venue fill latency. Reference disagreement is descriptive, not a counterfactual profit claim.",
                 "Market-window cohorts are not market regimes. Chronological, leakage-purged analysis is available separately through ResearchEvaluator; repeated holdout inspection remains exploratory."])
+        result.netProfit = returns.netProfit
+        result.meanProfitPerTrade = returns.meanProfitPerTrade
+        result.evidenceDecision = PromotionEvidenceGate.assess(nominalSize: confirmed.count,
+            candidateBlocks: clustered.blocks, cohortDigest: digest,
+            firstObservationAt: confirmed.compactMap(\.enteredAt).min())
+        return result
     }
 }
 

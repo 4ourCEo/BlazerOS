@@ -15,6 +15,9 @@ struct CoreAudit {
             CryptoCandle(time: Double(index) * 60_000, open: price, high: price * 1.01,
                          low: price * 0.99, close: price, volume: volume, quoteVolume: volume, trades: trades)
         }
+        do { try priorityStatistics(check: check) }
+        catch { check("priority statistics: \(error)", false) }
+        if failed > 0 { exit(1) } // No execution-quality checks before statistical correctness.
         let bars = (0..<65).map { candle($0) }
         for (index, value) in [Double.nan, .infinity, -.infinity, .greatestFiniteMagnitude, .leastNonzeroMagnitude, -1, 0].enumerated() {
             var invalid = bars
@@ -156,4 +159,74 @@ struct CoreAudit {
         print("CoreAudit: \(passed)/\(passed + failed) PASS; \(failed) FAIL. Foundation Models and UI are not exercised.")
         if failed > 0 { exit(1) }
     }
+    static func priorityStatistics(check: (String, Bool) -> Void) throws {
+        let time = Date(timeIntervalSince1970: 10_000)
+        let rows = (0..<5).map { index in
+            LedgerRow(timestamp: time, pair: "EUR/USD", hash: "priority-\(index)", score: 80,
+                side: "HIGH", veto: false, drift: 0, outcome: index < 3 ? "HIT" : "MISS",
+                outcomeEventID: "priority-\(index)", payout: index < 3 ? 0.2 : 2,
+                stake: Double(index + 1) * 10, labelSource: "venue-confirmed")
+        }
+        let meanPayout = rows.compactMap(\.payout).reduce(0, +) / 5
+        let oldEV = 0.6 * meanPayout - 0.4
+        let returns = ConfirmedReturnSummary.evaluate(rows)
+        let pair = LedgerStatsEngine.evaluate(pair: "EUR/USD", rows: rows)
+        print(String(format: "REPRO mixed payout: old=%+.3f corrected=%+.3f cash=%+.2f", oldEV,
+            returns.unitExpectancy ?? .nan, returns.netProfit ?? .nan))
+        check("mixed payouts cannot reverse actual profitability", abs(oldEV - 0.152) < 1e-12
+            && abs((returns.unitExpectancy ?? 1) + 0.28) < 1e-12 && abs(pair.expectancy + 0.28) < 1e-12)
+        check("cash sums each recorded winning payout and actual full-stake loss", returns.netProfit == -78
+            && abs((returns.meanProfitPerTrade ?? 1) + 15.6) < 1e-12)
+        let unordered = PairEdgeStats(pair: "EUR/USD", sampleSize: 5, wins: 3,
+            verifiedOutcomes: true, perRowPayouts: rows.map(\.payout))
+        check("unordered mixed payouts have no expectancy estimate", !unordered.expectancyAvailable && unordered.actualExpectancy == nil)
+        var missingLossPayout = rows; missingLossPayout[3].payout = nil
+        check("losing advertised payout cannot change actual cash", ConfirmedReturnSummary.evaluate(missingLossPayout) == returns)
+        let hash = String(repeating: "a", count: 64)
+        let ids = (0..<10).map { "registered-look-\($0)" }
+        func review(_ n: Double = 250, _ p: Double = 0.001) -> StatisticalEvidenceReview {
+            StatisticalEvidenceReview(reviewerID: "fixture-reviewer", reviewReference: "fixture-independent-audit",
+                cohortDigest: hash, verifiedEffectiveSampleSize: n, dependenceMethod: .validatedClusterModel,
+                registrationReference: "fixture-registered-family", registeredAt: time.addingTimeInterval(-1),
+                registeredTestIDs: ids, rawPValues: Dictionary(uniqueKeysWithValues: ids.map { ($0, p) }), selectedTestID: ids[0])
+        }
+        func gate(_ review: StatisticalEvidenceReview? = nil, blocks: Int = 300,
+                  trusted: Set<String> = ["fixture-reviewer"]) -> PromotionEvidenceDecision {
+            PromotionEvidenceGate.assess(nominalSize: 300, candidateBlocks: blocks, cohortDigest: hash,
+                firstObservationAt: time, review: review, trustedReviewerIDs: trusted)
+        }
+        let lower = EdgeEvidence.wilsonScoreInterval(wins: 280, total: 300).lower
+        print(String(format: "REPRO nominal promotion: n=300 nominalLower=%.4f adjustedBlockN=1 status=%@", lower, gate().status))
+        check("nominal lower bound cannot qualify unverified evidence", lower > ExpectancyMath.breakEvenWinRate() && !gate().statisticalCriteriaMet)
+        check("effective count cannot exceed candidate blocks", !gate(review(300), blocks: 1).statisticalCriteriaMet)
+        check("300 observations in one verified block fail 250-event policy", !gate(review(1), blocks: 1).statisticalCriteriaMet)
+        var assumed = review(); assumed.dependenceMethod = .assumedICC
+        check("assumed ICC is not verified effective N", !gate(assumed).statisticalCriteriaMet)
+        let corrected = gate(review(250, 0.01))
+        print(String(format: "REPRO multiplicity: rawP=0.01 family=10 correctedP=%.3f status=%@", corrected.familyWiseAdjustedPValue ?? .nan, corrected.status))
+        check("multiplicity correction rejects nominal significance", !corrected.statisticalCriteriaMet
+            && abs((corrected.familyWiseAdjustedPValue ?? 1) - 0.1) < 1e-12)
+        var incomplete = review(); incomplete.rawPValues.removeValue(forKey: ids.last!)
+        check("unreported tests or sequential looks fail closed", !gate(incomplete).statisticalCriteriaMet)
+        check("review metadata cannot grant its own trust", !gate(review(), trusted: []).statisticalCriteriaMet)
+        var stale = review(); stale.cohortDigest = String(repeating: "b", count: 64)
+        check("review cannot be reused on another cohort", !gate(stale).statisticalCriteriaMet)
+        let positive = gate(review())
+        check("reviewed positive control qualifies statistics only", positive.statisticalCriteriaMet
+            && positive.verifiedEffectiveSampleSize == 250 && abs((positive.familyWiseAdjustedPValue ?? 1) - 0.01) < 1e-12)
+        let experiment = ResearchExperiment(name: "legacy", policy: "baseline", engineSHA: EngineIdentity.pinnedSHA1,
+            acceptanceCriteria: "nominal", rejectionCriteria: "nominal")
+        var report = ResearchEvaluator.evaluate(experiment: experiment, events: [], outcomes: [])
+        report.meetsAcceptance = true; report.screeningCriteriaMet = true; report.splitFrozen = true
+        check("persisted nominal flags cannot bypass evidence controls", !report.acceptanceSatisfied)
+        let execution = try ExecutionIntelligence.report(rows: rows, asOf: time)
+        check("execution report preserves outcome-matched unit and cash returns", abs((execution.actualExpectancy ?? 1) + 0.28) < 1e-12
+            && execution.netProfit == -78 && execution.cohorts.first?.netProfit == -78)
+        let incompleteTerms = try ExecutionIntelligence.report(rows: missingLossPayout, asOf: time)
+        check("loss quote terms are not required to know the actual loss", incompleteTerms.netProfit == -78
+            && abs((incompleteTerms.actualExpectancy ?? 1) + 0.28) < 1e-12)
+        check("execution reports expose missing independent and multiplicity proof", execution.evidenceDecision?.status == "INSUFFICIENT EVIDENCE"
+            && execution.evidenceDecision?.verifiedEffectiveSampleSize == nil)
+    }
+
 }

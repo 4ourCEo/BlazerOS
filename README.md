@@ -24,7 +24,7 @@ deterministic path. The default build has no such flag and requires the full Xco
 ```bash
 ./scripts/check-engine-pin.sh   # pinned engine SHA-1s
 swift build
-swift test                      # 186 tests, including engine seal and contracts
+swift test                      # 237 tests, including statistical regressions and engine contracts
 swift run -c release Parity     # 43 parity cases
 swift run Persist               # 59 persistence checks
 ```
@@ -100,7 +100,7 @@ swift run ForwardTest --stats
 
 Available policies: `control`, `baseline`, `continuation`, `reversal`, and `regime`. Select one with `--policy`; challengers are research-only and are not promoted automatically. Defaults store synthetic and OANDA proxy studies in separate directories under Application Support/BlazerOS/Research. `--root PATH` selects an explicit research archive. Live mode never silently falls back to synthetic testing when credentials are unavailable.
 
-OANDA midpoint labels are proxies, not confirmed Pocket Option settlements. Statistics mark unknown or proxy ledger labels as unverified. Actual payout expectancy matches each winning row to its recorded payout. The new verified report leaves actual expectancy unavailable when payout coverage is incomplete; legacy descriptive pair summaries label their 88% fallback as assumed. Break-even is `1 / (1 + payout)`, so an 80% payout needs 55.6% and an 88% payout needs 53.2%. A positive estimate cannot authorize promotion.
+OANDA midpoint labels are proxies, not confirmed Pocket Option settlements. Statistics mark unknown or proxy ledger labels as unverified. Actual payout expectancy matches each winning row to its recorded payout. The new verified report leaves actual expectancy unavailable when winning-payout coverage is incomplete; legacy descriptive pair summaries label their 88% fallback as assumed. Break-even is `1 / (1 + payout)`, so an 80% payout needs 55.6% and an 88% payout needs 53.2%. A positive estimate cannot authorize promotion.
 
 Concurrent, correlated observations are collapsed into time blocks before a Wilson interval is computed. The adjustment uses an assumed intra-cluster correlation (default 1.0) and uses a size-weighted design effect for unequal connected time blocks. This is a sensitivity calculation, not measured covariance or proof of independence. Stored holdout boundaries cannot move as the archive grows; training outcomes overlapping the cutoff are purged. Retrospective frozen splits and repeated holdout inspection remain exploratory.
 
@@ -138,3 +138,5 @@ Device verification for the current tree: [2026-10-22](reports/DEVICE_VERIFICATI
 
 No license is granted. This repository is public for review and reference only; all rights are
 reserved. Do not redistribute or reuse the code without written permission.
+
+Statistical correctness, actual stake-based P&L, externally reviewed effective N, and registered-family correction: [follow-up evidence and exact compiler diagnosis](reports/STATISTICAL_CORRECTNESS_FOLLOWUP.md). Default reviewer trust is empty; nominal counts or assumed ICC cannot qualify promotion evidence.

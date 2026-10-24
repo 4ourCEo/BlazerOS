@@ -362,7 +362,7 @@ public enum AssistantContextBuilder {
             expectancy: report?.actualExpectancy,
             payoutBasis: report?.breakEvenAtMinimumPayout != nil ? "minimum recorded payout" : "assumed 88% payout; coverage incomplete",
             confirmedOnly: true,
-            caveat: "INSUFFICIENT EVIDENCE. Actual expectancy requires complete recorded payouts. Record selection is bounded for explanation; calculations use the complete supplied archive. Independence, policy stability and prospective validation remain unverified.")
+            caveat: "INSUFFICIENT EVIDENCE. Actual unit expectancy requires recorded winning payouts; a loss contributes its full risk unit. Record selection is bounded for explanation; calculations use the complete supplied archive. Independence, policy stability and prospective validation remain unverified.")
 
         var gaps: [ObservationGap] = []
         for row in ledgerRows where row.labelSource != "venue-confirmed" && (row.outcome == "HIT" || row.outcome == "MISS") {

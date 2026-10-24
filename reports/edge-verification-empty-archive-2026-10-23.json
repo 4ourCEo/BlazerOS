@@ -9,6 +9,13 @@
   ],
   "duplicateOrConflictingIDs" : 0,
   "effectiveSampleSize" : 0,
+  "evidenceDecision" : {
+    "blockers" : [
+      "Independent\/effective sample size has not been verified.",
+      "No reviewed, preregistered complete test family or multiplicity correction."
+    ],
+    "statisticalCriteriaMet" : false
+  },
   "excludedUnconfirmed" : 0,
   "findings" : [
 
@@ -17,7 +24,7 @@
   "limitations" : [
     "250 nominal rows do not establish 250 independent prime-window basket events.",
     "No resolved observations. No confidence interval is possible.",
-    "Actual expectancy requires recorded payouts for every resolved entry; missing payouts are never imputed here.",
+    "Unit expectancy requires each winning payout. Cash results require recorded stakes in comparable units; neither stakes nor FX conversions are imputed. Losses are full fixed-contract stake losses.",
     "No registered prospective stopping rule, independently verified dependence model or independent validation supplied. No promotion is authorized.",
     "Historical rows may lack entry telemetry, regime and policy metadata. Missingness and scan selection can bias results.",
     "Timing measures scan-to-record latency, not venue fill latency. Reference disagreement is descriptive, not a counterfactual profit claim.",
@@ -34,7 +41,7 @@
     "timingCoverage" : 0
   },
   "resolved" : 0,
-  "schemaVersion" : "edge-verification-v1",
+  "schemaVersion" : "edge-verification-v2",
   "status" : "INSUFFICIENT EVIDENCE",
   "wins" : 0
 }
