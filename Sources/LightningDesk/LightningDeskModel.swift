@@ -4,7 +4,7 @@ import BlazerCore
 import BlazerCrypto
 
 /// Desk market mode. `.crypto` uses the shared BlazerCrypto engine; `.fx` uses OANDA.
-public enum DeskMarket: String, Sendable, CaseIterable {
+public enum DeskMarket: String, Sendable, CaseIterable, Equatable {
     case crypto
     case fx
 }
@@ -236,6 +236,16 @@ public final class LightningDeskModel: ObservableObject {
 
     public func handleAppBackgrounded(now: Date = Date()) {
         backgroundedAt = now
+        invalidateScanRequests()
+        // Switching to the venue app suspends live refresh. An actionable beam must not
+        // become actionable again after the phone resumes without a new frozen scan.
+        if armedAt != nil, activeTrade == nil {
+            self.now = now
+            armedAt = nil
+            expired = true
+            feed = .stale
+            publishFrame()
+        }
     }
 
     /// Resume after the user returns (e.g., from the Crypto.com app). Never blocks.
@@ -432,8 +442,10 @@ public final class LightningDeskModel: ObservableObject {
     private var pendingOutcome: DeskOutcome?
     /// True when the desk is showing a cached scan. A cached scan is history; it never re-arms.
     private var historical = false
-    /// Bumped on every press so a new walk replaces the one in flight.
-    private var scanGeneration = 0
+    /// One bounded worker serializes scan ingress; only its latest pending request is retained.
+    private let scanScheduler = ScanRequestScheduler()
+    private var scanWorkerTask: Task<Void, Never>?
+    private var activeScanOperation: Task<Void, Never>?
 
     /// Per-asset cache of completed candles so switching pairs never shows a blank chart.
     private var candlesByAsset: [String: [Candle]] = [:]
@@ -457,6 +469,7 @@ public final class LightningDeskModel: ObservableObject {
             return
         }
         guard next != pair else { return }
+        invalidateScanRequests()
         pair = next
 
         // Restore cached bars immediately so chart is never blank
@@ -657,20 +670,91 @@ public final class LightningDeskModel: ObservableObject {
     public func scan() async {
         entryIssue = nil
         isDemoDesk = false
-        switch marketMode {
-        case .fx: await scanFx()
-        case .crypto: await scanCrypto()
-        }
+        let market = marketMode
+        let cryptoAsset = CTAssets.watchlist.contains(pair) ? pair : (CTAssets.watchlist.first ?? "BTC/USDT")
+        await enqueueScan(
+            market: market,
+            asset: market == .crypto ? cryptoAsset : nil,
+            assets: market == .crypto ? [cryptoAsset] : pairs
+        )
     }
 
     /// Crypto scan via the shared BlazerCrypto engine. No OANDA credential, no FX session gate.
     public func scanCrypto(asset: String = "BTC/USDT") async {
+        await enqueueScan(market: .crypto, asset: asset, assets: [asset])
+    }
+
+    private func enqueueScan(market: DeskMarket, asset: String?, assets: [String]) async {
         guard activeTrade == nil, !awaitingOutcome, !settlementInFlight else {
             notice = "Resolve the current outcome before scanning"
             return
         }
-        scanGeneration += 1
-        let generation = scanGeneration
+        guard !entryInFlight else {
+            notice = "Entry is being saved; scan again after it completes"
+            return
+        }
+        scanScheduler.submit(market: market, asset: asset, assets: assets)
+        // Cancellation plus the generation check bounds work to one current request and
+        // prevents an obsolete response from publishing if its transport ignores cancel.
+        activeScanOperation?.cancel()
+        if scanWorkerTask == nil {
+            scanWorkerTask = Task { @MainActor [weak self] in
+                await self?.drainScanRequests()
+            }
+        }
+        await scanWorkerTask?.value
+    }
+
+    private func drainScanRequests() async {
+        while !Task.isCancelled, let request = scanScheduler.takePending() {
+            guard isCurrentScan(request) else { continue }
+            let operation = Task { @MainActor [weak self] in
+                guard let self else { return }
+                switch request.market {
+                case .fx: await self.performFXScan(request)
+                case .crypto: await self.performCryptoScan(request)
+                }
+            }
+            activeScanOperation = operation
+            await operation.value
+            activeScanOperation = nil
+        }
+        scanWorkerTask = nil
+        #if os(iOS)
+        if scanScheduler.pending == nil, backgroundedAt == nil {
+            // Pending Siri ingress must run only after this worker relinquishes ownership.
+            // This avoids recursively awaiting the worker from the operation it is awaiting.
+            Task { @MainActor [weak self] in
+                await self?.consumePendingScanIfReady()
+            }
+        }
+        #endif
+    }
+
+    private func isCurrentScan(_ request: ScanRequestScheduler.Request) -> Bool {
+        !Task.isCancelled && scanScheduler.isCurrent(request) && marketMode == request.market
+    }
+
+    private func invalidateScanRequests() {
+        scanScheduler.invalidate()
+        activeScanOperation?.cancel()
+        scanning = false
+        scanStep = nil
+    }
+
+    private func performCryptoScan(_ request: ScanRequestScheduler.Request) async {
+        guard isCurrentScan(request) else { return }
+        defer {
+            if isCurrentScan(request) {
+                scanning = false
+                scanStep = nil
+            }
+        }
+        guard request.market == .crypto, let asset = request.asset else { return }
+        guard activeTrade == nil, !awaitingOutcome, !settlementInFlight, !entryInFlight else {
+            notice = "Resolve the current outcome before scanning"
+            return
+        }
         scanning = true
         commit = nil
         cabinetSide = "WAIT"
@@ -688,15 +772,9 @@ public final class LightningDeskModel: ObservableObject {
         book = CTAssets.watchlist.map { BookRow(asset: $0, side: "—") }
         publishFrame()
         scanStep = asset
-        defer {
-            if generation == scanGeneration {
-                scanning = false
-                scanStep = nil
-            }
-        }
 
         let batch = try? await BinanceClient.fetchCryptoBundle(asset: asset)
-        guard generation == scanGeneration else { return }
+        guard isCurrentScan(request) else { return }
         guard let batch, !batch.candles.isEmpty else {
             diagLog("CRYPTO_SCAN failed: feed unavailable")
             feed = .disconnected
@@ -751,7 +829,9 @@ public final class LightningDeskModel: ObservableObject {
         publishFrame()
         liftHero()
         if let frame {
-            if !(await remember(next, verb: frame.verb)) {
+            let saved = await remember(next, verb: frame.verb, request: request)
+            guard isCurrentScan(request) else { return }
+            if !saved {
                 commit?.veto = "Scan was not saved"
                 armedAt = nil
                 armID = nil
@@ -761,13 +841,24 @@ public final class LightningDeskModel: ObservableObject {
         }
     }
 
-    private func scanFx() async {
-        guard activeTrade == nil, !awaitingOutcome, !settlementInFlight else {
+    private func performFXScan(_ request: ScanRequestScheduler.Request) async {
+        guard isCurrentScan(request) else { return }
+        defer {
+            if isCurrentScan(request) {
+                scanning = false
+                scanStep = nil
+            }
+        }
+        guard request.market == .fx else { return }
+        guard activeTrade == nil, !awaitingOutcome, !settlementInFlight, !entryInFlight else {
             notice = "Resolve the current outcome before scanning"
             return
         }
-        scanGeneration += 1
-        let generation = scanGeneration
+        let scanAssets = request.assets
+        guard !scanAssets.isEmpty else {
+            notice = "No markets are available to scan"
+            return
+        }
         let clock = Date()
         if !FxSession.isOpen(clock) {
             feed = .disconnected
@@ -788,30 +879,26 @@ public final class LightningDeskModel: ObservableObject {
         armID = nil
         candles = []
         notice = nil
-        book = pairs.map { BookRow(asset: $0, side: "—") }
+        book = scanAssets.map { BookRow(asset: $0, side: "—") }
         publishFrame()
-        scanStep = "\(pairs[0]) 1/\(pairs.count)"
-        defer {
-            if generation == scanGeneration {
-                scanning = false
-                scanStep = nil
-            }
-        }
-        guard let session = await loadSession(allowPrompt: true) else {
+        scanStep = "\(scanAssets[0]) 1/\(scanAssets.count)"
+        guard let session = await loadSession(allowPrompt: true, consumePendingScan: false) else {
+            guard isCurrentScan(request) else { return }
             feed = .error
             notice = "OANDA token missing"
             return
         }
-        guard generation == scanGeneration else { return }
+        guard isCurrentScan(request) else { return }
         var bag: [EngineSignal] = []
         var barsByAsset: [String: [Candle]] = [:]
         var rows = book
-        for (index, asset) in pairs.enumerated() {
-            guard generation == scanGeneration else { return }
-            scanStep = "\(asset) \(index + 1)/\(pairs.count)"
+        for (index, asset) in scanAssets.enumerated() {
+            guard isCurrentScan(request) else { return }
+            scanStep = "\(asset) \(index + 1)/\(scanAssets.count)"
             let started = Date()
             do {
                 let envelope = try await ScanKernel.fetch(asset: asset, session: session)
+                guard isCurrentScan(request) else { return }
                 if let signal = envelope.signal {
                     bag.append(signal)
                     let bars = envelope.snapshotBars ?? envelope.candles ?? []
@@ -838,6 +925,7 @@ public final class LightningDeskModel: ObservableObject {
                 }
             } catch {
                 let message = error.localizedDescription
+                guard isCurrentScan(request) else { return }
                 if message == "OANDA token missing" || message == "SCAN ENGINE OFFLINE" {
                     notice = message
                     book = rows
@@ -848,15 +936,16 @@ public final class LightningDeskModel: ObservableObject {
             let hold = 1.1 - Date().timeIntervalSince(started)
             if hold > 0 {
                 try? await Task.sleep(nanoseconds: UInt64(hold * 1_000_000_000))
+                guard isCurrentScan(request) else { return }
             }
         }
-        guard generation == scanGeneration else { return }
+        guard isCurrentScan(request) else { return }
         guard !bag.isEmpty else {
             notice = "Scan missed the book"
             return
         }
         let picked = await pickedSignal(from: bag)
-        guard generation == scanGeneration else { return }
+        guard isCurrentScan(request) else { return }
         let bars = barsByAsset[picked.asset] ?? []
         var next: ScanCommit
         if picked.why == DeskPickPolicy.unavailableWhy {
@@ -881,6 +970,7 @@ public final class LightningDeskModel: ObservableObject {
         }
         if (side == "HIGH" || side == "LOW"), next.veto == nil {
             let batch = await OandaClient.fetchQuoteBatch(assets: [picked.asset], session: session)
+            guard isCurrentScan(request) else { return }
             let fresh = batch.transport == .ok ? batch.quotes.first(where: { $0.asset == picked.asset }) : nil
             next.veto = EntryQuality.veto(signal: picked, quote: fresh)
             if let fresh {
@@ -908,7 +998,9 @@ public final class LightningDeskModel: ObservableObject {
         publishFrame()
         liftHero()
         if let frame {
-            if !(await remember(next, verb: frame.verb)) {
+            let saved = await remember(next, verb: frame.verb, request: request)
+            guard isCurrentScan(request) else { return }
+            if !saved {
                 commit?.veto = "Scan was not saved"
                 armedAt = nil
                 armID = nil
@@ -1205,7 +1297,7 @@ public final class LightningDeskModel: ObservableObject {
     private var credentialLookup: CredentialGate?
 
     /// One keychain pass. A prompt happens only when Scan asks for it, on the main actor.
-    private func loadSession(allowPrompt: Bool) async -> OandaSession? {
+    private func loadSession(allowPrompt: Bool, consumePendingScan: Bool = true) async -> OandaSession? {
         if let session { return session }
         if credentialLookup == nil {
             credentialLookup = await Task.detached(priority: .userInitiated) {
@@ -1216,7 +1308,7 @@ public final class LightningDeskModel: ObservableObject {
         case .ready(let ready):
             session = ready
             keychainState = .ready
-            await consumePendingScanIfReady()
+            if consumePendingScan { await consumePendingScanIfReady() }
             return ready
         case .locked where allowPrompt:
             let prompted = DeskCredentials.session(allowPrompt: true)
@@ -1224,7 +1316,7 @@ public final class LightningDeskModel: ObservableObject {
             if case .ready(let ready) = prompted {
                 session = ready
                 keychainState = .ready
-                await consumePendingScanIfReady()
+                if consumePendingScan { await consumePendingScanIfReady() }
                 return ready
             }
             noteKeychain(prompted)
@@ -1273,7 +1365,8 @@ public final class LightningDeskModel: ObservableObject {
     @discardableResult
     private func consumePendingScanIfReady() async -> Bool {
         #if os(iOS)
-        guard !scanning, activeTrade == nil, !awaitingOutcome, !settlementInFlight else { return false }
+        guard backgroundedAt == nil, !scanning, activeTrade == nil,
+              !awaitingOutcome, !settlementInFlight else { return false }
         guard takePendingScanRequest() else { return false }
         await scan()
         return true
@@ -1915,7 +2008,12 @@ public final class LightningDeskModel: ObservableObject {
     }
 
     /// Writes the frozen scan to disk, then reloads the journal from that file.
-    private func remember(_ commit: ScanCommit, verb: String) async -> Bool {
+    private func remember(
+        _ commit: ScanCommit,
+        verb: String,
+        request: ScanRequestScheduler.Request? = nil
+    ) async -> Bool {
+        if let request, !isCurrentScan(request) { return false }
         let id = "\(commit.fingerprint)-\(Int(commit.scannedAt.timeIntervalSince1970 * 1000))"
         armID = id
         let entry = JournalEntry(
@@ -1955,7 +2053,10 @@ public final class LightningDeskModel: ObservableObject {
         )
         do {
             try await persistence.recordScan(entry, snapshot: snapshot)
-            await reloadFromDisk()
+            // The historical record remains valid even if a newer scan superseded it while
+            // the disk append was in flight. Do not let its completion replace current UI.
+            if let request, !isCurrentScan(request) { return true }
+            await reloadFromDisk(request: request)
             return true
         } catch {
             return false
@@ -1970,8 +2071,19 @@ public final class LightningDeskModel: ObservableObject {
         Task { try? await persistence.noteVeto(armID: armID, veto: veto) }
     }
 
-    private func reloadFromDisk() async {
+    private func reloadFromDisk(request: ScanRequestScheduler.Request? = nil) async {
         let restored = await persistence.restore()
+        let restoredReferenceOutcomes = await referenceStore.outcomes()
+        let restoredExecutionObservations: [ExecutionObservation]
+        let executionLoadIssue: String?
+        do {
+            restoredExecutionObservations = try await executionObservationStore.load()
+            executionLoadIssue = nil
+        } catch {
+            restoredExecutionObservations = []
+            executionLoadIssue = "Execution-quality archive unavailable: \(error.localizedDescription)"
+        }
+        if let request, !isCurrentScan(request) { return }
         outcomeStats = restored.confirmedStats
         ledgerRows = restored.ledgerRows
         restoreIssues = restored.issues
@@ -1980,9 +2092,9 @@ public final class LightningDeskModel: ObservableObject {
         journal = restored.entries.map {
             replay($0, bars: restored.bars(for: $0.fullFingerprint ?? $0.fingerprint))
         }
-        referenceOutcomes = await referenceStore.outcomes()
-        do { executionObservations = try await executionObservationStore.load() }
-        catch { executionObservationIssue = "Execution-quality archive unavailable: \(error.localizedDescription)" }
+        referenceOutcomes = restoredReferenceOutcomes
+        executionObservations = restoredExecutionObservations
+        executionObservationIssue = executionLoadIssue
         refreshExecutionIntelligence()
         for entry in journal {
             if candlesByAsset[entry.pair] == nil && !entry.candles.isEmpty {
