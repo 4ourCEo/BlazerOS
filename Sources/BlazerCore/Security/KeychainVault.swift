@@ -25,6 +25,7 @@ public protocol KeychainVault: Sendable {
 public enum KeychainKey {
     public static let deepseekAPIKey = "DEEPSEEK_API_KEY"
     public static let geminiAPIKey = "GEMINI_API_KEY"
+    public static let otchartsAPIKey = "OTCHARTS_API_KEY"
 }
 
 extension AIProvider {
