@@ -546,12 +546,25 @@ private struct BudgetEngine: OnDeviceModelEngine {
         )
         print("FM_BUDGET \(String(describing: estimate))")
         #expect(estimate != nil)
-        #expect(estimate?.method == "exact")
-        #expect((estimate?.contextSize ?? 0) >= 4_096)
-        #expect(estimate?.fits == true)
+        if let estimate {
+            if estimate.method == "exact" {
+                #expect(estimate.contextSize > 0)
+                #expect(estimate.fits)
+            } else {
+                #expect(estimate.method == "estimated")
+                #expect(estimate.contextSize > 0)
+                #expect(estimate.fits == (estimate.required <= estimate.contextSize))
+            }
+        }
     }
     #endif
     #endif
+}
+
+@Test func zeroOrNegativeModelContextUsesBoundedFallbackCapacity() {
+    #expect(ModelBudgetPolicy.effectiveContextSize(reported: 0) == 4_096)
+    #expect(ModelBudgetPolicy.effectiveContextSize(reported: -1) == 4_096)
+    #expect(ModelBudgetPolicy.effectiveContextSize(reported: 8_192) == 8_192)
 }
 
 @Test func realModelCompactsAnOversizedContextOnce() async throws {

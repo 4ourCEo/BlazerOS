@@ -45,6 +45,20 @@ public actor ResearchStore {
         try load(ResearchExperimentReport.self, directory: "reports")
     }
 
+    /// Rolling checkpoints are isolated research records. They cannot carry entry authority.
+    public func record(_ result: RollingRevalidationResult) throws {
+        guard result.researchOnly, !result.mayAuthorizeEntry,
+              result.identity.count == 64,
+              result.identity.allSatisfy({ $0.isHexDigit }) else {
+            throw ScanError.failed("Invalid rolling research result")
+        }
+        try writeOnce(result, directory: "rolling-revalidation", name: result.identity)
+    }
+
+    public func rollingRevalidationResults() throws -> [RollingRevalidationResult] {
+        try load(RollingRevalidationResult.self, directory: "rolling-revalidation")
+    }
+
     private func writeOnce<T: Encodable>(_ value: T, directory: String, name: String) throws {
         guard !name.isEmpty, name.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" }) else {
             throw ScanError.failed("Invalid research event ID")
