@@ -38,11 +38,21 @@ public struct SettleReceipt: Identifiable, Equatable, Sendable {
 /// One-screen desk state. The frame is derived from the frozen commit. Quotes never rescore it.
 @MainActor
 public final class LightningDeskModel: ObservableObject {
-    public init(storageRoot: URL? = nil) {
+    public convenience init(storageRoot: URL? = nil) {
+        self.init(storageRoot: storageRoot, marketData: LiveDeskMarketDataService())
+    }
+
+    init(
+        storageRoot: URL?,
+        marketData: any DeskMarketDataServing,
+        candleCache: CandleCache = CandleCache()
+    ) {
         if storageRoot == nil {
             FileLocations.migrateLegacyGroupStorageIfNeeded()
         }
         let root = storageRoot ?? FileLocations.applicationSupport()
+        self.marketData = marketData
+        self.candleCache = candleCache
         persistence = PersistenceCoordinator(root: root)
         referenceStore = ReferenceOutcomeStore(
             root: root.appendingPathComponent("Research", isDirectory: true)
@@ -58,6 +68,16 @@ public final class LightningDeskModel: ObservableObject {
             guard let self else { return .empty }
             return AssistantContextBuilder.make(journal: self.storedJournal, ledgerRows: self.ledgerRows, observations: self.executionObservations)
         }
+        #if os(iOS)
+        scanCoordinator.onIdle = { [weak self] in
+            guard let self, self.backgroundedAt == nil else { return }
+            // Pending Siri ingress runs only after the coordinator relinquishes ownership,
+            // detached so the consuming scan never awaits the worker that just exited.
+            Task { @MainActor [weak self] in
+                await self?.consumePendingScanIfReady()
+            }
+        }
+        #endif
     }
     @Published public var pair: String = "EUR/USD"
     @Published var feed: FeedStatus = .connecting
@@ -442,17 +462,11 @@ public final class LightningDeskModel: ObservableObject {
     private var pendingOutcome: DeskOutcome?
     /// True when the desk is showing a cached scan. A cached scan is history; it never re-arms.
     private var historical = false
+    /// Networking, normalization, freshness and caching stay outside the SwiftUI facade.
+    private let marketData: any DeskMarketDataServing
+    private let candleCache: CandleCache
     /// One bounded worker serializes scan ingress; only its latest pending request is retained.
-    private let scanScheduler = ScanRequestScheduler()
-    private var scanWorkerTask: Task<Void, Never>?
-    private var activeScanOperation: Task<Void, Never>?
-
-    /// Per-asset cache of completed candles so switching pairs never shows a blank chart.
-    private var candlesByAsset: [String: [Candle]] = [:]
-    /// Timestamp when candles were last fetched per asset.
-    private var candlesFetchedAt: [String: Date] = [:]
-    /// In-flight candle fetch tasks per asset to deduplicate concurrent requests.
-    private var inFlightCandleTasks: [String: Task<[Candle], Never>] = [:]
+    private let scanCoordinator = ScanOperationCoordinator()
     /// Per-asset cache of the last committed scan for that pair.
     private var commitsByAsset: [String: ScanCommit] = [:]
     /// Per-asset cache of the cabinet side for that pair.
@@ -473,9 +487,11 @@ public final class LightningDeskModel: ObservableObject {
         pair = next
 
         // Restore cached bars immediately so chart is never blank
-        if let cached = candlesByAsset[next], !cached.isEmpty {
+        let cacheKey = CandleCache.Key(market: marketMode, asset: next)
+        let cached = candleCache.cached(cacheKey)
+        if !cached.isEmpty {
             candles = cached
-            if let fetchedAt = candlesFetchedAt[next], Date().timeIntervalSince(fetchedAt) >= 45 {
+            if !candleCache.isFresh(cacheKey) {
                 Task { await loadCandles(for: next, force: true) }
             }
         } else {
@@ -518,8 +534,7 @@ public final class LightningDeskModel: ObservableObject {
         let fixture = GoldenFixture.market()
         let bars = GoldenFixture.frozenBars(from: fixture)
         candles = bars
-        candlesByAsset[pair] = bars
-        candlesFetchedAt[pair] = Date()
+        candleCache.store(bars, for: CandleCache.Key(market: marketMode, asset: pair))
         let signal = EngineSignal(
             asset: pair,
             cabinetSide: "WAIT",
@@ -549,43 +564,31 @@ public final class LightningDeskModel: ObservableObject {
     }
 
     public func candles(for asset: String) -> [Candle] {
-        candlesByAsset[asset] ?? []
+        candleCache.cached(CandleCache.Key(market: marketMode, asset: asset))
     }
 
     public func strike(for asset: String) -> Double? {
         commitsByAsset[asset]?.strike
     }
 
-    /// Fetches recent completed M1 candles from OANDA with in-flight deduplication and TTL caching.
+    /// Loads normalized completed candles through the service cache. Broker networking and cache
+    /// policy are intentionally absent from the SwiftUI facade.
     public func loadCandles(for asset: String, force: Bool = false) async {
-        if !force, let cached = candlesByAsset[asset], !cached.isEmpty,
-           let fetchedAt = candlesFetchedAt[asset], Date().timeIntervalSince(fetchedAt) < 45 {
-            if pair == asset {
-                candles = cached
-            }
-            return
+        let market = marketMode
+        let key = CandleCache.Key(market: market, asset: asset)
+        let bars = await candleCache.load(key, force: force) { @MainActor [weak self] in
+            guard let self else { return [] }
+            let session = market == .fx
+                ? await self.loadSession(allowPrompt: false)
+                : nil
+            return await self.marketData.candles(
+                market: market,
+                asset: asset,
+                session: session,
+                count: 80
+            )
         }
-
-        if let existing = inFlightCandleTasks[asset] {
-            let bars = await existing.value
-            if !bars.isEmpty && pair == asset {
-                candles = bars
-            }
-            return
-        }
-
-        let task = Task<[Candle], Never> { @MainActor [weak self] in
-            guard let self, let session = await self.loadSession(allowPrompt: false) else { return [] }
-            return await OandaClient.fetchCandles(asset: asset, session: session, granularity: "M1", count: 80)
-        }
-        inFlightCandleTasks[asset] = task
-
-        let bars = await task.value
-        inFlightCandleTasks.removeValue(forKey: asset)
-
         guard !bars.isEmpty else { return }
-        candlesByAsset[asset] = bars
-        candlesFetchedAt[asset] = Date()
         if pair == asset {
             candles = bars
         }
@@ -693,51 +696,21 @@ public final class LightningDeskModel: ObservableObject {
             notice = "Entry is being saved; scan again after it completes"
             return
         }
-        scanScheduler.submit(market: market, asset: asset, assets: assets)
-        // Cancellation plus the generation check bounds work to one current request and
-        // prevents an obsolete response from publishing if its transport ignores cancel.
-        activeScanOperation?.cancel()
-        if scanWorkerTask == nil {
-            scanWorkerTask = Task { @MainActor [weak self] in
-                await self?.drainScanRequests()
+        await scanCoordinator.submit(market: market, asset: asset, assets: assets) { [weak self] request in
+            guard let self else { return }
+            switch request.market {
+            case .fx: await self.performFXScan(request)
+            case .crypto: await self.performCryptoScan(request)
             }
         }
-        await scanWorkerTask?.value
-    }
-
-    private func drainScanRequests() async {
-        while !Task.isCancelled, let request = scanScheduler.takePending() {
-            guard isCurrentScan(request) else { continue }
-            let operation = Task { @MainActor [weak self] in
-                guard let self else { return }
-                switch request.market {
-                case .fx: await self.performFXScan(request)
-                case .crypto: await self.performCryptoScan(request)
-                }
-            }
-            activeScanOperation = operation
-            await operation.value
-            activeScanOperation = nil
-        }
-        scanWorkerTask = nil
-        #if os(iOS)
-        if scanScheduler.pending == nil, backgroundedAt == nil {
-            // Pending Siri ingress must run only after this worker relinquishes ownership.
-            // This avoids recursively awaiting the worker from the operation it is awaiting.
-            Task { @MainActor [weak self] in
-                await self?.consumePendingScanIfReady()
-            }
-        }
-        #endif
     }
 
     private func isCurrentScan(_ request: ScanRequestScheduler.Request) -> Bool {
-        !Task.isCancelled && scanScheduler.isCurrent(request) && marketMode == request.market
+        scanCoordinator.isCurrent(request) && marketMode == request.market
     }
 
     private func invalidateScanRequests() {
-        scanScheduler.invalidate()
-        activeScanOperation?.cancel()
+        scanCoordinator.invalidate()
         scanning = false
         scanStep = nil
     }
@@ -773,9 +746,9 @@ public final class LightningDeskModel: ObservableObject {
         publishFrame()
         scanStep = asset
 
-        let batch = try? await BinanceClient.fetchCryptoBundle(asset: asset)
+        let snapshot = try? await marketData.scan(market: .crypto, asset: asset, session: nil)
         guard isCurrentScan(request) else { return }
-        guard let batch, !batch.candles.isEmpty else {
+        guard let snapshot, !snapshot.candles.isEmpty else {
             diagLog("CRYPTO_SCAN failed: feed unavailable")
             feed = .disconnected
             notice = "Crypto feed unavailable"
@@ -783,24 +756,24 @@ public final class LightningDeskModel: ObservableObject {
             return
         }
 
-        let cryptoSignal = CryptoDeskSignal.make(asset: asset, batch: batch)
-        diagLog("CRYPTO_SCAN \(asset) side=\(cryptoSignal.cabinetSide) conv=\(cryptoSignal.confidence ?? 0) candles=\(batch.candles.count) mid=\(batch.mid) source=\(batch.source)")
-        let bars = batch.candles.map { c in
-            Candle(time: c.time, open: c.open, high: c.high, low: c.low, close: c.close)
-        }
+        let cryptoSignal = snapshot.signal
+        let bars = snapshot.candles
+        let mid = (snapshot.bid.flatMap { bid in snapshot.ask.map { (bid + $0) / 2 } }) ?? cryptoSignal.price
+        diagLog("CRYPTO_SCAN \(asset) side=\(cryptoSignal.cabinetSide) conv=\(cryptoSignal.confidence ?? 0) candles=\(bars.count) mid=\(mid) source=\(snapshot.source)")
         let started = Date()
         var next = ScanKernel.commit(
             from: cryptoSignal,
             bars: bars,
-            bid: batch.bid,
-            ask: batch.ask,
-            spread: batch.spread,
-            expirySeconds: 60,
-            engineSHA: CryptoDeskSignal.engineIdentity,
-            policy: CryptoDeskSignal.policy,
+            m5Bars: snapshot.m5Candles,
+            bid: snapshot.bid,
+            ask: snapshot.ask,
+            spread: snapshot.spread,
+            expirySeconds: snapshot.expirySeconds,
+            engineSHA: snapshot.engineSHA,
+            policy: snapshot.policy,
             scannedAt: started
         )
-        next.veto = CryptoDeskSignal.veto(asset: asset, batch: batch, signal: cryptoSignal)
+        next.veto = snapshot.veto
         if let veto = next.veto {
             diagLog("CRYPTO_VETO \(asset): \(veto)")
         }
@@ -809,12 +782,11 @@ public final class LightningDeskModel: ObservableObject {
         cabinetSide = cryptoSignal.cabinetSide
         selectedSignal = cryptoSignal
         candles = bars
-        candlesByAsset[asset] = bars
-        candlesFetchedAt[asset] = Date()
+        candleCache.store(bars, for: CandleCache.Key(market: .crypto, asset: asset))
         commitsByAsset[asset] = next
         cabinetSideByAsset[asset] = cryptoSignal.cabinetSide
         book = [BookRow(asset: asset, side: cryptoSignal.cabinetSide)]
-        if batch.source == "kraken-synthetic-spread" {
+        if snapshot.source == "kraken-synthetic-spread" {
             feed = .stale
         } else {
             feed = .live
@@ -897,32 +869,40 @@ public final class LightningDeskModel: ObservableObject {
             scanStep = "\(asset) \(index + 1)/\(scanAssets.count)"
             let started = Date()
             do {
-                let envelope = try await ScanKernel.fetch(asset: asset, session: session)
+                let snapshot = try await marketData.scan(market: .fx, asset: asset, session: session)
                 guard isCurrentScan(request) else { return }
-                if let signal = envelope.signal {
-                    bag.append(signal)
-                    let bars = envelope.snapshotBars ?? envelope.candles ?? []
-                    barsByAsset[asset] = bars
-                    candlesByAsset[asset] = bars
-                    candlesFetchedAt[asset] = Date()
-                    cabinetSideByAsset[asset] = signal.cabinetSide
-                    let assetCommit = ScanKernel.commit(
-                        from: signal,
-                        bars: bars,
-                        m5Bars: envelope.snapshotM5Bars ?? [],
-                        bid: envelope.bid,
-                        ask: envelope.ask,
-                        spread: envelope.spread,
-                        expirySeconds: envelope.expirySeconds ?? Timing.expirySec,
-                        engineSHA: envelope.engineSHA ?? EngineIdentity.loadedSHA1() ?? "unverified",
-                        scannedAt: Self.evaluationDate(signal.asOfMs, fallback: started)
-                    )
-                    commitsByAsset[asset] = assetCommit
-                    rows[index] = BookRow(asset: asset, side: signal.cabinetSide)
-                    if signal.cabinetSide == "WAIT" {
-                        trapsAvoidedCount += 1
-                    }
+                let signal = snapshot.signal
+                bag.append(signal)
+                let bars = snapshot.candles
+                barsByAsset[asset] = bars
+                candleCache.store(bars, for: CandleCache.Key(market: .fx, asset: asset))
+                cabinetSideByAsset[asset] = signal.cabinetSide
+                var assetCommit = ScanKernel.commit(
+                    from: signal,
+                    bars: bars,
+                    m5Bars: snapshot.m5Candles,
+                    bid: snapshot.bid,
+                    ask: snapshot.ask,
+                    spread: snapshot.spread,
+                    expirySeconds: snapshot.expirySeconds,
+                    engineSHA: snapshot.engineSHA,
+                    policy: snapshot.policy,
+                    scannedAt: Self.evaluationDate(signal.asOfMs, fallback: started)
+                )
+                assetCommit.veto = snapshot.veto
+                commitsByAsset[asset] = assetCommit
+                rows[index] = BookRow(asset: asset, side: signal.cabinetSide)
+                if signal.cabinetSide == "WAIT" {
+                    trapsAvoidedCount += 1
                 }
+            } catch let failure as DeskMarketDataError {
+                guard isCurrentScan(request) else { return }
+                if case .missingSession = failure {
+                    notice = failure.localizedDescription
+                    book = rows
+                    return
+                }
+                // `.unavailable` is a per-asset miss; the walk continues with the remaining pairs.
             } catch {
                 let message = error.localizedDescription
                 guard isCurrentScan(request) else { return }
@@ -969,9 +949,9 @@ public final class LightningDeskModel: ObservableObject {
             next.veto = "Engine pin"
         }
         if (side == "HIGH" || side == "LOW"), next.veto == nil {
-            let batch = await OandaClient.fetchQuoteBatch(assets: [picked.asset], session: session)
+            let batch = await marketData.quotes(market: .fx, assets: [picked.asset], session: session)
             guard isCurrentScan(request) else { return }
-            let fresh = batch.transport == .ok ? batch.quotes.first(where: { $0.asset == picked.asset }) : nil
+            let fresh = batch.status == .ok ? batch.quotes.first(where: { $0.asset == picked.asset }) : nil
             next.veto = EntryQuality.veto(signal: picked, quote: fresh)
             if let fresh {
                 quote = fresh
@@ -984,8 +964,7 @@ public final class LightningDeskModel: ObservableObject {
         commit = next
         cabinetSide = side
         candles = bars
-        candlesByAsset[picked.asset] = bars
-        candlesFetchedAt[picked.asset] = Date()
+        candleCache.store(bars, for: CandleCache.Key(market: .fx, asset: picked.asset))
         commitsByAsset[picked.asset] = next
         cabinetSideByAsset[picked.asset] = side
         expired = false
@@ -1455,10 +1434,13 @@ public final class LightningDeskModel: ObservableObject {
         }
         let fresh: LiveQuote?
         if CTAssets.watchlist.contains(trade.pair) {
-            fresh = await BinanceClient.fetchQuote(asset: trade.pair)
+            let batch = await marketData.quotes(market: .crypto, assets: [trade.pair], session: nil)
+            fresh = batch.status == .ok
+                ? batch.quotes.first(where: { $0.asset == trade.pair })
+                : nil
         } else if let session = await loadSession(allowPrompt: false) {
-            let batch = await OandaClient.fetchQuoteBatch(assets: [trade.pair], session: session)
-            fresh = batch.transport == .ok
+            let batch = await marketData.quotes(market: .fx, assets: [trade.pair], session: session)
+            fresh = batch.status == .ok
                 ? batch.quotes.first(where: { $0.asset == trade.pair })
                 : nil
         } else {
@@ -1474,7 +1456,9 @@ public final class LightningDeskModel: ObservableObject {
     private func refreshCryptoQuote() async {
         guard marketMode == .crypto, CTAssets.watchlist.contains(pair) else { return }
         let clock = Date()
-        guard let fresh = await BinanceClient.fetchQuote(asset: pair) else {
+        let batch = await marketData.quotes(market: .crypto, assets: [pair], session: nil)
+        guard batch.status == .ok,
+              let fresh = batch.quotes.first(where: { $0.asset == pair }) else {
             // A failed poll must never leave a stale LIVE badge on screen.
             let state = CryptoFeedHealth.state(
                 connected: false,
@@ -1811,8 +1795,8 @@ public final class LightningDeskModel: ObservableObject {
             publishFrame()
             return
         }
-        let batch = await OandaClient.fetchQuoteBatch(assets: [pair], session: session)
-        if batch.transport == .ok, let fresh = batch.quotes.first(where: { $0.asset == pair }) {
+        let batch = await marketData.quotes(market: .fx, assets: [pair], session: session)
+        if batch.status == .ok, let fresh = batch.quotes.first(where: { $0.asset == pair }) {
             quote = fresh
             if QuoteFreshness.isFresh(fresh, now: clock) {
                 lastFreshPollAt = clock
@@ -1836,12 +1820,12 @@ public final class LightningDeskModel: ObservableObject {
         feed = FeedStatusResolver.resolve(
             marketOpen: true,
             sessionReady: true,
-            transport: batch.transport,
+            transport: batch.status.oandaTransport,
             quote: quote,
             lastFreshPollAt: lastFreshPollAt,
             now: clock
         )
-        if candles.isEmpty && batch.transport == .ok {
+        if candles.isEmpty && batch.status == .ok {
             await loadCandles(for: pair)
         }
         publishFrame()
@@ -2096,12 +2080,26 @@ public final class LightningDeskModel: ObservableObject {
         executionObservations = restoredExecutionObservations
         executionObservationIssue = executionLoadIssue
         refreshExecutionIntelligence()
+        // Attribute restored bars by persisted engine identity, not the mutable live watchlist.
+        let entryMarkets = Dictionary(
+            storedJournal.map { entry -> (String, DeskMarket) in
+                let crypto = entry.engineSHA == CryptoDeskSignal.engineIdentity
+                    || (entry.engineSHA == nil && CTAssets.watchlist.contains(entry.pair))
+                return (entry.id, crypto ? .crypto : .fx)
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
         for entry in journal {
-            if candlesByAsset[entry.pair] == nil && !entry.candles.isEmpty {
-                candlesByAsset[entry.pair] = entry.candles
+            let entryMarket = entryMarkets[entry.id] ?? .fx
+            let key = CandleCache.Key(market: entryMarket, asset: entry.pair)
+            if candleCache.cached(key).isEmpty && !entry.candles.isEmpty {
+                // Restored bars are display history, never a fresh transport observation.
+                candleCache.store(entry.candles, for: key, fetchedAt: .distantPast)
             }
         }
-        if candles.isEmpty, let saved = candlesByAsset[pair], !saved.isEmpty {
+        let selectedKey = CandleCache.Key(market: marketMode, asset: pair)
+        let saved = candleCache.cached(selectedKey)
+        if candles.isEmpty, !saved.isEmpty {
             candles = saved
         }
         if let issue = restored.issues.first, notice == nil {
