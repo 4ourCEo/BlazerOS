@@ -56,8 +56,14 @@ private func assess(_ review: StatisticalEvidenceReview? = nil, blocks: Int = 30
     var changed = original
     changed[3].payout = nil; changed[4].payout = 99
     #expect(ConfirmedReturnSummary.evaluate(original) == ConfirmedReturnSummary.evaluate(changed))
-    #expect(LedgerStatsEngine.evaluate(pair: "EUR/USD", rows: original).actualExpectancy
-        == LedgerStatsEngine.evaluate(pair: "EUR/USD", rows: changed).actualExpectancy)
+    let originalExpectancy = LedgerStatsEngine.evaluate(pair: "EUR/USD", rows: original).actualExpectancy
+    let changedExpectancy = LedgerStatsEngine.evaluate(pair: "EUR/USD", rows: changed).actualExpectancy
+    #expect(originalExpectancy != nil)
+    #expect(changedExpectancy != nil)
+    if let originalExpectancy, let changedExpectancy {
+        // Identical cash flows can be summed in a different order once payout metadata changes.
+        #expect(abs(originalExpectancy - changedExpectancy) < 1e-12)
+    }
     changed[3].stake = nil
     #expect(ConfirmedReturnSummary.evaluate(changed).netProfit == nil)
     #expect(ConfirmedReturnSummary.evaluate(changed).unitExpectancy != nil)
