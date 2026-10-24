@@ -188,14 +188,14 @@ struct MarketTacticalTile: View {
                         .foregroundStyle(DeskInk.ink)
 
                     if case .edgeConfirmed = conviction {
-                        Text("EDGE")
+                        Text("PRIOR")
                             .font(.system(size: 8, weight: .heavy))
                             .foregroundStyle(DeskInk.emerald)
                             .padding(.horizontal, 4)
                             .padding(.vertical, 1.5)
                             .background(DeskInk.emerald.opacity(0.16), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
                     } else if case .chopRisk = conviction {
-                        Text("CHOP")
+                        Text("EXCLUDED")
                             .font(.system(size: 8, weight: .heavy))
                             .foregroundStyle(DeskInk.coral)
                             .padding(.horizontal, 4)

@@ -1,3 +1,5 @@
+> Current engineering status (2026-10-23): historical completion and TestFlight statements below are prior milestones, not verification of the current upgrade. Full Xcode, simulator/device gates and fresh venue-confirmed prospective evidence remain required. See [the current audit](reports/ENGINEERING_UPGRADE_2026-10-23.md).
+
 # BlazerOS Pipeline v1.0
 
 Do not begin the iPhone target until Persistence, Ledger, Snapshot, and Journal survive relaunch with passing tests.
@@ -171,3 +173,13 @@ M0 through M4 are completely sealed and verified:
 ## Status
 
 Shipping iPhone 16 Release Candidate ready for TestFlight and App Store submission.
+
+## Execution evidence and research governance (2026-10-23)
+
+`ExecutionIntelligence` computes read-only reports from the existing ledger, journal, reference archive and a separate local execution-observation store. It never modifies a sealed scan, gate, outcome or policy. Optional chronological cutoffs purge overlapping training expiries; supplied cutoffs are not proof of prospective registration. Captured policy/regime metadata enables cohorts prospectively, with unknown labels on legacy records.
+
+The pinned prospective policy remains **at least 250 independent clustered prime-window events across the six-asset basket**, with a lower confidence bound strictly above payout break-even. Candidate blocks and an ICC sensitivity calculation do not verify independence. Nominal Wilson bounds, a positive point estimate, retrospective holdouts or repeated tests cannot promote a strategy. Actual expectancy is mean realized unit return with each winning payout matched to its own result. Missing payouts preclude an actual-EV claim.
+
+Research findings are hypotheses. Pre-register one primary endpoint, engine/policy identity, source, payout terms, future dataset boundary and stopping rule before evaluating it. Freeze the baseline, retain rejected and missed observations, purge overlapping horizons, keep synthetic/proxy cohorts isolated, report missingness, and account for the full family of attempted tests. Reusing an inspected holdout cannot validate a new improvement; use fresh prospective data and independent review. No model tool has write or promotion authority. Explicit authorization is required before any live policy promotion.
+
+Pacific research windows and the New York FX week are intentionally separate clocks: one labels research sessions, the other governs market opening/closing. Both use named time zones for daylight saving.

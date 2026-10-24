@@ -50,8 +50,8 @@ public enum CryptoDeskSignal {
             cabinetSide: result.side,
             call: result.side == "HIGH" ? "CALL" : (result.side == "LOW" ? "PUT" : "WAIT"),
             why: result.why,
-            price: batch.mid,
-            entryPrice: batch.mid,
+            price: batch.mid.isFinite ? batch.mid : 0,
+            entryPrice: batch.mid.isFinite ? batch.mid : 0,
             confidence: Double(result.conviction),
             opportunity: Double(result.conviction),
             evidence: result.evidence.joined(separator: " · "),
@@ -87,7 +87,11 @@ public enum CryptoDeskSignal {
         if atrPips > CTAssets.maxATRPips(for: asset) {
             return "ATR \(String(format: "%.0f", atrPips))p above \(Int(CTAssets.maxATRPips(for: asset)))p ceiling"
         }
-        let conviction = Int((signal.confidence ?? 0).rounded())
+        guard let confidence = signal.confidence, confidence.isFinite, (0...100).contains(confidence),
+              CryptoCandle.isValidQuote(bid: batch.bid, ask: batch.ask), atr.isFinite else {
+            return "Invalid market data"
+        }
+        let conviction = Int(confidence.rounded())
         if conviction < CTAssets.minConviction {
             return "Conviction \(conviction) below \(CTAssets.minConviction) gate"
         }

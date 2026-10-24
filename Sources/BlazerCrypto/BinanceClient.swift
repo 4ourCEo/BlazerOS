@@ -86,7 +86,7 @@ public enum BinanceClient {
 
         let base = await resolvedBase()
         let url = URL(string:
-            "\(base)/api/v3/klines?symbol=\(symbol)&interval=1m&limit=\(min(limit + 1, 1000))"
+            "\(base)/api/v3/klines?symbol=\(symbol)&interval=1m&limit=\(min(max(1, limit), 999) + 1)"
         )!
 
         let (data, response) = try await URLSession.shared.data(from: url)
@@ -98,7 +98,11 @@ public enum BinanceClient {
         }
 
         // Drop last — always the in-progress candle
-        let candles = rawOuter.dropLast(1).compactMap { CryptoCandle.from(row: $0) }
+        let completed = rawOuter.dropLast(1)
+        let candles = completed.compactMap { CryptoCandle.from(row: $0) }
+        guard candles.count == completed.count else {
+            throw CTFeedError.decodingError("Invalid completed benchmark candle")
+        }
         binanceLog.info("Benchmark fetch: \(candles.count) candles for \(asset)")
         return candles
     }
@@ -159,6 +163,9 @@ public enum BinanceClient {
             CryptoCandle.from(row: row)
         }
 
+        guard candles.count == completedRaw.count else {
+            throw CTFeedError.decodingError("Invalid completed candle")
+        }
         guard candles.count >= 60 else {
             throw CTFeedError.insufficientBars(candles.count, required: 60)
         }
@@ -172,7 +179,7 @@ public enum BinanceClient {
               let ticker = try? JSONDecoder().decode(BinanceTicker.self, from: tickerData),
               let bid = Double(ticker.bidPrice),
               let ask = Double(ticker.askPrice),
-              ask > bid
+              CryptoCandle.isValidQuote(bid: bid, ask: ask)
         else {
             if fallbackToKraken {
                 return try await KrakenClient.fetchCryptoBundle(asset: asset)
@@ -202,7 +209,7 @@ public enum BinanceClient {
            let ticker = try? JSONDecoder().decode(BinanceTicker.self, from: data),
            let bid = Double(ticker.bidPrice),
            let ask = Double(ticker.askPrice),
-           ask > bid {
+           CryptoCandle.isValidQuote(bid: bid, ask: ask) {
             return LiveQuote(
                 asset:  asset,
                 bid:    bid,

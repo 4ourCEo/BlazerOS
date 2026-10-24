@@ -23,7 +23,7 @@ struct ManualEntryDetailsSheet: View {
                     #if os(iOS)
                         .keyboardType(.decimalPad)
                     #endif
-                    TextField("Payout", text: $payout)
+                    TextField("Net payout ratio (0.88 = 88%)", text: $payout)
                     #if os(iOS)
                         .keyboardType(.decimalPad)
                     #endif

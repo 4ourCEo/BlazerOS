@@ -39,7 +39,7 @@ public enum MarketEdgeWindow: Sendable, Equatable {
         case .lateNightPrime(let label):
             return "\(label) (Bursts Only)"
         case .offPeak(let next, _):
-            return "Next prime: \(next)"
+            return next == "Market Closed" ? "FX market closed" : "Next prime: \(next)"
         }
     }
 
@@ -167,7 +167,7 @@ public enum MarketEdgeWindow: Sendable, Equatable {
 
         public var label: String {
             switch self {
-            case .edgeConfirmed: return "EDGE PRIME"
+            case .edgeConfirmed: return "UNVERIFIED PRIOR"
             case .neutral:       return "BALANCED"
             case .chopRisk:      return "CHOP RISK"
             }
@@ -237,7 +237,7 @@ public struct EdgeEvidence: Sendable, Equatable {
     public let upper95: Double
     public let caveat: String
 
-    public static let standardCaveat = "Forward-tested on 372 binary contracts across 6 pairs. Sample sizes per pair (~60) yield wide 95% confidence intervals (±10-13%). Numbers reflect past forward-test sample, not guaranteed future edge."
+    public static let standardCaveat = "Historical pair priors are unverified: original source, per-pair counts and independence evidence are unavailable. Use venue-confirmed records and clustered prospective validation; no profitable edge is established."
 
     public init(wins: Int, sampleSize: Int, caveat: String = standardCaveat) {
         self.wins = wins
@@ -257,7 +257,7 @@ public struct EdgeEvidence: Sendable, Equatable {
 
     /// Calculates a 95% Wilson score confidence interval (z ≈ 1.95996).
     public static func wilsonScoreInterval(wins: Int, total: Int, z: Double = 1.95996) -> (lower: Double, upper: Double) {
-        guard total > 0 else { return (0, 0) }
+        guard total > 0, wins >= 0, wins <= total, z.isFinite, z > 0 else { return (0, 0) }
         let n = Double(total)
         let p = Double(wins) / n
         let z2 = z * z
@@ -267,6 +267,7 @@ public struct EdgeEvidence: Sendable, Equatable {
         let half = (z * sqrt(max(0.0, radicand))) / denom
         let lower = max(0.0, center - half)
         let upper = min(1.0, center + half)
+        guard lower.isFinite, upper.isFinite else { return (0, 1) }
         return (lower, upper)
     }
 }

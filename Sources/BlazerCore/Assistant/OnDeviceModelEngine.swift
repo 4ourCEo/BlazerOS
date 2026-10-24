@@ -32,7 +32,7 @@ public extension OnDeviceModelEngine {
     }
 }
 
-#if canImport(FoundationModels)
+#if canImport(FoundationModels) && !BLAZER_DISABLE_FOUNDATION_MODELS
 import FoundationModels
 
 @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
@@ -286,11 +286,11 @@ private enum ModelToolkit {
         case .journalDraft:
             return [notes]
         case .sessionDebrief:
-            return [entries, performance, gaps]
+            return [entries, performance, gaps, ExecutionResearchTool(context: context)]
         case .scanComparison:
             return [fetch, compare]
         case .researchSuggestions:
-            return [entries, performance, gaps]
+            return [entries, performance, gaps, ExecutionResearchTool(context: context)]
         }
     }
 }
@@ -384,6 +384,14 @@ struct PerformanceStatsTool: Tool {
     func call(arguments: LimitArguments) async throws -> String {
         encoded(context.performance)
     }
+}
+
+@available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
+struct ExecutionResearchTool: Tool {
+    let context: AssistantContext
+    var name: String { "execution_research_summary" }
+    var description: String { "Read deterministic execution quality, clustered evidence and an exploratory hypothesis. No strategy or ledger writes." }
+    func call(arguments: LimitArguments) async throws -> String { encoded(context.research) }
 }
 
 @available(iOS 26.0, macOS 26.0, visionOS 26.0, *)

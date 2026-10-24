@@ -29,6 +29,26 @@ public struct CryptoCandle: Sendable, Equatable {
         self.trades      = trades
     }
 
+    /// Validity boundary for untrusted candle data before scoring.
+    public var isValidMarketInput: Bool {
+        time.isFinite && time >= 0 && time <= 253_402_300_799_999
+            && [open, high, low, close].allSatisfy(Self.isSafePositive)
+            && [volume, quoteVolume].allSatisfy { $0 == 0 || Self.isSafePositive($0) }
+            && high >= low
+            && open >= low && open <= high && close >= low && close <= high
+            && volume >= 0 && quoteVolume >= 0 && trades >= 0
+    }
+
+    /// Arithmetic domain, not a market/strategy threshold. Bounds leave room for squared
+    /// Bollinger deviations, sums, pip scaling and volume ratios without overflow/underflow.
+    static func isSafePositive(_ value: Double) -> Bool {
+        value.isFinite && value >= 1e-100 && value <= 1e100
+    }
+
+    public static func isValidQuote(bid: Double, ask: Double) -> Bool {
+        isSafePositive(bid) && isSafePositive(ask) && ask > bid
+    }
+
     // MARK: - Derived Properties
 
     /// Absolute body size (close - open, signed positive if bullish)
@@ -65,7 +85,8 @@ public struct CryptoCandle: Sendable, Equatable {
               let tradesVal   = row[8].doubleValue
         else { return nil }
 
-        return CryptoCandle(
+        guard let tradeCount = Int(exactly: tradesVal), tradeCount >= 0 else { return nil }
+        let candle = CryptoCandle(
             time:        time,
             open:        open,
             high:        high,
@@ -73,8 +94,23 @@ public struct CryptoCandle: Sendable, Equatable {
             close:       close,
             volume:      vol,
             quoteVolume: quoteVol,
-            trades:      Int(tradesVal)
+            trades:      tradeCount
         )
+        return candle.isValidMarketInput ? candle : nil
+    }
+
+    /// Kraken seconds/VWAP conversion is checked before any integer conversion.
+    static func fromKraken(row: [Any]) -> CryptoCandle? {
+        guard row.count >= 8,
+              let seconds = Double("\(row[0])"),
+              let open = Double("\(row[1])"), let high = Double("\(row[2])"),
+              let low = Double("\(row[3])"), let close = Double("\(row[4])"),
+              let vwap = Double("\(row[5])"), let volume = Double("\(row[6])"),
+              let count = Double("\(row[7])"), let trades = Int(exactly: count), trades >= 0,
+              isSafePositive(vwap) else { return nil }
+        let candle = CryptoCandle(time: seconds * 1000, open: open, high: high, low: low,
+                                  close: close, volume: volume, quoteVolume: volume * vwap, trades: trades)
+        return candle.isValidMarketInput ? candle : nil
     }
 }
 

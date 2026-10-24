@@ -53,8 +53,7 @@ public enum ScanKernel {
         let frozenAsk = input.ask
         let frozenSpread = input.spread
         let frozenExpiry = input.expirySeconds
-        await ring.loadCompleted(completed)
-        let ringBars = await ring.fetchLatestBars(count: completed.count)
+        let ringBars = await ring.loadAndFetch(completed)
         input.candles1m = ringBars.map {
             StrategyEngine.CandlePayload(
                 time: $0.time,
@@ -135,12 +134,15 @@ public enum ScanKernel {
         scannedAt: Date = Date()
     ) -> ScanCommit {
         let fingerprint = ScanFingerprint.hex(candles: snapshot)
+        let rawScore = found.opportunity ?? found.confidence ?? 0
+        let scoreValid = rawScore.isFinite && (0...100).contains(rawScore)
+            && (found.confidence.map { $0.isFinite && (0...100).contains($0) } ?? true)
         return ScanCommit(
             asset: found.asset,
-            engineCall: found.call,
+            engineCall: scoreValid ? found.call : "WAIT",
             // The engine's directional score is 0...100. Convert it to side-neutral
             // conviction once, here, so every downstream consumer reads the same number.
-            score: Int((found.opportunity ?? found.confidence ?? 0).rounded()),
+            score: scoreValid ? Int(rawScore.rounded()) : 0,
             evidence: found.evidence ?? found.why,
             strike: found.entryPrice ?? found.price,
             fingerprint: fingerprint,
@@ -165,7 +167,7 @@ public enum ScanKernel {
             engineSHA: engineSHA,
             policy: policy,
             scannedAt: scannedAt,
-            veto: nil,
+            veto: scoreValid ? nil : "Invalid engine numeric output",
             driftPips: nil
         )
     }

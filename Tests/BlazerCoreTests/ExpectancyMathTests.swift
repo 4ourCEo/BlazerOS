@@ -121,3 +121,12 @@ import Testing
     #expect(result.positiveEVRate > 0.80)
 }
 
+
+@Test func numericGuardsPreserveExplicitFiniteRiskConfiguration() {
+    let custom = ExpectancyMath.recommendedStake(bankroll: 10_000, winRate: 0.65,
+        payoutRatio: 0.88, fraction: 0.25, maxRiskCeiling: 0.05)
+    #expect(custom == 500)
+    let overflow = ExpectancyMath.recommendedStake(bankroll: 1e300, winRate: 1,
+        payoutRatio: 0.88, fraction: 1e300, maxRiskCeiling: 1e300)
+    #expect(overflow == 0)
+}
