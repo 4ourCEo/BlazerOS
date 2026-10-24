@@ -9,6 +9,14 @@ public struct IntelScreen: View {
     @State private var testAlertSent = false
     @State private var isScheduling = false
     @State private var now = Date()
+    @State private var otcAPIKeyDraft = ""
+    @State private var brokerPriceDraft = ""
+    @State private var providerPriceDraft = ""
+    @State private var payoutDraft = ""
+    @State private var screenshotDraft = ""
+    @State private var candleTimeDraft = ""
+    @State private var manualAgreement: ManualAgreement = .notAssessed
+    @State private var manualConfidence: ManualVerificationConfidence = .low
 
     public init(model: LightningDeskModel) {
         self.model = model
@@ -24,6 +32,7 @@ public struct IntelScreen: View {
                 VStack(spacing: 16) {
                     currentStatusCard
                     executionEvidenceCard
+                    otcResearchCard
                     scheduleCards
                     notificationsSection
                     pairConvictionSection
@@ -41,6 +50,108 @@ public struct IntelScreen: View {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
         }
+    }
+
+    private var otcResearchCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("POCKET OPTION OTC · READ-ONLY RESEARCH")
+                .font(.system(size: 11, weight: .bold))
+            Text("OTCharts adapter: \(model.otcConnectionState.rawValue.uppercased()) · disabled by default")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(model.otcAPIKeyConfigured ? DeskInk.electric : DeskInk.slate)
+            Text("An API key enables only the independent research adapter. It is stored in this device's Keychain and is never supplied to the trading engine or Foundation Models.")
+                .font(.system(size: 10))
+
+            if model.otcAPIKeyConfigured {
+                HStack {
+                    Button(model.otcCaptureActive ? "Stop research capture" : "Start 5-minute capture") {
+                        if model.otcCaptureActive { model.stopOTCResearchCapture() }
+                        else { model.startOTCResearchCapture() }
+                    }
+                    .font(.system(size: 11, weight: .semibold))
+                    Spacer()
+                    Button("Refresh report") {
+                        Task { await model.refreshOTCValidationReport() }
+                    }
+                    .font(.system(size: 11, weight: .semibold))
+                }
+                Text("Session: \(model.otcConnectionState.rawValue.uppercased()) · \(model.otcCapturedObservations) saved · \(model.otcObservedTicks) ticks\(model.otcObservedTickRate.map { String(format: " · %.1f/s", $0) } ?? "") · research-only")
+                    .font(.system(size: 10, design: .monospaced))
+                if let report = model.otcValidationReport {
+                    Text("Samples \(report.totalSamples) · 60s transitions \(report.sixtySecondComparableTransitions) · agreements \(report.sixtySecondDirectionAgreements)")
+                        .font(.system(size: 10, design: .monospaced))
+                    Text(report.status)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(report.capturedLiveVendorData ? DeskInk.electric : DeskInk.slate)
+                }
+                Button("Disconnect and remove API key") {
+                    model.disconnectAndRemoveOTChartsAPIKey()
+                }
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(DeskInk.coral)
+            } else {
+                SecureField("OTCharts API key", text: $otcAPIKeyDraft)
+                    .textFieldStyle(.roundedBorder)
+                Button("Save key to device Keychain") {
+                    model.saveOTChartsAPIKey(otcAPIKeyDraft)
+                    if model.otcAPIKeyConfigured { otcAPIKeyDraft = "" }
+                }
+                .font(.system(size: 11, weight: .semibold))
+            }
+
+            Divider().overlay(Color.white.opacity(0.12))
+            Text("VISIBLE CHART CHECK · EUR/USD OTC")
+                .font(.system(size: 10, weight: .bold))
+            TextField("Broker displayed price", text: $brokerPriceDraft)
+                .textFieldStyle(.roundedBorder)
+            TextField("Provider price (optional)", text: $providerPriceDraft)
+                .textFieldStyle(.roundedBorder)
+            TextField("Displayed payout % (optional)", text: $payoutDraft)
+                .textFieldStyle(.roundedBorder)
+            TextField("Screenshot filename/reference (optional)", text: $screenshotDraft)
+                .textFieldStyle(.roundedBorder)
+            TextField("Candle time, ISO 8601 (optional)", text: $candleTimeDraft)
+                .textFieldStyle(.roundedBorder)
+            HStack {
+                Picker("Agreement", selection: $manualAgreement) {
+                    Text("Not assessed").tag(ManualAgreement.notAssessed)
+                    Text("Agrees").tag(ManualAgreement.agrees)
+                    Text("Discrepancy").tag(ManualAgreement.discrepancy)
+                }
+                Picker("Confidence", selection: $manualConfidence) {
+                    Text("Low").tag(ManualVerificationConfidence.low)
+                    Text("Medium").tag(ManualVerificationConfidence.medium)
+                    Text("High").tag(ManualVerificationConfidence.high)
+                }
+            }
+            .font(.system(size: 10))
+            Button("Capture timestamped chart observation") {
+                Task {
+                    await model.recordManualOTCObservation(
+                        brokerPrice: brokerPriceDraft, providerPrice: providerPriceDraft,
+                        payoutPercent: payoutDraft, screenshotReference: screenshotDraft,
+                        candleTimestamp: ISO8601DateFormatter().date(from: candleTimeDraft),
+                        agreement: manualAgreement, confidence: manualConfidence)
+                    if model.otcResearchIssue == nil {
+                        brokerPriceDraft = ""
+                        providerPriceDraft = ""
+                        payoutDraft = ""
+                        screenshotDraft = ""
+                        candleTimeDraft = ""
+                    }
+                }
+            }
+            .font(.system(size: 11, weight: .semibold))
+            Text("Saved checks: \(model.manualBrokerObservations.count) · research-only · never settles a trade")
+                .font(.system(size: 10, design: .monospaced))
+            if let issue = model.otcResearchIssue {
+                Text(issue).font(.system(size: 10)).foregroundStyle(DeskInk.coral)
+            }
+        }
+        .foregroundStyle(DeskInk.slate)
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DeskInk.surface, in: RoundedRectangle(cornerRadius: 16))
     }
 
     private var executionEvidenceCard: some View {

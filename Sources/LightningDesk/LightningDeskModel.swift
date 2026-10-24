@@ -51,6 +51,12 @@ public final class LightningDeskModel: ObservableObject {
         executionObservationStore = ExecutionObservationStore(
             root: root.appendingPathComponent("Research", isDirectory: true)
                 .appendingPathComponent("execution-quality", isDirectory: true))
+        manualBrokerObservationStore = ManualBrokerObservationStore(
+            root: root.appendingPathComponent("Research", isDirectory: true)
+                .appendingPathComponent("otc-validation", isDirectory: true))
+        otcValidationPipeline = OTCValidationPipeline(
+            root: root.appendingPathComponent("Research", isDirectory: true)
+                .appendingPathComponent("otc-validation", isDirectory: true))
         strikeStore = StrikeStore(url: root.appendingPathComponent("strike_positions.json"))
         let diagnosticsURL = root.appendingPathComponent("model_diagnostics.jsonl")
         assistant = AssistantSession(diagnosticsURL: diagnosticsURL)
@@ -237,6 +243,9 @@ public final class LightningDeskModel: ObservableObject {
     public func handleAppBackgrounded(now: Date = Date()) {
         backgroundedAt = now
         invalidateScanRequests()
+        // A research stream does not survive suspension; stop it explicitly instead of
+        // reconnecting invisibly when the app resumes.
+        if otcCaptureActive { stopOTCResearchCapture() }
         // Switching to the venue app suspends live refresh. An actionable beam must not
         // become actionable again after the phone resumes without a new frozen scan.
         if armedAt != nil, activeTrade == nil {
@@ -416,6 +425,296 @@ public final class LightningDeskModel: ObservableObject {
             executionObservations = try await executionObservationStore.load()
             refreshExecutionIntelligence()
         } catch { executionObservationIssue = "Execution-quality archive unavailable: \(error.localizedDescription)" }
+    }
+
+    // MARK: - Personal OTC research (never an execution input)
+
+    private let manualBrokerObservationStore: ManualBrokerObservationStore
+    private let otcValidationPipeline: OTCValidationPipeline
+    public var otcCredentialVault: KeychainVault = SystemKeychainVault(service: "com.blazer.os.otc-research")
+    /// Injectable so the capture session is testable without touching the network.
+    public var otcProviderFactory: @Sendable (OTChartsConfiguration) -> OTChartsProvider = {
+        OTChartsProvider(configuration: $0)
+    }
+    @Published public private(set) var otcAPIKeyConfigured = false
+    @Published public private(set) var otcConnectionState: ShadowConnectionState = .disabled
+    @Published public private(set) var manualBrokerObservations: [ManualBrokerChartObservation] = []
+    @Published public private(set) var otcResearchIssue: String?
+    /// Research capture session state. Never consulted by the entry gate.
+    @Published public private(set) var otcCaptureActive = false
+    /// Persisted, rate-limited research samples (at most one per second).
+    @Published public private(set) var otcCapturedObservations = 0
+    /// Raw ticks observed in this session, refreshed at 1 Hz to avoid per-tick UI churn.
+    @Published public private(set) var otcObservedTicks = 0
+    @Published public private(set) var otcObservedTickRate: Double?
+    @Published public private(set) var otcValidationReport: OTCValidationReport?
+    private var otcCaptureTask: Task<Void, Never>?
+    private var otcCaptureWatchdog: Task<Void, Never>?
+    private var otcCaptureRunID: UUID?
+    private var otcTicksThisCapture = 0
+    private var otcFirstTickAt: Date?
+    private var otcLastTickPublishAt: Date?
+    private var otcLastPersistAt: Date?
+
+    public func refreshOTCCredentialState() {
+        do {
+            otcAPIKeyConfigured = try otcCredentialVault.get(KeychainKey.otchartsAPIKey)?.isEmpty == false
+            otcResearchIssue = nil
+        } catch {
+            otcAPIKeyConfigured = false
+            otcResearchIssue = "OTC provider credential is unavailable"
+        }
+        // Configuration presence never enables a network connection automatically, and a
+        // credential re-read must not overwrite the state of a running capture.
+        if !otcCaptureActive { otcConnectionState = .disabled }
+    }
+
+    public func saveOTChartsAPIKey(_ candidate: String) {
+        let key = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else {
+            otcResearchIssue = "Enter an OTCharts API key"
+            return
+        }
+        do {
+            try otcCredentialVault.set(key, for: KeychainKey.otchartsAPIKey)
+            otcAPIKeyConfigured = true
+            if !otcCaptureActive { otcConnectionState = .disabled }
+            otcResearchIssue = nil
+        } catch {
+            otcResearchIssue = "OTC provider key could not be saved"
+        }
+    }
+
+    public func disconnectAndRemoveOTChartsAPIKey() {
+        // Stop the session before touching Keychain so the UI cannot claim connectivity while
+        // the credential is being removed.
+        stopOTCResearchCapture()
+        do {
+            try otcCredentialVault.remove(KeychainKey.otchartsAPIKey)
+            otcAPIKeyConfigured = false
+            otcResearchIssue = nil
+        } catch {
+            otcAPIKeyConfigured = false
+            otcResearchIssue = "OTC provider key removal could not be confirmed"
+        }
+    }
+
+    /// Starts one explicitly requested, time-bounded, read-only research capture. It never runs
+    /// automatically and it never feeds a scan, an entry, or a settlement.
+    public func startOTCResearchCapture(duration: TimeInterval = 300) {
+        guard !otcCaptureActive else { return }
+        guard duration > 0, duration <= 3_600 else {
+            otcResearchIssue = "Research capture duration must be between 1 second and 1 hour"
+            return
+        }
+        let key: String
+        do {
+            guard let stored = try otcCredentialVault.get(KeychainKey.otchartsAPIKey),
+                  !stored.isEmpty else {
+                otcResearchIssue = "Add an OTCharts API key before starting a research capture"
+                return
+            }
+            key = stored
+        } catch {
+            otcResearchIssue = "OTC provider credential is unavailable"
+            return
+        }
+
+        let configuration = OTChartsConfiguration(apiKey: key, enabled: true)
+        let provider = otcProviderFactory(configuration)
+        let runID = UUID()
+        otcCaptureRunID = runID
+        otcCaptureActive = true
+        otcCapturedObservations = 0
+        otcObservedTicks = 0
+        otcObservedTickRate = nil
+        otcTicksThisCapture = 0
+        otcFirstTickAt = nil
+        otcLastTickPublishAt = nil
+        otcLastPersistAt = nil
+        otcConnectionState = .connecting
+        otcResearchIssue = nil
+
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.runOTCCapture(provider: provider, runID: runID)
+        }
+        otcCaptureTask = task
+        // A stalled stream must still respect the declared bound.
+        otcCaptureWatchdog = Task {
+            try? await Task.sleep(for: .seconds(duration))
+            task.cancel()
+        }
+    }
+
+    /// Immediate stop. Already-persisted research samples stay on disk.
+    public func stopOTCResearchCapture() {
+        otcCaptureTask?.cancel()
+        otcCaptureWatchdog?.cancel()
+        otcCaptureTask = nil
+        otcCaptureWatchdog = nil
+        otcCaptureRunID = nil
+        otcCaptureActive = false
+        otcConnectionState = .disabled
+    }
+
+    private func runOTCCapture(provider: OTChartsProvider, runID: UUID) async {
+        defer { finishOTCCapture(runID: runID) }
+        do {
+            let instruments = try await provider.instruments()
+            guard let availability = instruments.first(where: {
+                $0.identity == ShadowMarketDataFixtures.pocketOptionEURUSDOTC
+            }) else {
+                otcResearchIssue = "OTCharts did not list EUR/USD OTC; capture stopped"
+                otcConnectionState = .degraded
+                return
+            }
+            guard availability.isOpen != false else {
+                otcResearchIssue = "EUR/USD OTC is closed according to the provider; capture stopped"
+                otcConnectionState = .degraded
+                return
+            }
+            let updates = try await provider.updates(
+                for: [ShadowMarketDataFixtures.pocketOptionEURUSDOTC])
+            for try await update in updates {
+                if Task.isCancelled { break }
+                switch update {
+                case .connection(let state, _):
+                    if otcConnectionState != state { otcConnectionState = state }
+                case .observation(let observation):
+                    if otcConnectionState != .live { otcConnectionState = .live }
+                    await recordOTCResearchObservation(observation, runID: runID)
+                }
+            }
+            // A clean end before the declared bound is an incomplete session, not a success.
+            if !Task.isCancelled, otcCaptureRunID == runID {
+                otcResearchIssue = "Provider stream ended before the capture bound; session incomplete"
+            }
+        } catch {
+            // A user stop or the watchdog is not a provider fault. Never surface raw remote text.
+            if !Task.isCancelled {
+                diagLog("OTC_CAPTURE_FAILED")
+                otcResearchIssue = "OTC research capture ended (provider or network failure)"
+                otcConnectionState = .degraded
+            }
+        }
+    }
+
+    private func finishOTCCapture(runID: UUID) {
+        guard otcCaptureRunID == runID else { return }
+        otcCaptureTask = nil
+        otcCaptureWatchdog?.cancel()
+        otcCaptureWatchdog = nil
+        otcCaptureRunID = nil
+        otcCaptureActive = false
+        otcConnectionState = .disabled
+        Task { await refreshOTCValidationReport() }
+    }
+
+    private func recordOTCResearchObservation(_ observation: ShadowMarketObservation,
+                                              runID: UUID) async {
+        guard otcCaptureRunID == runID else { return }
+        guard observation.isValid, observation.verification != .syntheticTestFixture else {
+            otcResearchIssue = "Provider returned an invalid research observation"
+            return
+        }
+        let now = Date()
+        otcTicksThisCapture += 1
+        if otcFirstTickAt == nil { otcFirstTickAt = now }
+        // Refresh tick telemetry at most once per second, never per tick.
+        if otcLastTickPublishAt.map({ now.timeIntervalSince($0) >= 1 }) ?? true {
+            otcObservedTicks = otcTicksThisCapture
+            if let first = otcFirstTickAt {
+                let elapsed = now.timeIntervalSince(first)
+                otcObservedTickRate = elapsed > 0
+                    ? Double(max(0, otcTicksThisCapture - 1)) / elapsed : nil
+            }
+            otcLastTickPublishAt = now
+        }
+        // Persist at most one sample per second so a dense stream cannot flood the archive or
+        // the main actor. The 60-second bucket report does not need every tick.
+        if let last = otcLastPersistAt, now.timeIntervalSince(last) < 1 { return }
+        let reference = standardReferenceObservation(at: now)
+        let sample = OTCValidationSample(
+            capturedAt: now, standard: reference, otc: observation,
+            standardOrigin: reference == nil ? nil : .independentAPI,
+            otcOrigin: .independentAPI)
+        do {
+            try await otcValidationPipeline.record(sample)
+            guard otcCaptureRunID == runID else { return }
+            otcCapturedObservations += 1
+            otcLastPersistAt = now
+        } catch {
+            guard otcCaptureRunID == runID else { return }
+            otcResearchIssue = "OTC research sample could not be saved"
+        }
+    }
+
+    /// Reuses the desk's live OANDA mid only while the standard market is open and the quote is
+    /// recent. A weekend-closed OANDA print is never paired with an active OTC observation.
+    private func standardReferenceObservation(at now: Date) -> ShadowMarketObservation? {
+        guard marketMode == .fx, FxSession.isOpen(now), let quote,
+              quote.asset == "EUR/USD", quote.asOfMs > 0,
+              quote.bid.isFinite, quote.ask.isFinite, quote.mid.isFinite,
+              quote.bid > 0, quote.ask >= quote.bid else { return nil }
+        let asOf = quote.asOfMs / 1_000
+        guard asOf <= now.timeIntervalSince1970,
+              now.timeIntervalSince1970 - asOf <= 5 else { return nil }
+        let observation = ShadowMarketObservation(
+            source: ShadowDataSourceIdentity(providerID: "oanda.standard.v1",
+                displayName: "OANDA", venueID: "oanda", directBrokerConnection: false),
+            identity: ShadowMarketDataFixtures.standardEURUSD,
+            quote: ShadowQuote(price: quote.mid, bid: quote.bid, ask: quote.ask),
+            providerTimestamp: ShadowProviderTimestamp(rawUnixSeconds: asOf),
+            receivedAt: now, connectionState: .live,
+            verification: .unverifiedVendorData,
+            provenance: "OANDA midpoint reference; not Pocket Option settlement")
+        return observation.isValid ? observation : nil
+    }
+
+    public func refreshOTCValidationReport() async {
+        do {
+            otcValidationReport = try await otcValidationPipeline.report()
+        } catch {
+            otcResearchIssue = "OTC validation archive unavailable: \(error.localizedDescription)"
+        }
+    }
+
+    public func recordManualOTCObservation(
+        brokerPrice: String,
+        providerPrice: String,
+        payoutPercent: String,
+        screenshotReference: String,
+        candleTimestamp: Date? = nil,
+        agreement: ManualAgreement,
+        confidence: ManualVerificationConfidence
+    ) async {
+        guard let broker = Double(brokerPrice), broker.isFinite, broker > 0 else {
+            otcResearchIssue = "Broker price must be a positive number"
+            return
+        }
+        let provider = providerPrice.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? nil : Double(providerPrice)
+        let payout = payoutPercent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? nil : Double(payoutPercent)
+        let screenshot = screenshotReference.trimmingCharacters(in: .whitespacesAndNewlines)
+        let observation = ManualBrokerChartObservation(
+            identity: ShadowMarketDataFixtures.pocketOptionEURUSDOTC,
+            observedAt: Date(), brokerDisplayedPrice: broker, providerPrice: provider,
+            candleTimestamp: candleTimestamp, payoutPercent: payout,
+            screenshotReference: screenshot.isEmpty ? nil : screenshot,
+            agreement: agreement, confidence: confidence)
+        guard observation.isValid else {
+            otcResearchIssue = "Manual observation contains an invalid optional value"
+            return
+        }
+        do {
+            try await manualBrokerObservationStore.record(observation)
+            manualBrokerObservations = try await manualBrokerObservationStore.observations()
+            otcResearchIssue = nil
+        } catch {
+            otcResearchIssue = "Manual OTC observation could not be saved"
+        }
     }
 
     private let referenceStore: ReferenceOutcomeStore
@@ -625,6 +924,7 @@ public final class LightningDeskModel: ObservableObject {
             diagLog("ENGINE_BOOT_OK \(StrategyEngine.engineHealth.sha?.prefix(12) ?? "?")")
         }
         await reloadFromDisk()
+        await refreshOTCValidationReport()
         Task { await assistant.refreshAvailability() }
         // Finish any settlement that was interrupted by a crash or a failed write.
         if pendingSaveCount > 0 {
@@ -2083,6 +2383,15 @@ public final class LightningDeskModel: ObservableObject {
             restoredExecutionObservations = []
             executionLoadIssue = "Execution-quality archive unavailable: \(error.localizedDescription)"
         }
+        let restoredManualObservations: [ManualBrokerChartObservation]
+        let manualLoadIssue: String?
+        do {
+            restoredManualObservations = try await manualBrokerObservationStore.observations()
+            manualLoadIssue = nil
+        } catch {
+            restoredManualObservations = []
+            manualLoadIssue = "Manual OTC archive unavailable: \(error.localizedDescription)"
+        }
         if let request, !isCurrentScan(request) { return }
         outcomeStats = restored.confirmedStats
         ledgerRows = restored.ledgerRows
@@ -2095,6 +2404,9 @@ public final class LightningDeskModel: ObservableObject {
         referenceOutcomes = restoredReferenceOutcomes
         executionObservations = restoredExecutionObservations
         executionObservationIssue = executionLoadIssue
+        manualBrokerObservations = restoredManualObservations
+        otcResearchIssue = manualLoadIssue
+        refreshOTCCredentialState()
         refreshExecutionIntelligence()
         for entry in journal {
             if candlesByAsset[entry.pair] == nil && !entry.candles.isEmpty {
