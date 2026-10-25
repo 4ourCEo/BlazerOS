@@ -137,6 +137,11 @@ public final class LightningDeskModel: ObservableObject {
                 notice = "Resolve the entry before switching markets"
                 return
             }
+            if marketMode == .otc, !otcAPIKeyConfigured {
+                marketMode = .fx
+                notice = "OTC research is not configured"
+                return
+            }
             if marketMode == .otc {
                 prepareOTCResearchMode()
             } else if oldValue == .otc {
@@ -495,6 +500,9 @@ public final class LightningDeskModel: ObservableObject {
     /// Injectable evaluation clock so research timing and replay tests are deterministic.
     public var otcSignalClock: @Sendable () -> Date = { Date() }
     @Published public private(set) var otcAPIKeyConfigured = false
+    /// OTC is an optional research surface. The market picker only offers it when a
+    /// provider has been explicitly configured.
+    public var isOTCConfigured: Bool { otcAPIKeyConfigured }
     @Published public private(set) var otcConnectionState: ShadowConnectionState = .disabled
     @Published public private(set) var manualBrokerObservations: [ManualBrokerChartObservation] = []
     @Published public private(set) var otcResearchIssue: String?
@@ -542,6 +550,8 @@ public final class LightningDeskModel: ObservableObject {
         // Configuration presence never enables a network connection automatically, and a
         // credential re-read must not overwrite the state of a running capture.
         if !otcCaptureActive { otcConnectionState = .disabled }
+        // Without a provider the OTC surface is not offered at all.
+        if !otcAPIKeyConfigured, marketMode == .otc { marketMode = .fx }
     }
 
     public func saveOTChartsAPIKey(_ candidate: String) {
@@ -572,6 +582,9 @@ public final class LightningDeskModel: ObservableObject {
             otcAPIKeyConfigured = false
             otcResearchIssue = "OTC provider key removal could not be confirmed"
         }
+        otcSignal = nil
+        otcSignalConnectionState = .disabled
+        if marketMode == .otc { marketMode = .fx }
     }
 
     /// Starts one explicitly requested, time-bounded, read-only research capture. It never runs
@@ -784,7 +797,8 @@ public final class LightningDeskModel: ObservableObject {
         // A mode change or suspension while the provider was in flight must not publish.
         guard marketMode == .otc, backgroundedAt == nil else { return }
         guard let snapshot = refreshed else {
-            otcSignalIssue = "OTC research provider returned no usable instruments."
+            // A provider refusal is not a closed market. Do not let the desk imply one.
+            otcSignalIssue = "OTC provider unavailable (key, plan, or network). The market state is unknown."
             otcSignalConnectionState = .degraded
             return
         }
@@ -1169,6 +1183,11 @@ public final class LightningDeskModel: ObservableObject {
         isDemoDesk = false
         let market = marketMode
         if market == .otc {
+            guard otcAPIKeyConfigured else {
+                marketMode = .fx
+                notice = "OTC research is not configured"
+                return
+            }
             prepareOTCResearchMode()
             await refreshOTCSignal()
             return

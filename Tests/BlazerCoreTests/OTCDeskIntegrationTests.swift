@@ -117,6 +117,43 @@ private func availability(
 }
 
 @MainActor
+@Test func otcModeIsUnavailableWithoutAConfiguredProvider() {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("otc-unconfigured-\(UUID().uuidString)")
+    let model = LightningDeskModel(storageRoot: root)
+    model.otcCredentialVault = InMemoryKeychainVault()
+
+    model.marketMode = .otc
+
+    #expect(!model.isOTCConfigured)
+    #expect(model.marketMode == .fx)
+    #expect(model.otcSignal == nil)
+    #expect(model.frame == nil)
+    #expect(model.activeTrade == nil)
+}
+
+@MainActor
+@Test func removingTheProviderKeyLeavesOTCMode() async {
+    let eur = availability(symbol: "EURUSD_otc", name: "EUR/USD OTC")
+    let provider = FakeOTCProvider(
+        availabilities: [eur],
+        series: ["EURUSD_otc": deskCandles(
+            identity: eur.identity, base: 1.1000, endingAt: deskNow)])
+    let model = makeDeskModel(provider: provider)
+    model.marketMode = .otc
+    await model.scan()
+    #expect(model.marketMode == .otc)
+
+    model.disconnectAndRemoveOTChartsAPIKey()
+
+    #expect(!model.isOTCConfigured)
+    #expect(model.marketMode == .fx)
+    #expect(model.otcSignal == nil)
+    #expect(model.frame == nil)
+    #expect(model.activeTrade == nil)
+}
+
+@MainActor
 @Test func otcModeProducesResearchSignalWithoutExecutionState() async {
     let eur = availability(symbol: "EURUSD_otc", name: "EUR/USD OTC")
     let provider = FakeOTCProvider(

@@ -47,7 +47,9 @@ struct DeskScreen: View {
             Picker("Market", selection: $model.marketMode) {
                 Text("Crypto").tag(DeskMarket.crypto)
                 Text("FX").tag(DeskMarket.fx)
-                Text("OTC").tag(DeskMarket.otc)
+                if model.isOTCConfigured {
+                    Text("OTC").tag(DeskMarket.otc)
+                }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
