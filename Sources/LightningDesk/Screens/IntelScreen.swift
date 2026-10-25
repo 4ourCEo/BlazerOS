@@ -9,6 +9,7 @@ public struct IntelScreen: View {
     @State private var testAlertSent = false
     @State private var isScheduling = false
     @State private var now = Date()
+    @State private var showOTCSetup = false
     @State private var otcAPIKeyDraft = ""
     @State private var brokerPriceDraft = ""
     @State private var providerPriceDraft = ""
@@ -32,7 +33,14 @@ public struct IntelScreen: View {
                 VStack(spacing: 16) {
                     currentStatusCard
                     executionEvidenceCard
-                    otcResearchCard
+                    // OTC is optional research infrastructure. It stays out of the desk
+                    // unless the operator has explicitly configured a provider, so an
+                    // unconfigured adapter can never masquerade as a closed market.
+                    if model.otcAPIKeyConfigured || showOTCSetup {
+                        otcResearchCard
+                    } else {
+                        otcSetupRow
+                    }
                     scheduleCards
                     notificationsSection
                     pairConvictionSection
@@ -52,13 +60,62 @@ public struct IntelScreen: View {
         }
     }
 
+    private var otcSetupRow: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "waveform.path.ecg")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(DeskInk.slate)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("OTC research")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(DeskInk.ink)
+                Text("Optional · not configured · no provider connection")
+                    .font(.system(size: 10))
+                    .foregroundStyle(DeskInk.slate)
+            }
+            Spacer(minLength: 8)
+            Button("Set up") { showOTCSetup = true }
+                .font(.system(size: 11, weight: .semibold))
+        }
+        .padding(14)
+        .background(Color.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 14))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .strokeBorder(Color.white.opacity(0.06), lineWidth: 0.5)
+        )
+    }
+
+    /// Never call an unconfigured provider “disconnected” or a market “closed”. The only
+    /// source of a closed state is the broker's own `open == false`, which arrives from the
+    /// provider and is surfaced as a provider report.
+    private var otcStatusLine: String {
+        guard model.otcAPIKeyConfigured else {
+            return "OTCharts adapter: NOT CONFIGURED"
+        }
+        if model.otcCaptureActive {
+            return "OTCharts adapter: \(model.otcConnectionState.rawValue.uppercased())"
+        }
+        switch model.otcConnectionState {
+        case .disabled, .disconnected:
+            return "OTCharts adapter: READY · capture stopped"
+        case .connecting, .live, .degraded, .throttled:
+            return "OTCharts adapter: \(model.otcConnectionState.rawValue.uppercased())"
+        }
+    }
+
     private var otcResearchCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("POCKET OPTION OTC · READ-ONLY RESEARCH")
                 .font(.system(size: 11, weight: .bold))
-            Text("OTCharts adapter: \(model.otcConnectionState.rawValue.uppercased()) · disabled by default")
+            Text(otcStatusLine)
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(model.otcAPIKeyConfigured ? DeskInk.electric : DeskInk.slate)
+            if let issue = model.otcResearchIssue, !issue.isEmpty {
+                Text(issue)
+                    .font(.system(size: 10))
+                    .foregroundStyle(DeskInk.coral)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             Text("An API key enables only the independent research adapter. It is stored in this device's Keychain and is never supplied to the trading engine or Foundation Models.")
                 .font(.system(size: 10))
 
@@ -101,6 +158,9 @@ public struct IntelScreen: View {
                     if model.otcAPIKeyConfigured { otcAPIKeyDraft = "" }
                 }
                 .font(.system(size: 11, weight: .semibold))
+                Button("Hide OTC setup") { showOTCSetup = false }
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(DeskInk.slate)
             }
 
             Divider().overlay(Color.white.opacity(0.12))

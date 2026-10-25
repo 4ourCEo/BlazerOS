@@ -637,9 +637,33 @@ public final class LightningDeskModel: ObservableObject {
             // A user stop or the watchdog is not a provider fault. Never surface raw remote text.
             if !Task.isCancelled {
                 diagLog("OTC_CAPTURE_FAILED")
-                otcResearchIssue = "OTC research capture ended (provider or network failure)"
+                otcResearchIssue = otcFailureMessage(error)
                 otcConnectionState = .degraded
             }
+        }
+    }
+
+    /// A provider refusal is not a closed market. Keep the two states separate so the desk
+    /// never tells the operator Pocket Option is closed when only the data plan is unavailable.
+    private func otcFailureMessage(_ error: Error) -> String {
+        guard let failure = error as? OTChartsError else {
+            return "OTC research capture ended (provider or network failure); the market state is unknown"
+        }
+        switch failure {
+        case .httpStatus(402):
+            return "OTCharts free API tier is paused; a paid data plan is required. Pocket Option is not reported as closed."
+        case .httpStatus(403):
+            return "The OTCharts plan does not open this book or instrument."
+        case .httpStatus(429):
+            return "OTCharts request or stream limit reached; retry later."
+        case .throttled:
+            return "OTCharts throttled the request; retry later."
+        case .disabled, .invalidCredential:
+            return "The OTCharts key is missing or no longer valid."
+        case .providerClosed(let reason):
+            return "Provider closed the stream: \(reason)"
+        default:
+            return "OTC research capture ended (provider or network failure); the market state is unknown"
         }
     }
 
