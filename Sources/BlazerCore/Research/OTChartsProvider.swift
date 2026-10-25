@@ -27,6 +27,38 @@ public struct OTChartsServerEvent: Sendable, Equatable {
     }
 }
 
+/// Line-oriented decoder for the OTCharts SSE tick protocol. The official client dispatches
+/// each `data:` line immediately; blank-line event grouping is optional, not required.
+struct OTChartsSSEDecoder {
+    private var eventName = "message"
+    private var eventID: String?
+
+    mutating func consume(_ line: String) -> [OTChartsServerEvent] {
+        guard !line.isEmpty else {
+            eventName = "message"
+            eventID = nil
+            return []
+        }
+        if line.hasPrefix(":") { return [] }
+        if line.hasPrefix("event:") {
+            eventName = String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces)
+            return []
+        }
+        if line.hasPrefix("id:") {
+            eventID = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+            return []
+        }
+        guard line.hasPrefix("data:") else { return [] }
+        let payload = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+        defer {
+            eventName = "message"
+            eventID = nil
+        }
+        guard !payload.isEmpty else { return [] }
+        return [OTChartsServerEvent(name: eventName, data: payload, id: eventID)]
+    }
+}
+
 public protocol OTChartsTransport: Sendable {
     func data(for request: URLRequest) async throws -> OTChartsHTTPResponse
     func events(for request: URLRequest) -> AsyncThrowingStream<OTChartsServerEvent, any Error>
@@ -91,25 +123,11 @@ public final class NativeOTChartsTransport: OTChartsTransport, @unchecked Sendab
                         if http.statusCode == 429 { throw OTChartsError.throttled(retryAfterSeconds: retry) }
                         throw OTChartsError.httpStatus(http.statusCode)
                     }
-                    var eventName = "message"
-                    var eventID: String?
-                    var dataLines: [String] = []
+                    var decoder = OTChartsSSEDecoder()
                     for try await line in bytes.lines {
                         try Task.checkCancellation()
-                        if line.isEmpty {
-                            if !dataLines.isEmpty {
-                                continuation.yield(OTChartsServerEvent(
-                                    name: eventName, data: dataLines.joined(separator: "\n"), id: eventID))
-                            }
-                            eventName = "message"
-                            eventID = nil
-                            dataLines.removeAll(keepingCapacity: true)
-                        } else if line.hasPrefix("event:") {
-                            eventName = String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces)
-                        } else if line.hasPrefix("data:") {
-                            dataLines.append(String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces))
-                        } else if line.hasPrefix("id:") {
-                            eventID = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+                        for event in decoder.consume(line) {
+                            continuation.yield(event)
                         }
                     }
                     continuation.finish()
@@ -147,7 +165,8 @@ public actor OTChartsProvider: ShadowMarketObservationProvider {
         ])
         let response = try await checkedResponse(for: request)
         let payload = try JSONDecoder().decode(SymbolsEnvelope.self, from: response.data)
-        guard payload.venue == "otc" else { throw OTChartsError.invalidResponse }
+        // The official client reads only `symbols`; `venue` is informational when present.
+        if let venue = payload.venue, venue != "otc" { throw OTChartsError.invalidResponse }
         return try payload.symbols.map { item in
             let identity = try identity(for: item.symbol, name: item.name)
             guard item.payout.map({ $0.isFinite && $0 >= 0 && $0 <= 100 }) ?? true else {
@@ -161,7 +180,7 @@ public actor OTChartsProvider: ShadowMarketObservationProvider {
     public func candles(for identity: ShadowMarketIdentity, intervalSeconds: Int,
                         limit: Int) async throws -> [ShadowCandle] {
         try validate(identity)
-        guard intervalSeconds > 0, (1...5_000).contains(limit) else { throw OTChartsError.invalidResponse }
+        guard intervalSeconds > 0, (1...500).contains(limit) else { throw OTChartsError.invalidResponse }
         let request = try makeRequest(path: "/v1/candles", query: [
             URLQueryItem(name: "venue", value: "otc"),
             URLQueryItem(name: "symbol", value: identity.venueSymbol),
@@ -170,8 +189,10 @@ public actor OTChartsProvider: ShadowMarketObservationProvider {
         ])
         let response = try await checkedResponse(for: request)
         let payload = try JSONDecoder().decode(CandlesEnvelope.self, from: response.data)
-        guard payload.symbol == identity.venueSymbol else {
-            throw OTChartsError.wrongInstrument(expected: identity.venueSymbol, received: payload.symbol)
+        // The documented response is `{"candles":[...]}` with no top-level symbol. Verify the
+        // symbol only when the server supplies one.
+        if let returned = payload.symbol, returned != identity.venueSymbol {
+            throw OTChartsError.wrongInstrument(expected: identity.venueSymbol, received: returned)
         }
         let now = clock.now()
         return try payload.candles.enumerated().map { index, item in
@@ -213,19 +234,28 @@ public actor OTChartsProvider: ShadowMarketObservationProvider {
                     continuation.yield(.connection(.connecting, reason: nil))
                     for try await event in upstream {
                         try Task.checkCancellation()
-                        switch event.name {
-                        case "connected":
-                            continuation.yield(.connection(.live, reason: nil))
-                        case "tick":
-                            let tick = try JSONDecoder().decode(Tick.self, from: Data(event.data.utf8))
-                            guard let identity = identityBySymbol[tick.symbol] else {
+                        let payload = Data(event.data.utf8)
+                        // OTCharts ticks are `data:` JSON lines and may omit the event name and
+                        // (on a single-instrument stream) the symbol. The official client treats
+                        // every data line as a tick candidate, so do the same before inspecting
+                        // named control frames.
+                        if let tick = try? JSONDecoder().decode(Tick.self, from: payload) {
+                            let resolvedSymbol = tick.symbol
+                                ?? (identities.count == 1 ? identities[0].venueSymbol : nil)
+                            guard let resolvedSymbol,
+                                  let identity = identityBySymbol[resolvedSymbol] else {
                                 throw OTChartsError.wrongInstrument(
-                                    expected: uniqueSymbols.joined(separator: ","), received: tick.symbol)
+                                    expected: uniqueSymbols.joined(separator: ","),
+                                    received: tick.symbol ?? "unlabelled")
                             }
-                            guard tick.price.isFinite, tick.price > 0, tick.time.isFinite,
+                            guard tick.price.isFinite, tick.price > 0,
+                                  tick.time.isFinite, tick.time > 0 else {
+                                throw OTChartsError.invalidResponse
+                            }
+                            guard
                                   // Equal timestamps are legitimate: several prints can share the
                                   // same source second. Only a strictly older print is out of order.
-                                  tick.time >= (lastTimestampBySymbol[tick.symbol] ?? -.infinity) else {
+                                  tick.time >= (lastTimestampBySymbol[resolvedSymbol] ?? -.infinity) else {
                                 throw OTChartsError.staleOrOutOfOrder
                             }
                             let receivedAt = clock.now()
@@ -234,7 +264,7 @@ public actor OTChartsProvider: ShadowMarketObservationProvider {
                             guard normalizedTime <= receivedAt.addingTimeInterval(5) else {
                                 throw OTChartsError.staleOrOutOfOrder
                             }
-                            lastTimestampBySymbol[tick.symbol] = tick.time
+                            lastTimestampBySymbol[resolvedSymbol] = tick.time
                             let observation = ShadowMarketObservation(
                                 // The server event id is untrusted, unbounded text; never persist it.
                                 id: UUID().uuidString, source: source, identity: identity,
@@ -247,11 +277,21 @@ public actor OTChartsProvider: ShadowMarketObservationProvider {
                                 provenance: "OTCharts venue=otc SSE tick; vendor attribution to Pocket Option is not independently verified")
                             guard observation.isValid else { throw OTChartsError.invalidResponse }
                             continuation.yield(.observation(observation))
+                            continue
+                        }
+                        switch event.name {
+                        case "connected":
+                            continuation.yield(.connection(.live, reason: nil))
                         case "closed", "dropped":
-                            continuation.yield(.connection(.degraded, reason: event.data))
+                            continuation.yield(.connection(.degraded, reason: nil))
                         case "replaced":
                             throw OTChartsError.providerClosed("Stream replaced by a newer connection")
                         default:
+                            // A connect frame may carry only the subscribed symbol list.
+                            if let connected = try? JSONDecoder().decode(Connected.self, from: payload),
+                               !connected.symbols.isEmpty {
+                                continuation.yield(.connection(.live, reason: nil))
+                            }
                             continue
                         }
                     }
@@ -313,7 +353,7 @@ public actor OTChartsProvider: ShadowMarketObservationProvider {
 }
 
 private struct SymbolsEnvelope: Decodable {
-    let venue: String
+    let venue: String?
     let symbols: [SymbolItem]
 }
 
@@ -325,7 +365,7 @@ private struct SymbolItem: Decodable {
 }
 
 private struct CandlesEnvelope: Decodable {
-    let symbol: String
+    let symbol: String?
     let candles: [CandleItem]
 }
 
@@ -337,8 +377,31 @@ private struct CandleItem: Decodable {
     let time: Double
 }
 
+private struct Connected: Decodable {
+    let symbols: [String]
+}
+
 private struct Tick: Decodable {
-    let symbol: String
+    let symbol: String?
     let price: Double
     let time: Double
+
+    private enum CodingKeys: String, CodingKey {
+        case symbol, price, close, time
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        time = try container.decode(Double.self, forKey: .time)
+        if let price = try container.decodeIfPresent(Double.self, forKey: .price) {
+            self.price = price
+        } else if let close = try container.decodeIfPresent(Double.self, forKey: .close) {
+            self.price = close
+        } else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .price, in: container,
+                debugDescription: "tick payload has neither price nor close")
+        }
+        symbol = try container.decodeIfPresent(String.self, forKey: .symbol)
+    }
 }

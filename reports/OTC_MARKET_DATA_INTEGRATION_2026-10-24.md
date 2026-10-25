@@ -35,6 +35,24 @@ the trading engine or Foundation Models. No order or account endpoint exists in 
 
 No subscription was purchased and no third party received a Pocket Option credential.
 
+### Repository-level evaluation
+
+The community repositories that actually connect to Pocket Option all authenticate with a full
+`PO_SESSION`/SSID and most expose order methods. They were evaluated but not integrated:
+
+| Repository | What it is | Why not integrated |
+|---|---|---|
+| [otcharts/pocket-option-api](https://github.com/otcharts/pocket-option-api) (MIT) | Official examples and client for the OTCharts data API; no SSID, no broker login, read-only | **Selected.** This is the repository behind the adapter in this branch. |
+| [otcharts/otcharts-python](https://github.com/otcharts/otcharts-python) (MIT) | Dependency-free official Python client; used to verify the HTTP/SSE schema | Reference only; no Swift dependency. Confirmed the `-7,200 s` Pocket Option clock and the line-oriented tick stream. |
+| [ChipaDevTeam/BinaryOptionsTools-v2](https://github.com/ChipaDevTeam/BinaryOptionsTools-v2) (custom personal licence) | Maintained Rust/Python/Node Pocket Option client with candles, streams and orders | Requires SSID; execution-capable; not read-only; Python/Node bridge, not native iOS. |
+| [ChipaDevTeam/PocketOptionAPI](https://github.com/ChipaDevTeam/PocketOptionAPI) (MIT) | Older async SSID client, now superseded by the above | Same SSID/order boundary; no longer actively developed. |
+| [lordralinc/pocket_option](https://github.com/lordralinc/pocket_option) (MIT) | Async session-based SDK with candle/deal storage and order management | Requires SSID; execution-capable; not read-only. |
+| [TopTrenDev/pocketoption-signal-bot](https://github.com/TopTrenDev/pocketoption-signal-bot) (no licence) | EMA/RSI bot with unofficial API and Playwright fallback | Requires `PO_SESSION` + `PO_UID`; same adapter calls `place_order`; desktop-only. |
+
+No native Swift Pocket Option client exists. A direct broker connection would therefore need a
+Mac/VPS Python/Node bridge and a trading-capable session, which conflicts with the iPhone-first,
+read-only design. OTCharts is the only evaluated repository that provides OTC data without either.
+
 ## Integration with PR #12
 
 This branch is stacked on `upgrade/blazeros-v2-market-data-modularization` and merges PR #13's
@@ -55,7 +73,12 @@ publish execution state.
   a quote must carry the same instrument identity; payloads are validated before acceptance.
 - `OTChartsProvider` is an actor using native `URLSession`, `Codable`, Swift concurrency, and the
   documented SSE transport. REST and stream transport plus the clock are injectable, so the
-  controlled transport tests run without any network.
+  controlled transport tests run without any network. The wire schema was cross-checked against
+  the official `otcharts-python` client: `/v1/candles` returns `{"candles":[...]}` without a
+  top-level symbol; `/v1/stream` dispatches one `data:` JSON line per tick with no required blank
+  separator; a single-instrument tick may omit `symbol`; and a tick may carry `close` instead of
+  `price`. The adapter accepts all documented forms and rejects a wrong or missing symbol when
+  several instruments are requested.
 - Raw Pocket Option book timestamps are preserved. The documented UTC+2 value is normalized by
   `-7,200` seconds for comparison and is never silently discarded. A tick whose normalized time is
   more than five seconds ahead of the local receipt clock is rejected. Equal source-second prints
@@ -113,7 +136,7 @@ settlement-equivalent, or promotion-ready. The report status distinguishes
 | Check | Result |
 |---|---|
 | `swift build` | PASS |
-| `swift test` | **288/288 PASS** |
+| `swift test` | **293/293 PASS** |
 | Engine pin / intents drift | PASS |
 | Parity | **43/43 PASS** |
 | CoreAudit | **71/71 PASS** |
@@ -164,6 +187,9 @@ delivery:
 - Scan-triggered reloads no longer erase a live research error message.
 - Integration tests assert archived `researchOnly`/`mayAuthorizeEntry` flags, queue a real pending
   Siri request on iOS, and cover cancellation, demo-cache, synthetic-labeling and coverage behavior.
+- The wire schema was verified against the official `otcharts-python` client and corrected: candles
+  may omit the top-level symbol, SSE ticks are line-oriented without blank separators, a
+  single-instrument tick may omit `symbol`, and `close` is an accepted price field.
 
 Residual risks:
 

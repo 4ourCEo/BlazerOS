@@ -460,6 +460,81 @@ private func otcModel(root: URL, transport: MockOTChartsTransport) -> LightningD
     #expect(!future.isValid)
 }
 
+@Test func sseDecoderDispatchesLineOrientedTicksWithoutBlankSeparators() {
+    let body = [
+        ": keepalive", "",
+        #"data: {"time":100,"price":1.234}"#,
+        "event: ping",
+        #"data: {"time":160,"price":1.235}"#,
+        "data: not json at all",
+        #"data: {"time":220}"#,
+        #"data: {"time":280,"price":1.236}"#,
+    ]
+    var decoder = OTChartsSSEDecoder()
+    var events: [OTChartsServerEvent] = []
+    for line in body { events += decoder.consume(line) }
+    #expect(events.count == 5)
+    #expect(events.map(\.name) == ["message", "ping", "message", "message", "message"])
+    #expect(events.first?.data == #"{"time":100,"price":1.234}"#)
+}
+
+@Test func candlesAcceptTheDocumentedResponseWithoutATopLevelSymbol() async throws {
+    let json = #"{"candles":[{"open":1.1,"high":1.2,"low":1.0,"close":1.15,"time":1700017140}]}"#
+    let transport = MockOTChartsTransport(responses: [
+        OTChartsHTTPResponse(data: Data(json.utf8), statusCode: 200)
+    ])
+    let result = try await provider(transport).candles(
+        for: ShadowMarketDataFixtures.pocketOptionEURUSDOTC, intervalSeconds: 60, limit: 1)
+    #expect(result.count == 1)
+    #expect(result[0].close == 1.15)
+}
+
+@Test func symbolsAcceptTheDocumentedCatalogueWithoutAVenueField() async throws {
+    let json = #"{"symbols":[{"symbol":"EURUSD_otc","name":"EUR/USD OTC","payout":null,"open":null}]}"#
+    let transport = MockOTChartsTransport(responses: [
+        OTChartsHTTPResponse(data: Data(json.utf8), statusCode: 200)
+    ])
+    let result = try await provider(transport).instruments()
+    #expect(result.count == 1)
+    #expect(result[0].identity == ShadowMarketDataFixtures.pocketOptionEURUSDOTC)
+    #expect(result[0].payoutPercent == nil)
+    #expect(result[0].isOpen == nil)
+}
+
+@Test func streamAcceptsUnlabelledTicksAndTheOfficialCloseField() async throws {
+    let events = [
+        OTChartsServerEvent(name: "message", data: #"{"time":1700017200,"price":1.1}"#),
+        OTChartsServerEvent(name: "message", data: #"{"time":1700017201,"close":1.1001}"#),
+        OTChartsServerEvent(name: "ping", data: #"{"time":1700017202,"price":1.1002}"#),
+        OTChartsServerEvent(name: "message", data: "not json"),
+        OTChartsServerEvent(name: "message", data: #"{"time":1700017203}"#),
+    ]
+    let transport = MockOTChartsTransport(streams: [eventStream(events)])
+    let updates = try await provider(transport).updates(for: [ShadowMarketDataFixtures.pocketOptionEURUSDOTC])
+    var prices: [Double] = []
+    for try await update in updates {
+        if case .observation(let observation) = update { prices.append(observation.quote.price) }
+    }
+    #expect(prices == [1.1, 1.1001, 1.1002])
+}
+
+@Test func streamRejectsAnUnlabelledTickWhenSeveralInstrumentsAreRequested() async throws {
+    let second = ShadowMarketIdentity(
+        marketKind: .otc, venue: "Pocket Option", venueSymbol: "GBPUSD_otc",
+        displaySymbol: "GBP/USD OTC", session: .weekendSession,
+        settlementBasis: .venueDisplayed)
+    let event = OTChartsServerEvent(name: "message", data: #"{"time":1700017200,"price":1.1}"#)
+    let transport = MockOTChartsTransport(streams: [eventStream([event])])
+    let updates = try await provider(transport).updates(
+        for: [ShadowMarketDataFixtures.pocketOptionEURUSDOTC, second])
+    do {
+        for try await _ in updates {}
+        Issue.record("An unlabelled multi-instrument tick was accepted")
+    } catch let error as OTChartsError {
+        #expect(error == .wrongInstrument(expected: "EURUSD_otc,GBPUSD_otc", received: "unlabelled"))
+    }
+}
+
 @Test func validationPipelineMeasuresSixtySecondsAndExcludesStaleWeekendReference() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
