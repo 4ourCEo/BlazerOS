@@ -424,6 +424,42 @@ private func otcModel(root: URL, transport: MockOTChartsTransport) -> LightningD
     #expect(report.sixtySecondDirectionAgreements == 1)
 }
 
+@Test func validationTransitionsNeverBridgeProvidersOrASkewedStartingPair() async throws {
+    let standard = ShadowMarketDataFixtures.standardEURUSD
+    let otc = ShadowMarketDataFixtures.pocketOptionEURUSDOTC
+    let base = 1_700_000_040.0
+
+    let providerRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: providerRoot) }
+    let providerPipeline = OTCValidationPipeline(root: providerRoot)
+    try await providerPipeline.record(OTCValidationSample(
+        capturedAt: Date(timeIntervalSince1970: base),
+        standard: validationObservation(identity: standard, provider: "oanda", normalizedTime: base, price: 1.10),
+        otc: validationObservation(identity: otc, provider: "otcharts", normalizedTime: base, price: 1.1005),
+        standardOrigin: .independentAPI, otcOrigin: .independentAPI))
+    try await providerPipeline.record(OTCValidationSample(
+        capturedAt: Date(timeIntervalSince1970: base + 60),
+        standard: validationObservation(identity: standard, provider: "oanda", normalizedTime: base + 60, price: 1.101),
+        otc: validationObservation(identity: otc, provider: "pocket-direct", normalizedTime: base + 60, price: 1.1015),
+        standardOrigin: .independentAPI, otcOrigin: .directBrokerData))
+    #expect(try await providerPipeline.report().sixtySecondComparableTransitions == 0)
+
+    let skewRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: skewRoot) }
+    let skewPipeline = OTCValidationPipeline(root: skewRoot)
+    try await skewPipeline.record(OTCValidationSample(
+        capturedAt: Date(timeIntervalSince1970: base),
+        standard: validationObservation(identity: standard, provider: "oanda", normalizedTime: base - 4, price: 1.10),
+        otc: validationObservation(identity: otc, provider: "pocket-direct", normalizedTime: base, price: 1.1005),
+        standardOrigin: .independentAPI, otcOrigin: .directBrokerData))
+    try await skewPipeline.record(OTCValidationSample(
+        capturedAt: Date(timeIntervalSince1970: base + 60),
+        standard: validationObservation(identity: standard, provider: "oanda", normalizedTime: base + 60, price: 1.101),
+        otc: validationObservation(identity: otc, provider: "pocket-direct", normalizedTime: base + 60, price: 1.1015),
+        standardOrigin: .independentAPI, otcOrigin: .directBrokerData))
+    #expect(try await skewPipeline.report().sixtySecondComparableTransitions == 0)
+}
+
 @Test func researchArchiveRetainsOnlyTheNewestSamples() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }

@@ -10,7 +10,7 @@ public struct IntelScreen: View {
     @State private var isScheduling = false
     @State private var now = Date()
     @State private var showOTCSetup = false
-    @State private var otcAPIKeyDraft = ""
+    @State private var pocketSessionDraft = ""
     @State private var brokerPriceDraft = ""
     @State private var providerPriceDraft = ""
     @State private var payoutDraft = ""
@@ -36,7 +36,7 @@ public struct IntelScreen: View {
                     // OTC is optional research infrastructure. It stays out of the desk
                     // unless the operator has explicitly configured a provider, so an
                     // unconfigured adapter can never masquerade as a closed market.
-                    if model.otcAPIKeyConfigured || showOTCSetup {
+                    if model.pocketOptionSessionConfigured || model.otcAPIKeyConfigured || showOTCSetup {
                         otcResearchCard
                     } else {
                         otcSetupRow
@@ -89,17 +89,18 @@ public struct IntelScreen: View {
     /// source of a closed state is the broker's own `open == false`, which arrives from the
     /// provider and is surfaced as a provider report.
     private var otcStatusLine: String {
-        guard model.otcAPIKeyConfigured else {
-            return "OTCharts adapter: NOT CONFIGURED"
+        let provider = model.pocketOptionSessionConfigured ? "Pocket Option direct" : "OTCharts"
+        guard model.pocketOptionSessionConfigured || model.otcAPIKeyConfigured else {
+            return "Pocket Option direct: NOT CONFIGURED"
         }
         if model.otcCaptureActive {
-            return "OTCharts adapter: \(model.otcConnectionState.rawValue.uppercased())"
+            return "\(provider): \(model.otcConnectionState.rawValue.uppercased())"
         }
         switch model.otcConnectionState {
         case .disabled, .disconnected:
-            return "OTCharts adapter: READY · capture stopped"
+            return "\(provider): READY · capture stopped"
         case .connecting, .live, .degraded, .throttled:
-            return "OTCharts adapter: \(model.otcConnectionState.rawValue.uppercased())"
+            return "\(provider): \(model.otcConnectionState.rawValue.uppercased())"
         }
     }
 
@@ -109,17 +110,20 @@ public struct IntelScreen: View {
                 .font(.system(size: 11, weight: .bold))
             Text(otcStatusLine)
                 .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(model.otcAPIKeyConfigured ? DeskInk.electric : DeskInk.slate)
+                .foregroundStyle(
+                    model.pocketOptionSessionConfigured || model.otcAPIKeyConfigured
+                        ? DeskInk.electric : DeskInk.slate
+                )
             if let issue = model.otcResearchIssue, !issue.isEmpty {
                 Text(issue)
                     .font(.system(size: 10))
                     .foregroundStyle(DeskInk.coral)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Text("An API key enables only the independent research adapter. It is stored in this device's Keychain and is never supplied to the trading engine or Foundation Models.")
+            Text("A Pocket Option demo session enables only the direct read-only research adapter. It stays in this device's Keychain and is never supplied to the trading engine or Foundation Models. The broker session itself is not scope-limited, so disconnect it when capture ends.")
                 .font(.system(size: 10))
 
-            if model.otcAPIKeyConfigured {
+            if model.pocketOptionSessionConfigured || model.otcAPIKeyConfigured {
                 HStack {
                     Button(model.otcCaptureActive ? "Stop research capture" : "Start 5-minute capture") {
                         if model.otcCaptureActive { model.stopOTCResearchCapture() }
@@ -145,17 +149,21 @@ public struct IntelScreen: View {
                             .font(.system(size: 10, design: .monospaced))
                     }
                 }
-                Button("Disconnect and remove API key") {
-                    model.disconnectAndRemoveOTChartsAPIKey()
+                Button("Disconnect and remove credential") {
+                    if model.pocketOptionSessionConfigured {
+                        model.disconnectAndRemovePocketOptionSession()
+                    } else {
+                        model.disconnectAndRemoveOTChartsAPIKey()
+                    }
                 }
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(DeskInk.coral)
             } else {
-                SecureField("OTCharts API key", text: $otcAPIKeyDraft)
+                SecureField("Pocket Option demo auth frame", text: $pocketSessionDraft)
                     .textFieldStyle(.roundedBorder)
-                Button("Save key to device Keychain") {
-                    model.saveOTChartsAPIKey(otcAPIKeyDraft)
-                    if model.otcAPIKeyConfigured { otcAPIKeyDraft = "" }
+                Button("Save session to device Keychain") {
+                    model.savePocketOptionReadOnlySession(pocketSessionDraft)
+                    if model.pocketOptionSessionConfigured { pocketSessionDraft = "" }
                 }
                 .font(.system(size: 11, weight: .semibold))
                 Button("Hide OTC setup") { showOTCSetup = false }

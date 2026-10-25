@@ -118,7 +118,7 @@ struct LiveOTCResearchService: DeskOTCResearchServing {
             standard: standard,
             otc: otc,
             standardOrigin: standard == nil ? nil : .independentAPI,
-            otcOrigin: .independentAPI
+            otcOrigin: otc.source.directBrokerConnection ? .directBrokerData : .independentAPI
         )
         try await pipeline.record(sample)
     }
@@ -144,6 +144,23 @@ extension LiveOTCResearchService {
             LiveOTCResearchService(
                 root: root,
                 configuration: OTChartsConfiguration(apiKey: key, enabled: true)
+            )
+        }
+    }
+
+    /// Direct account-session factory. The supplied frame is read from Keychain only when the
+    /// user explicitly starts a bounded capture; the provider exposes no trading operation.
+    static func pocketOptionStreamingFactory(root: URL)
+        -> @Sendable (String) -> any DeskOTCResearchServing {
+        { authFrame in
+            LiveOTCResearchService(
+                root: root,
+                provider: PocketOptionReadOnlyProvider(
+                    configuration: PocketOptionReadOnlyConfiguration(
+                        authFrame: authFrame,
+                        enabled: true
+                    )
+                )
             )
         }
     }

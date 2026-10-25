@@ -1,228 +1,181 @@
-# BlazerOS V2.2 personal OTC market-data integration
+# BlazerOS V2.3 direct Pocket Option OTC research feed
 
-Date: 2026-10-24  
-Branch: `upgrade/blazeros-v2.2-personal-otc-data` (stacked on PR #11 head `8190b54`)  
+Date: 2026-10-25
+
+Branch: `upgrade/blazeros-v2.3-otc-market-data-integration`
+
+Pull request: <https://github.com/4ourCEo/BlazerOS/pull/14>
+
 Promotion status: **INSUFFICIENT EVIDENCE**
 
 ## Decision
 
-Direct Pocket Option account connectivity is **not suitable for activation**. No current official
-customer market-data API or broker-issued read-only authorization scope was found; the supposed
-official API page returns 404. Established unofficial clients require a captured authenticated
-`SSID`/Socket.IO session and include order methods. An application-side wrapper cannot make that
-session genuinely read-only, so BlazerOS does not request, capture, store, or replay it.
+A real Pocket Option EUR/USD OTC market-data feed is technically viable for this private app.
+Using the user's explicitly supplied **demo** Socket.IO authentication frame, a native Swift
+provider connected directly to Pocket Option, received `EURUSD_otc` quotes, current payout and
+open state, and normalized the broker's UTC+2 timestamps. No Mac companion is required during
+normal iPhone operation.
 
-The implemented research source is **OTCharts**, an independent provider, because its current
-documented contract is the most complete iPhone-compatible data-only interface evaluated: HTTPS
-bearer-key authentication, exact Pocket Option `EURUSD_otc` identity, a live instrument catalogue
-with open/closed and payout fields, REST candles, and server-sent-event ticks. It requires no
-Pocket Option password, browser cookie, or account session. Its claim that the `otc` book is
-sourced from Pocket Option remains a vendor claim and is not treated as independent verification.
+This is not an official or broker-scoped read-only API. The session is an unrestricted account
+session even though BlazerOS implements only market-data messages. The integration is therefore
+disabled by default, demo-session-only, Keychain-backed, bounded, research-only, and incapable of
+authorizing an entry. No order, position, balance, transfer, or account-setting interface exists.
 
-All connections remain disabled by default. The API key is optional, stored only in the local
-device Keychain, removable immediately, never persisted with observations, and never supplied to
-the trading engine or Foundation Models. No order or account endpoint exists in the implementation.
+The viable source is a **real broker observation feed**, not yet a viable predictive trading
+signal. Exploratory 60-second rule screening did not produce a candidate that survived basic
+cross-instrument checks. No strategy is promoted and profitability is not claimed.
 
-## Current provider comparison
+## Sources evaluated
 
-| Source | What was verified from current documentation | Security / platform | Decision |
-|---|---|---|---|
-| Pocket Option official | [OTC assets](https://pocketoption.com/en/assets-otc/) document weekend OTC availability and variable payouts. The proposed [API page](https://pocketoption.com/en/api/) returns 404 and provides no quotes, candles, timestamps, read-only scopes, or customer API contract. | No documented scoped token; no native API contract. | **BLOCKED** for direct access. |
-| Unofficial Pocket Option clients | Public clients such as [chipadevteam/pocketoptionapi](https://github.com/chipadevteam/pocketoptionapi) instruct users to capture the complete WebSocket authentication message/SSID; related client APIs also expose trade actions. | Full account session, undocumented endpoints, Python/Rust/JS dependencies, no broker-issued read-only scope, material session-theft and breakage risk. | Rejected; not integrated. |
-| OTCharts | [API documentation](https://otcharts.com/api) documents `GET /v1/symbols`, `GET /v1/candles`, and SSE `GET /v1/stream`; `EURUSD_otc`; 5–60 second candles; open/closed state; paid payout fields; a 200-request first-month free tier without streaming; and documented Pocket Option UTC+2 timestamps. | Independent bearer key; HTTPS; platform-neutral REST/SSE works with native `URLSession`; no Mac companion. Vendor provenance, licensing permission, SLA, latency, and settlement equivalence are not independently verified. | **Selected, research-only, disabled by default.** |
-| OTC Market API | [Documentation](https://otcmarketapi.com/api-documentation) advertises `X-API-Key`, REST quote/candles/pairs, WebSocket ticks/candles, ISO/epoch timestamps, and plans starting at $100. | Documentation recommends keeping keys behind a backend; no payout field, weekend guarantee, Pocket Option EUR/USD provenance proof, source-capture description, or broker authorization was found. | Not selected; weaker provenance and higher personal-use cost. |
-| SignalBots | [Connector page](https://signalbots.ai/connectors/binary-options/mt5-pocket-option-otc) describes an unofficial terminal-to-MT5 mirror and claims it cannot trade. | Requires a logged-in Pocket Option terminal plus desktop MT5; no public REST/SSE/WebSocket contract, timestamp schema, iOS path, payout API, or broker-issued restricted credential. Access is affiliate/support dependent. | Not suitable for an independent iPhone app. |
-
-No subscription was purchased and no third party received a Pocket Option credential.
-
-### Repository-level evaluation
-
-The community repositories that actually connect to Pocket Option all authenticate with a full
-`PO_SESSION`/SSID and most expose order methods. They were evaluated but not integrated:
-
-| Repository | What it is | Why not integrated |
+| Source | Actual status | Decision |
 |---|---|---|
-| [otcharts/pocket-option-api](https://github.com/otcharts/pocket-option-api) (MIT) | Official examples and client for the OTCharts data API; no SSID, no broker login, read-only | **Selected.** This is the repository behind the adapter in this branch. |
-| [otcharts/otcharts-python](https://github.com/otcharts/otcharts-python) (MIT) | Dependency-free official Python client; used to verify the HTTP/SSE schema | Reference only; no Swift dependency. Confirmed the `-7,200 s` Pocket Option clock and the line-oriented tick stream. |
-| [ChipaDevTeam/BinaryOptionsTools-v2](https://github.com/ChipaDevTeam/BinaryOptionsTools-v2) (custom personal licence) | Maintained Rust/Python/Node Pocket Option client with candles, streams and orders | Requires SSID; execution-capable; not read-only; Python/Node bridge, not native iOS. |
-| [ChipaDevTeam/PocketOptionAPI](https://github.com/ChipaDevTeam/PocketOptionAPI) (MIT) | Older async SSID client, now superseded by the above | Same SSID/order boundary; no longer actively developed. |
-| [lordralinc/pocket_option](https://github.com/lordralinc/pocket_option) (MIT) | Async session-based SDK with candle/deal storage and order management | Requires SSID; execution-capable; not read-only. |
-| [TopTrenDev/pocketoption-signal-bot](https://github.com/TopTrenDev/pocketoption-signal-bot) (no licence) | EMA/RSI bot with unofficial API and Playwright fallback | Requires `PO_SESSION` + `PO_UID`; same adapter calls `place_order`; desktop-only. |
+| Pocket Option official API | No current public customer market-data API or scoped read-only token was found. | Official path remains unavailable. |
+| Pocket Option direct session | Live `EURUSD_otc` quote, asset, payout and availability frames were observed through the broker's Socket.IO endpoint. Authentication uses a full demo account session. | **Selected for private, explicit, research-only capture.** |
+| [BinaryOptionsTools-v2](https://github.com/ChipaDevTeam/BinaryOptionsTools-v2) | Its maintained Rust/Python/Node implementation established the current protocol shape. It also exposes order operations and requires the full session. | Used as a protocol reference only; no dependency was added. |
+| [TopTrenDev pocketoption-signal-bot](https://github.com/TopTrenDev/pocketoption-signal-bot) | EMA/RSI automation over an unofficial session plus Playwright fallback; includes order placement and has no independent edge evidence. | Not a reliable signal source; not integrated. |
+| OTCharts | Existing native REST/SSE adapter remains in the stack, but the live service was unavailable/not usable in this investigation. Its Pocket Option provenance remains a vendor claim. | Retained only as a disabled fallback; not the selected source. |
+| OTC Market API | Independent paid API with no verified Pocket Option settlement equivalence or payout field. | Not selected and no subscription purchased. |
+| SignalBots | Desktop/MT5-oriented mirror without a suitable native iPhone market-data contract. | Not selected. |
 
-No native Swift Pocket Option client exists. A direct broker connection would therefore need a
-Mac/VPS Python/Node bridge and a trading-capable session, which conflicts with the iPhone-first,
-read-only design. OTCharts is the only evaluated repository that provides OTC data without either.
+No third party received the Pocket Option credential and no subscription was purchased.
 
-## Integration with PR #12
+## Authentication and security
 
-This branch is stacked on `upgrade/blazeros-v2-market-data-modularization` and merges PR #13's
-research layer into it rather than replacing either branch. `LightningDeskModel` keeps PR #12's
-`DeskMarketDataServing`, `MarketDataTransporting`, `CandleCache` and `ScanOperationCoordinator`
-boundaries for OANDA/Binance and scan-worker lifetime. A new `DeskOTCResearchServing` boundary owns
-OTC provider construction, streaming, validation persistence and the manual archive, so the facade
-has no `URLSession`, `OandaClient`, `BinanceClient`, provider construction or scan-worker lifetime.
-Research capture and scan scheduling are independent; backgrounding cancels both, and neither can
-publish execution state.
+- The Intel screen accepts a complete Pocket Option **demo** auth frame only after explicit user
+  action. It does not ask for or store the Pocket Option password.
+- The frame is validated as demo (`isDemo == 1`) and stored in the device Keychain. It is never
+  written to an observation, report, log, source file, Foundation Models prompt, or Git history.
+- A stored credential does not start a connection. Capture begins only after the user taps Start,
+  is bounded to five minutes by default, stops on backgrounding, and can be disconnected and
+  removed immediately.
+- The native provider sends only Socket.IO handshake/auth and market-data subscription messages:
+  `assets/load`, `changeSymbol`, and `subfor`. It deliberately ignores account, balance, deal and
+  chart frames. There is no trading API in the contract.
+- This is application-side read-only behavior, not broker-enforced least privilege. A stolen auth
+  frame may carry more authority than BlazerOS uses; users should remove it when research ends.
 
 ## Implementation
 
-- `ShadowMarketObservationProvider` extends PR #11's shadow architecture with typed source and
-  venue identity, standard/OTC identity, quote/bid/ask, candle OHLC, raw and normalized provider
-  timestamps, local receipt time, freshness, payout, market availability, connection state,
-  verification state, provenance, and explicit research/entry-authority flags. A candle attached to
-  a quote must carry the same instrument identity; payloads are validated before acceptance.
-- `OTChartsProvider` is an actor using native `URLSession`, `Codable`, Swift concurrency, and the
-  documented SSE transport. REST and stream transport plus the clock are injectable, so the
-  controlled transport tests run without any network. The wire schema was cross-checked against
-  the official `otcharts-python` client: `/v1/candles` returns `{"candles":[...]}` without a
-  top-level symbol; `/v1/stream` dispatches one `data:` JSON line per tick with no required blank
-  separator; a single-instrument tick may omit `symbol`; and a tick may carry `close` instead of
-  `price`. The adapter accepts all documented forms and rejects a wrong or missing symbol when
-  several instruments are requested.
-- Raw Pocket Option book timestamps are preserved. The documented UTC+2 value is normalized by
-  `-7,200` seconds for comparison and is never silently discarded. A tick whose normalized time is
-  more than five seconds ahead of the local receipt clock is rejected. Equal source-second prints
-  are retained; only strictly older prints are rejected as out of order.
-- Instrument mapping must remain exact (`Pocket Option`, `EURUSD_otc`, OTC,
-  `venueDisplayed`). Wrong-symbol, malformed, non-finite, stale, or future-dated observations fail.
-  Server-supplied SSE event ids are never persisted; observations receive a local UUID.
-- The adapter reports connection, closed/dropped, replacement, throttling, and network failures.
-  It does not retry invisibly, extend timestamps, or surface raw remote error text in the UI.
-- One explicit Intel-screen action starts a bounded (default five-minute) capture. It never runs
-  automatically, stops on backgrounding, and cancels a stalled stream through a watchdog. The
-  returned stream also has an explicit cancellation handle, so a stop finishes the consumer even
-  when the provider never yields another element. The session persists at most one sample per
-  second while keeping a live tick counter, rate, clock skew and interruption count, so a dense
-  stream cannot flood the main actor or the archive.
-- `OTCValidationPipeline` persists immutable paired observations with a retention cap and
-  chronological pruning. Direction is measured open-to-open once per non-overlapping 60-second
-  bucket keyed on the OTC provider's source time, not per adjacent tick. The compared prints must
-  span 40–80 seconds and pass the same 3-second skew gate as the descriptive metrics. Flat buckets
-  do not count as agreement, and standard/OTC identity must be continuous across a pair. The report
-  exposes its retained coverage window and synthetic-sample count instead of implying that the
-  archive is complete or clean.
-- A stale weekend OANDA reference is excluded. The standard leg is reused only when the FX market
-  is open, the desk quote is for EUR/USD and no more than five seconds old. OANDA remains a
-  standard-market reference, never Pocket Option settlement data. The service, not the facade,
-  constructs that reference observation.
-- The Intel screen can save/remove the independent API key and capture the visible Pocket Option
-  instrument, broker price, optional provider price, candle time (ISO 8601), payout, screenshot
-  reference, agreement, and confidence. Manual records are isolated research evidence and cannot
-  settle or authorize a trade.
-- A systematic provider-clock offset is surfaced as a live diagnostic rather than silently
-  excluding every sample. The fixed UTC+2 correction remains an unverified vendor assumption.
+- `PocketOptionReadOnlyProvider` is an actor-backed native `URLSessionWebSocketTask` provider using
+  the existing `ShadowMarketObservationProvider` contract. It exposes source/venue/instrument
+  identity, price, broker and receipt timestamps, freshness, payout, availability, connection and
+  verification state.
+- The provider supports only one active stream, rejects wrong instruments, future/stale/out-of-
+  order ticks, requires current payout/open metadata before every quote, and clears metadata on
+  each asset refresh. Authentication alone never reports a live feed.
+- Raw broker timestamps are preserved and normalized by `-7,200` seconds. Every accepted
+  observation remains `researchOnly == true`, `mayAuthorizeEntry == false`, and
+  `unverifiedVendorData` unless that individual print is manually matched.
+- Direct broker observations are archived with `.directBrokerData` provenance. OANDA remains an
+  independent standard-market reference and is never treated as Pocket Option settlement data.
+- Capture prefers the explicitly configured direct demo session; the existing OTCharts adapter is
+  only a fallback. A ten-second no-tick watchdog fails closed.
+- The manual Intel workflow records the visible instrument, broker price, provider price, candle
+  time, payout, screenshot reference, agreement and confidence without expanding the trading UI.
+- Quantitative comparison now rejects the starting pair when its timestamp skew is outside the
+  gate and never constructs a 60-second transition across different provider IDs.
+- Historical candles are not exposed by the direct adapter. The validated direct surface in this
+  change is live quote plus asset metadata; candle acquisition remains blocked pending a permitted,
+  stable contract.
 
-## Evidence state
+The pinned deterministic engine, eight-second live gate, manual execution, immutable scan
+snapshots, persistence/recovery, outcome provenance, payout math, evidence thresholds,
+multiple-comparison controls, Foundation Models isolation, and existing desk screens are unchanged.
 
-| Category | Result |
-|---|---|
-| Real OTCharts EUR/USD OTC observations | **0 — no user API key was available** |
-| Direct broker observations | **0 — no broker session was requested or captured** |
-| Matched broker/provider observations | **0 — capture workflow is implemented, but no matched observation was supplied** |
-| Measured real latency / skew / update rate | **UNVERIFIED — tests use synthetic fixtures only** |
-| Weekend broker/provider comparison | **UNVERIFIED** |
-| Live entry authorization | **DISABLED / PROHIBITED** |
-| Research promotion | **INSUFFICIENT EVIDENCE** |
+## Real observations captured
 
-Documentation payloads and deterministic tests are not live market evidence.
-`hasProviderOTCObservation` means only that the retained archive contains a non-synthetic-flagged
-OTC print from a configured provider source; it never means verified, matched,
-settlement-equivalent, or promotion-ready. The report status distinguishes
-"NO PAIRED COMPARISON" from "INDEPENDENT VALIDATION REQUIRED", and a synthetic sample forces
-`UNVERIFIED`.
+The native Swift probe connected to the broker's demo endpoint and produced:
 
-## Verification (integrated head)
+```text
+symbol=EURUSD_otc price=1.12244 payout=77.0 open=true
+normalized=1792946093.476 researchOnly=true actionable=false
+```
+
+Additional consecutive live prices were received in the same run. Payout changed across separate
+observations from 92% to 64% to 77%, confirming that payout must be captured contemporaneously and
+must never be treated as a static instrument property.
+
+A visible Pocket Option EUR/USD OTC chart at 2026-10-24 23:29:10 -0700 displayed `1.11433` and a
+92% payout. Direct feed prints at 06:29:08–06:29:09Z were `1.11433`–`1.11434`: a matched difference
+of 0 to 0.00001 for that short observation window. This validates the connection and instrument
+mapping, not settlement equivalence or general accuracy.
+
+The broker timestamp was consistently two hours ahead of UTC in the observed frames and normalized
+cleanly with the existing `-7,200 s` correction. The short probes showed consecutive updates, but
+they are not long enough to claim a stable latency or update-rate distribution. Weekend coverage
+was observed for `EURUSD_otc`; a controlled weekend OANDA comparison was not completed.
+
+An exploratory broker-data screen covered approximately 19,980 ticks (about 5.5 hours per
+instrument) and tested 16 simple 60-second candidates. None passed the cross-instrument evidence
+checks. This screening is exploratory and is not promotion evidence.
+
+## Verification
 
 | Check | Result |
 |---|---|
-| `swift build` | PASS |
-| `swift test` | **293/293 PASS** |
-| Engine pin / intents drift | PASS |
-| Parity | **43/43 PASS** |
+| Focused direct-provider/security/quant tests | **12/12 PASS** |
+| Full `swift test` | **305/305 PASS** |
 | CoreAudit | **71/71 PASS** |
-| Persist | **59/59 PASS** |
+| Engine parity | **43/43 PASS** |
+| Persistence/recovery | **59/59 PASS** |
 | Soak | **10/10 PASS** |
-| iOS Simulator Debug | PASS |
-| iOS Simulator Release | PASS |
-| iPhone simulator tests | **15/15 PASS** |
+| iOS Simulator Debug build | **PASS** |
+| iOS Simulator Release build | **PASS** |
+| iPhone simulator tests | **INTERRUPTED — Xcode 27/iPhone 17 runner stalled while materializing test workers; the serial retry stalled in the first existing test. No test failure was reported before termination.** |
 
-## Controlled transport coverage
-
-Deterministic tests exercise disabled configuration, injected transport, out-of-order and
-duplicate-second ticks, future-dated ticks, wrong symbols, candle identity mismatch,
-cancellation-ignoring producers, connection interruption and explicit reconnect, replacement,
-throttling, incomplete candles, expired quotes, Keychain loading/removal, archive corruption,
-retention pruning, non-overlapping 60-second bucketing, flat-bucket exclusion, stale weekend
-reference exclusion, and background capture stop. Integration tests exercise scan scheduling and
-OTC capture together, background cancellation of both, candle-cache isolation, archive/manual
-evidence persistence across relaunch without ledger mutation, demo-cache freshness, and the iOS
-Siri handoff after the scan coordinator releases ownership. Scheduler tests continue to cover
-Siri/pending scans, scan supersession, and background invalidation; the production eight-second
-gate is unchanged.
+The new deterministic coverage includes the Socket.IO text/binary handshake, disabled/default
+state, demo-only credential validation, Keychain save/removal, raw-clock normalization, wrong
+instrument, future/out-of-order ticks, missing/stale metadata, auth-without-data, overlapping
+streams, absence of historical/trading surfaces, failed credential removal, cancellation,
+backgrounding, provider switching, and provider/skew-safe 60-second transitions.
 
 ## Independent reviews
 
-Two delegated reviews (Swift concurrency/architecture and execution
-integrity/quantitative provenance) ran against the integrated tree. Findings corrected before
-delivery:
+### Review A — security and iOS architecture
 
-- OTC capture cancellation now has an explicit stream handle. A stop or backgrounding finishes the
-  consumer even when the provider never yields, so no stalled socket or task survives the session.
-- The OTC service owns instrument identity, provider construction, streaming, standard-reference
-  construction, validation persistence and the manual archive. The facade has no `URLSession`,
-  `OandaClient`, `BinanceClient`, provider construction or scan-worker lifetime.
-- Provider-domain types were removed from the facade; the desk now asks the service for its
-  research identity and standard reference.
-- The evidence flag was renamed to `hasProviderOTCObservation`. A synthetic-verification sample
-  forces `UNVERIFIED`, and the report exposes the synthetic count and retained coverage window.
-- The 60-second metric buckets on provider source time, compares the first print of each bucket,
-  requires 40–80 seconds of spacing, and applies the same 3-second skew gate as the descriptive
-  metrics. Overlapping adjacent-tick transitions no longer inflate agreement.
-- A dead `providerDisconnections` field was removed; the desk now counts real connection
-  interruption events from the capture stream.
-- Demo bars are cached as stale display fixtures, never as fresh transport data.
-- A systematic provider clock offset is surfaced as a diagnostic instead of silently emptying the
-  comparison.
-- Siri ingress now requires an idle scan coordinator, so it cannot replace an in-flight user scan.
-- Scan-triggered reloads no longer erase a live research error message.
-- Integration tests assert archived `researchOnly`/`mayAuthorizeEntry` flags, queue a real pending
-  Siri request on iOS, and cover cancellation, demo-cache, synthetic-labeling and coverage behavior.
-- The wire schema was verified against the official `otcharts-python` client and corrected: candles
-  may omit the top-level symbol, SSE ticks are line-oriented without blank separators, a
-  single-instrument tick may omit `symbol`, and `close` is an accepted price field.
+The review found two concrete issues, both corrected:
 
-Residual risks:
+- concurrent/replacement streams could share one mutable socket; the provider now permits exactly
+  one active stream and scopes cleanup to its stream ID;
+- failed Keychain deletion could make the UI claim the unrestricted session was gone; the UI now
+  keeps it visibly configured unless deletion succeeds.
 
-- The fixed UTC+2 provider normalization is a vendor claim. A DST or epoch change will produce a
-  visible clock-skew diagnostic and failed observations, not silently wrong comparisons. No live
-  key was available to validate it.
-- `ScanOperationCoordinator` still awaits a cancellation-ignoring transport. Real transports are
-  bounded by their own request timeouts; a provider that never returns would park scan ingress.
-- Backgrounding an armed but never-entered beam still offers an outcome prompt (pre-existing PR #11
-  behavior). It cannot create research evidence, but it is not a substitute for venue confirmation.
-- Retention keeps the newest 5,000 samples. Coverage shrinks as evidence ages; the report now
-  states the retained window rather than implying a complete archive.
+The review found no credential logging, raw-secret persistence outside Keychain, trading operation,
+or background capture path.
 
-## Next concrete step
+### Review B — market-data and quantitative integrity
 
-Create a personal OTCharts key without purchasing a plan, select its Pocket Option book if the free
-tier permits, and use the Intel capture session during a visible EUR/USD OTC session to record
-matched instrument, price, time, payout, and screenshot references. If the free tier does not
-include live SSE, use one documented candle/catalog request only; do not poll. Do not enable
-ranking or entry use until prospective weekday and weekend samples establish source identity,
-clock behavior, latency, missingness, and price/direction agreement. Provider purchase or a request
-for any Pocket Option session secret requires separate approval.
+The review found four concrete issues, all corrected:
+
+- generic direct ticks were overstated as manually matched; they are now unverified vendor data;
+- payout/open metadata could survive a partial asset refresh; caches are cleared and required for
+  each accepted tick;
+- 60-second transitions could bridge two providers; provider identity must now remain continuous;
+- a skewed starting pair could enter a later transition; all paired inputs now pass the skew gate
+  before bucketing.
+
+No live-entry, settlement, promotion, or look-ahead path was found.
 
 ## Delivery classification
 
-- **IMPLEMENTED:** common contract, native REST/SSE adapter behind a `DeskOTCResearchServing`
-  boundary, bounded Keychain-controlled capture, manual capture, validation archive/report with
-  retention and coverage, and fail-closed transport seams. The facade keeps PR #12's market-data
-  and scan-coordinator boundaries and contains no direct broker networking.
-- **TESTED:** deterministic adapter, persistence, retention, security-boundary, bucketing,
-  integration, and comparison behavior. Exact final suite/build totals are recorded in the pull
-  request.
-- **VERIFIED:** code behavior and default-disabled/read-only boundaries only.
-- **RESEARCH-ONLY:** every provider observation, manual comparison, metric, and rolling evaluation.
-- **BLOCKED:** direct broker API, live provider accuracy, matched broker prices, real latency, and
-  any evidence-based promotion.
+- **IMPLEMENTED:** native direct Pocket Option demo-session feed, Keychain lifecycle, bounded Intel
+  capture, live quote/payout/availability ingestion, direct-source provenance, liveness watchdog,
+  transport/clock seams, manual comparison workflow, and quantitative integrity fixes.
+- **TESTED:** 305 package tests plus the audit, parity, persistence, soak and Debug/Release iOS
+  builds. The local Xcode simulator test runner limitation is recorded above.
+- **VERIFIED:** direct broker connection, `EURUSD_otc` identity, live broker prices, dynamic payout,
+  market-open state, timestamp normalization, and one short manual chart match.
+- **RESEARCH-ONLY:** every direct observation, comparison, exploratory strategy result, and rolling
+  8/12/16/20-second evaluation. None can authorize or settle a trade.
+- **BLOCKED:** official scoped read-only authorization, direct historical candles, independently
+  measured long-run latency/missingness, settlement equivalence, and any statistically qualified
+  60-second predictive signal.
+
+## Next concrete step
+
+Run prospective five-minute captures from the Intel screen while the same EUR/USD OTC chart is
+visible, save matched screenshots and payout values, and collect both weekday and weekend sessions.
+Then evaluate pre-registered 60-second rules on held-out data under the existing effective-sample,
+multiple-comparison and venue-confirmation requirements. Until one passes those controls, the honest
+answer is: **the app now has a viable real OTC data feed, but it does not yet have a verified OTC
+trading signal.**

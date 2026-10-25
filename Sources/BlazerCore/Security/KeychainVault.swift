@@ -26,6 +26,7 @@ public enum KeychainKey {
     public static let deepseekAPIKey = "DEEPSEEK_API_KEY"
     public static let geminiAPIKey = "GEMINI_API_KEY"
     public static let otchartsAPIKey = "OTCHARTS_API_KEY"
+    public static let pocketOptionReadOnlySession = "POCKET_OPTION_READ_ONLY_SESSION"
 }
 
 extension AIProvider {

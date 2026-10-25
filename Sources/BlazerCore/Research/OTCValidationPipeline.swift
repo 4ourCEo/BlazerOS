@@ -150,10 +150,9 @@ public actor OTCValidationPipeline {
             }
             guard standardAge >= -maximumTimestampSkew, standardAge <= maximumStandardAge else { continue }
             let skew = abs(standard.providerTimestamp.normalized.timeIntervalSince(otc.providerTimestamp.normalized))
-            if skew <= maximumTimestampSkew {
-                skews.append(skew)
-                displacements.append(abs(otc.quote.price - standard.quote.price))
-            }
+            guard skew <= maximumTimestampSkew else { continue }
+            skews.append(skew)
+            displacements.append(abs(otc.quote.price - standard.quote.price))
             paired.append((sample.capturedAt, standard, otc))
         }
 
@@ -173,7 +172,9 @@ public actor OTCValidationPipeline {
                 }
                 guard previous.key + 1 == key,
                       previous.standard.identity == entry.standard.identity,
-                      previous.otc.identity == entry.otc.identity else {
+                      previous.otc.identity == entry.otc.identity,
+                      previous.standard.source.providerID == entry.standard.source.providerID,
+                      previous.otc.source.providerID == entry.otc.source.providerID else {
                     previousByBucket = (key, entry.standard, entry.otc)
                     continue
                 }

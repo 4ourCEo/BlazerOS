@@ -47,7 +47,8 @@ public final class LightningDeskModel: ObservableObject {
         marketData: any DeskMarketDataServing,
         candleCache: CandleCache = CandleCache(),
         otcArchive: (any DeskOTCResearchServing)? = nil,
-        otcResearchServiceFactory: (@Sendable (String) -> any DeskOTCResearchServing)? = nil
+        otcResearchServiceFactory: (@Sendable (String) -> any DeskOTCResearchServing)? = nil,
+        pocketOptionResearchServiceFactory: (@Sendable (String) -> any DeskOTCResearchServing)? = nil
     ) {
         if storageRoot == nil {
             FileLocations.migrateLegacyGroupStorageIfNeeded()
@@ -60,6 +61,8 @@ public final class LightningDeskModel: ObservableObject {
         self.otcArchive = otcArchive ?? LiveOTCResearchService(root: otcRoot)
         self.otcResearchServiceFactory = otcResearchServiceFactory
             ?? LiveOTCResearchService.streamingFactory(root: otcRoot)
+        self.pocketOptionResearchServiceFactory = pocketOptionResearchServiceFactory
+            ?? LiveOTCResearchService.pocketOptionStreamingFactory(root: otcRoot)
         persistence = PersistenceCoordinator(root: root)
         referenceStore = ReferenceOutcomeStore(
             root: root.appendingPathComponent("Research", isDirectory: true)
@@ -454,10 +457,12 @@ public final class LightningDeskModel: ObservableObject {
     private let otcArchive: any DeskOTCResearchServing
     /// Creates a credential-scoped streaming service. Injectable for tests.
     private let otcResearchServiceFactory: @Sendable (String) -> any DeskOTCResearchServing
+    private let pocketOptionResearchServiceFactory: @Sendable (String) -> any DeskOTCResearchServing
     private var otcActiveService: (any DeskOTCResearchServing)?
     private var otcActiveStream: OTCResearchStream?
     public var otcCredentialVault: KeychainVault = SystemKeychainVault(service: "com.blazer.os.otc-research")
     @Published public private(set) var otcAPIKeyConfigured = false
+    @Published public private(set) var pocketOptionSessionConfigured = false
     @Published public private(set) var otcConnectionState: ShadowConnectionState = .disabled
     @Published public private(set) var manualBrokerObservations: [ManualBrokerChartObservation] = []
     @Published public private(set) var otcResearchIssue: String?
@@ -483,10 +488,13 @@ public final class LightningDeskModel: ObservableObject {
     public func refreshOTCCredentialState() {
         do {
             otcAPIKeyConfigured = try otcCredentialVault.get(KeychainKey.otchartsAPIKey)?.isEmpty == false
+            pocketOptionSessionConfigured = try otcCredentialVault
+                .get(KeychainKey.pocketOptionReadOnlySession)?.isEmpty == false
             // A scan-triggered reload must not erase a live capture failure message.
             if !otcCaptureActive { otcResearchIssue = nil }
         } catch {
             otcAPIKeyConfigured = false
+            pocketOptionSessionConfigured = false
             otcResearchIssue = "OTC provider credential is unavailable"
         }
         // Configuration presence never enables a network connection automatically, and a
@@ -510,6 +518,22 @@ public final class LightningDeskModel: ObservableObject {
         }
     }
 
+    public func savePocketOptionReadOnlySession(_ candidate: String) {
+        let frame = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard PocketOptionReadOnlyProvider.isValidAuthFrame(frame) else {
+            otcResearchIssue = "Enter a complete Pocket Option demo auth frame"
+            return
+        }
+        do {
+            try otcCredentialVault.set(frame, for: KeychainKey.pocketOptionReadOnlySession)
+            pocketOptionSessionConfigured = true
+            if !otcCaptureActive { otcConnectionState = .disabled }
+            otcResearchIssue = nil
+        } catch {
+            otcResearchIssue = "Pocket Option session could not be saved"
+        }
+    }
+
     public func disconnectAndRemoveOTChartsAPIKey() {
         // Stop the session before touching Keychain so the UI cannot claim connectivity while
         // the credential is being removed.
@@ -524,6 +548,19 @@ public final class LightningDeskModel: ObservableObject {
         }
     }
 
+    public func disconnectAndRemovePocketOptionSession() {
+        stopOTCResearchCapture()
+        do {
+            try otcCredentialVault.remove(KeychainKey.pocketOptionReadOnlySession)
+            pocketOptionSessionConfigured = false
+            otcResearchIssue = nil
+        } catch {
+            // Deletion was not confirmed, so the unrestricted session may still be present.
+            pocketOptionSessionConfigured = true
+            otcResearchIssue = "Pocket Option session removal could not be confirmed"
+        }
+    }
+
     /// Starts one explicitly requested, time-bounded, read-only research capture. It never runs
     /// automatically and it never feeds a scan, an entry, or a settlement.
     public func startOTCResearchCapture(duration: TimeInterval = 300) {
@@ -532,20 +569,27 @@ public final class LightningDeskModel: ObservableObject {
             otcResearchIssue = "Research capture duration must be between 1 second and 1 hour"
             return
         }
-        let key: String
+        let credential: String
+        let serviceFactory: @Sendable (String) -> any DeskOTCResearchServing
         do {
-            guard let stored = try otcCredentialVault.get(KeychainKey.otchartsAPIKey),
-                  !stored.isEmpty else {
-                otcResearchIssue = "Add an OTCharts API key before starting a research capture"
+            if let session = try otcCredentialVault.get(KeychainKey.pocketOptionReadOnlySession),
+               !session.isEmpty {
+                credential = session
+                serviceFactory = pocketOptionResearchServiceFactory
+            } else if let key = try otcCredentialVault.get(KeychainKey.otchartsAPIKey),
+                      !key.isEmpty {
+                credential = key
+                serviceFactory = otcResearchServiceFactory
+            } else {
+                otcResearchIssue = "Add a Pocket Option read-only session before starting a research capture"
                 return
             }
-            key = stored
         } catch {
             otcResearchIssue = "OTC provider credential is unavailable"
             return
         }
 
-        let service = otcResearchServiceFactory(key)
+        let service = serviceFactory(credential)
         let runID = UUID()
         otcActiveService = service
         otcCaptureRunID = runID
@@ -567,10 +611,25 @@ public final class LightningDeskModel: ObservableObject {
             await self.runOTCCapture(service: service, runID: runID)
         }
         otcCaptureTask = task
-        // A stalled stream must still respect the declared bound.
-        otcCaptureWatchdog = Task {
-            try? await Task.sleep(for: .seconds(duration))
-            task.cancel()
+        // Enforce both the declared bound and broker-tick liveness.
+        let startedAt = Date()
+        otcCaptureWatchdog = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard let self, self.otcCaptureRunID == runID else { return }
+                let now = Date()
+                if now.timeIntervalSince(self.otcLastTickPublishAt ?? startedAt) > 10 {
+                    self.otcConnectionState = .degraded
+                    self.otcConnectionInterruptions += 1
+                    self.otcResearchIssue = "No fresh OTC provider tick arrived for 10 seconds; capture stopped"
+                    task.cancel()
+                    return
+                }
+                if now.timeIntervalSince(startedAt) >= duration {
+                    task.cancel()
+                    return
+                }
+            }
         }
     }
 
@@ -598,7 +657,7 @@ public final class LightningDeskModel: ObservableObject {
             guard let availability = instruments.first(where: {
                 $0.identity == identity
             }) else {
-                otcResearchIssue = "OTCharts did not list EUR/USD OTC; capture stopped"
+                otcResearchIssue = "The provider did not list EUR/USD OTC; capture stopped"
                 otcConnectionState = .degraded
                 return
             }
@@ -646,6 +705,20 @@ public final class LightningDeskModel: ObservableObject {
     /// A provider refusal is not a closed market. Keep the two states separate so the desk
     /// never tells the operator Pocket Option is closed when only the data plan is unavailable.
     private func otcFailureMessage(_ error: Error) -> String {
+        if let failure = error as? PocketOptionReadOnlyError {
+            switch failure {
+            case .disabled, .invalidCredential, .authenticationRejected:
+                return "The Pocket Option demo session is missing, expired, or rejected. Replace it in Keychain."
+            case .wrongInstrument:
+                return "Pocket Option returned the wrong instrument; capture was stopped."
+            case .staleOrOutOfOrder:
+                return "Pocket Option returned a stale, future, or out-of-order tick; capture was stopped."
+            case .connectionClosed:
+                return "The Pocket Option read-only stream disconnected before the capture completed."
+            default:
+                return "Pocket Option read-only capture ended; no data became actionable."
+            }
+        }
         guard let failure = error as? OTChartsError else {
             return "OTC research capture ended (provider or network failure); the market state is unknown"
         }
