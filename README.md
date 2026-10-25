@@ -69,6 +69,17 @@ isolation, pending-settlement recovery, widget/Live Activity expiry, and Siri co
 [the reliability release notes](reports/RELIABILITY_RELEASE.md) and
 [Foundation Models evidence](reports/FOUNDATION_MODELS_EVIDENCE.md).
 
+The personal OTC research adapter and its strict live-evidence limits are documented in
+[the V2.2 OTC integration report](reports/OTC_MARKET_DATA_INTEGRATION_2026-10-24.md). It is disabled
+by default and cannot authorize an entry or settle a trade.
+
+The deterministic OTC challenger adds a separate **OTC research mode** in Lightning Desk for
+`EURUSD_otc`: typed HIGH / LOW / WAIT, a fixed 60-second horizon, freshness and feed quality,
+vendor payout, source identity, and an explicit RESEARCH ONLY badge. OTC signals are evaluated on
+completed bars and can never arm a production entry. Architecture, replay rules, and the list of
+claims that remain unverified against real Pocket Option observations are in
+[the OTC signal engine report](reports/OTC_SIGNAL_ENGINE_2026-10-24.md).
+
 ## On-device assistant
 
 `DeskAssistant` uses Apple’s on-device system model (`FoundationModels`) for grounded scan

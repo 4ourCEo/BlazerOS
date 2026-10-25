@@ -20,6 +20,53 @@ import BlazerCore
     #expect(scheduler.pending == nil)
 }
 
+private actor CancellationIgnoringGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private(set) var waiting = false
+
+    func wait() async {
+        waiting = true
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func open() {
+        continuation?.resume()
+        continuation = nil
+    }
+}
+
+@MainActor
+@Test func scanCoordinatorRejectsCancellationIgnoringObsoleteResult() async {
+    let coordinator = ScanOperationCoordinator()
+    let gate = CancellationIgnoringGate()
+    var published: [String] = []
+
+    let operation: ScanOperationCoordinator.Operation = { request in
+        if request.asset == "first" {
+            await gate.wait() // CheckedContinuation deliberately ignores task cancellation.
+        }
+        if coordinator.isCurrent(request), let asset = request.asset {
+            published.append(asset)
+        }
+    }
+
+    let first = Task { @MainActor in
+        await coordinator.submit(market: .crypto, asset: "first", assets: ["first"], operation: operation)
+    }
+    while await !gate.waiting { await Task.yield() }
+
+    let second = Task { @MainActor in
+        await coordinator.submit(market: .crypto, asset: "second", assets: ["second"], operation: operation)
+    }
+    while coordinator.currentGeneration < 2 { await Task.yield() }
+    await gate.open()
+
+    _ = await first.value
+    _ = await second.value
+    #expect(published == ["second"])
+    #expect(coordinator.isIdle)
+}
+
 @MainActor
 @Test func backgroundingExpiresActionableDeskStateWithoutRearming() {
     let root = FileManager.default.temporaryDirectory
