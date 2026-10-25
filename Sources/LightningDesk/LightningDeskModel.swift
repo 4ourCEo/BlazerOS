@@ -45,7 +45,10 @@ public final class LightningDeskModel: ObservableObject {
     init(
         storageRoot: URL?,
         marketData: any DeskMarketDataServing,
-        candleCache: CandleCache = CandleCache()
+        candleCache: CandleCache = CandleCache(),
+        otcArchive: (any DeskOTCResearchServing)? = nil,
+        otcResearchServiceFactory: (@Sendable (String) -> any DeskOTCResearchServing)? = nil,
+        pocketOptionResearchServiceFactory: (@Sendable (String) -> any DeskOTCResearchServing)? = nil
     ) {
         if storageRoot == nil {
             FileLocations.migrateLegacyGroupStorageIfNeeded()
@@ -53,6 +56,13 @@ public final class LightningDeskModel: ObservableObject {
         let root = storageRoot ?? FileLocations.applicationSupport()
         self.marketData = marketData
         self.candleCache = candleCache
+        let otcRoot = root.appendingPathComponent("Research", isDirectory: true)
+            .appendingPathComponent("otc-validation", isDirectory: true)
+        self.otcArchive = otcArchive ?? LiveOTCResearchService(root: otcRoot)
+        self.otcResearchServiceFactory = otcResearchServiceFactory
+            ?? LiveOTCResearchService.streamingFactory(root: otcRoot)
+        self.pocketOptionResearchServiceFactory = pocketOptionResearchServiceFactory
+            ?? LiveOTCResearchService.pocketOptionStreamingFactory(root: otcRoot)
         persistence = PersistenceCoordinator(root: root)
         referenceStore = ReferenceOutcomeStore(
             root: root.appendingPathComponent("Research", isDirectory: true)
@@ -257,6 +267,9 @@ public final class LightningDeskModel: ObservableObject {
     public func handleAppBackgrounded(now: Date = Date()) {
         backgroundedAt = now
         invalidateScanRequests()
+        // A research stream does not survive suspension; stop it explicitly instead of
+        // reconnecting invisibly when the app resumes.
+        if otcCaptureActive { stopOTCResearchCapture() }
         // Switching to the venue app suspends live refresh. An actionable beam must not
         // become actionable again after the phone resumes without a new frozen scan.
         if armedAt != nil, activeTrade == nil {
@@ -438,6 +451,406 @@ public final class LightningDeskModel: ObservableObject {
         } catch { executionObservationIssue = "Execution-quality archive unavailable: \(error.localizedDescription)" }
     }
 
+    // MARK: - Personal OTC research (never an execution input)
+
+    /// OTC networking, streaming and validation live behind this research-only service.
+    private let otcArchive: any DeskOTCResearchServing
+    /// Creates a credential-scoped streaming service. Injectable for tests.
+    private let otcResearchServiceFactory: @Sendable (String) -> any DeskOTCResearchServing
+    private let pocketOptionResearchServiceFactory: @Sendable (String) -> any DeskOTCResearchServing
+    private var otcActiveService: (any DeskOTCResearchServing)?
+    private var otcActiveStream: OTCResearchStream?
+    public var otcCredentialVault: KeychainVault = SystemKeychainVault(service: "com.blazer.os.otc-research")
+    @Published public private(set) var otcAPIKeyConfigured = false
+    @Published public private(set) var pocketOptionSessionConfigured = false
+    @Published public private(set) var otcConnectionState: ShadowConnectionState = .disabled
+    @Published public private(set) var manualBrokerObservations: [ManualBrokerChartObservation] = []
+    @Published public private(set) var otcResearchIssue: String?
+    /// Research capture session state. Never consulted by the entry gate.
+    @Published public private(set) var otcCaptureActive = false
+    /// Persisted, rate-limited research samples (at most one per second).
+    @Published public private(set) var otcCapturedObservations = 0
+    /// Raw ticks observed in this session, refreshed at 1 Hz to avoid per-tick UI churn.
+    @Published public private(set) var otcObservedTicks = 0
+    @Published public private(set) var otcObservedTickRate: Double?
+    /// Local receipt minus normalized provider time. A large value indicates a clock-model drift.
+    @Published public private(set) var otcClockSkewSeconds: Double?
+    @Published public private(set) var otcConnectionInterruptions = 0
+    @Published public private(set) var otcValidationReport: OTCValidationReport?
+    private var otcCaptureTask: Task<Void, Never>?
+    private var otcCaptureWatchdog: Task<Void, Never>?
+    private var otcCaptureRunID: UUID?
+    private var otcTicksThisCapture = 0
+    private var otcFirstTickAt: Date?
+    private var otcLastTickPublishAt: Date?
+    private var otcLastPersistAt: Date?
+
+    public func refreshOTCCredentialState() {
+        do {
+            otcAPIKeyConfigured = try otcCredentialVault.get(KeychainKey.otchartsAPIKey)?.isEmpty == false
+            pocketOptionSessionConfigured = try otcCredentialVault
+                .get(KeychainKey.pocketOptionReadOnlySession)?.isEmpty == false
+            // A scan-triggered reload must not erase a live capture failure message.
+            if !otcCaptureActive { otcResearchIssue = nil }
+        } catch {
+            otcAPIKeyConfigured = false
+            pocketOptionSessionConfigured = false
+            otcResearchIssue = "OTC provider credential is unavailable"
+        }
+        // Configuration presence never enables a network connection automatically, and a
+        // credential re-read must not overwrite the state of a running capture.
+        if !otcCaptureActive { otcConnectionState = .disabled }
+    }
+
+    public func saveOTChartsAPIKey(_ candidate: String) {
+        let key = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else {
+            otcResearchIssue = "Enter an OTCharts API key"
+            return
+        }
+        do {
+            try otcCredentialVault.set(key, for: KeychainKey.otchartsAPIKey)
+            otcAPIKeyConfigured = true
+            if !otcCaptureActive { otcConnectionState = .disabled }
+            otcResearchIssue = nil
+        } catch {
+            otcResearchIssue = "OTC provider key could not be saved"
+        }
+    }
+
+    public func savePocketOptionReadOnlySession(_ candidate: String) {
+        let frame = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard PocketOptionReadOnlyProvider.isValidAuthFrame(frame) else {
+            otcResearchIssue = "Enter a complete Pocket Option demo auth frame"
+            return
+        }
+        do {
+            try otcCredentialVault.set(frame, for: KeychainKey.pocketOptionReadOnlySession)
+            pocketOptionSessionConfigured = true
+            if !otcCaptureActive { otcConnectionState = .disabled }
+            otcResearchIssue = nil
+        } catch {
+            otcResearchIssue = "Pocket Option session could not be saved"
+        }
+    }
+
+    public func disconnectAndRemoveOTChartsAPIKey() {
+        // Stop the session before touching Keychain so the UI cannot claim connectivity while
+        // the credential is being removed.
+        stopOTCResearchCapture()
+        do {
+            try otcCredentialVault.remove(KeychainKey.otchartsAPIKey)
+            otcAPIKeyConfigured = false
+            otcResearchIssue = nil
+        } catch {
+            otcAPIKeyConfigured = false
+            otcResearchIssue = "OTC provider key removal could not be confirmed"
+        }
+    }
+
+    public func disconnectAndRemovePocketOptionSession() {
+        stopOTCResearchCapture()
+        do {
+            try otcCredentialVault.remove(KeychainKey.pocketOptionReadOnlySession)
+            pocketOptionSessionConfigured = false
+            otcResearchIssue = nil
+        } catch {
+            // Deletion was not confirmed, so the unrestricted session may still be present.
+            pocketOptionSessionConfigured = true
+            otcResearchIssue = "Pocket Option session removal could not be confirmed"
+        }
+    }
+
+    /// Starts one explicitly requested, time-bounded, read-only research capture. It never runs
+    /// automatically and it never feeds a scan, an entry, or a settlement.
+    public func startOTCResearchCapture(duration: TimeInterval = 300) {
+        guard !otcCaptureActive else { return }
+        guard duration > 0, duration <= 3_600 else {
+            otcResearchIssue = "Research capture duration must be between 1 second and 1 hour"
+            return
+        }
+        let credential: String
+        let serviceFactory: @Sendable (String) -> any DeskOTCResearchServing
+        do {
+            if let session = try otcCredentialVault.get(KeychainKey.pocketOptionReadOnlySession),
+               !session.isEmpty {
+                credential = session
+                serviceFactory = pocketOptionResearchServiceFactory
+            } else if let key = try otcCredentialVault.get(KeychainKey.otchartsAPIKey),
+                      !key.isEmpty {
+                credential = key
+                serviceFactory = otcResearchServiceFactory
+            } else {
+                otcResearchIssue = "Add a Pocket Option read-only session before starting a research capture"
+                return
+            }
+        } catch {
+            otcResearchIssue = "OTC provider credential is unavailable"
+            return
+        }
+
+        let service = serviceFactory(credential)
+        let runID = UUID()
+        otcActiveService = service
+        otcCaptureRunID = runID
+        otcCaptureActive = true
+        otcCapturedObservations = 0
+        otcObservedTicks = 0
+        otcObservedTickRate = nil
+        otcClockSkewSeconds = nil
+        otcConnectionInterruptions = 0
+        otcTicksThisCapture = 0
+        otcFirstTickAt = nil
+        otcLastTickPublishAt = nil
+        otcLastPersistAt = nil
+        otcConnectionState = .connecting
+        otcResearchIssue = nil
+
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.runOTCCapture(service: service, runID: runID)
+        }
+        otcCaptureTask = task
+        // Enforce both the declared bound and broker-tick liveness.
+        let startedAt = Date()
+        otcCaptureWatchdog = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard let self, self.otcCaptureRunID == runID else { return }
+                let now = Date()
+                if now.timeIntervalSince(self.otcLastTickPublishAt ?? startedAt) > 10 {
+                    self.otcConnectionState = .degraded
+                    self.otcConnectionInterruptions += 1
+                    self.otcResearchIssue = "No fresh OTC provider tick arrived for 10 seconds; capture stopped"
+                    task.cancel()
+                    return
+                }
+                if now.timeIntervalSince(startedAt) >= duration {
+                    task.cancel()
+                    return
+                }
+            }
+        }
+    }
+
+    /// Immediate stop. Already-persisted research samples stay on disk.
+    public func stopOTCResearchCapture() {
+        otcCaptureTask?.cancel()
+        otcCaptureWatchdog?.cancel()
+        otcCaptureTask = nil
+        otcCaptureWatchdog = nil
+        otcCaptureRunID = nil
+        otcActiveService = nil
+        otcActiveStream?.cancel()
+        otcActiveStream = nil
+        otcCaptureActive = false
+        otcConnectionState = .disabled
+    }
+
+    private func runOTCCapture(service: any DeskOTCResearchServing, runID: UUID) async {
+        defer { finishOTCCapture(runID: runID) }
+        guard !Task.isCancelled, otcCaptureRunID == runID else { return }
+        do {
+            let identity = service.researchIdentity
+            let instruments = try await service.instruments()
+            guard !Task.isCancelled, otcCaptureRunID == runID else { return }
+            guard let availability = instruments.first(where: {
+                $0.identity == identity
+            }) else {
+                otcResearchIssue = "The provider did not list EUR/USD OTC; capture stopped"
+                otcConnectionState = .degraded
+                return
+            }
+            guard availability.isOpen != false else {
+                otcResearchIssue = "EUR/USD OTC is closed according to the provider; capture stopped"
+                otcConnectionState = .degraded
+                return
+            }
+            let stream = try await service.updates(for: identity)
+            guard !Task.isCancelled, otcCaptureRunID == runID else {
+                stream.cancel()
+                return
+            }
+            otcActiveStream = stream
+            for try await update in stream.events {
+                if Task.isCancelled { break }
+                switch update {
+                case .connection(let state, _):
+                    if otcConnectionState != state {
+                        if state == .disconnected || state == .degraded {
+                            otcConnectionInterruptions += 1
+                        }
+                        otcConnectionState = state
+                    }
+                case .observation(let observation):
+                    if otcConnectionState != .live { otcConnectionState = .live }
+                    await recordOTCResearchObservation(
+                        observation, runID: runID, service: service)
+                }
+            }
+            // A clean end before the declared bound is an incomplete session, not a success.
+            if !Task.isCancelled, otcCaptureRunID == runID {
+                otcResearchIssue = "Provider stream ended before the capture bound; session incomplete"
+            }
+        } catch {
+            // A user stop or the watchdog is not a provider fault. Never surface raw remote text.
+            if !Task.isCancelled {
+                diagLog("OTC_CAPTURE_FAILED")
+                otcResearchIssue = otcFailureMessage(error)
+                otcConnectionState = .degraded
+            }
+        }
+    }
+
+    /// A provider refusal is not a closed market. Keep the two states separate so the desk
+    /// never tells the operator Pocket Option is closed when only the data plan is unavailable.
+    private func otcFailureMessage(_ error: Error) -> String {
+        if let failure = error as? PocketOptionReadOnlyError {
+            switch failure {
+            case .disabled, .invalidCredential, .authenticationRejected:
+                return "The Pocket Option demo session is missing, expired, or rejected. Replace it in Keychain."
+            case .wrongInstrument:
+                return "Pocket Option returned the wrong instrument; capture was stopped."
+            case .staleOrOutOfOrder:
+                return "Pocket Option returned a stale, future, or out-of-order tick; capture was stopped."
+            case .connectionClosed:
+                return "The Pocket Option read-only stream disconnected before the capture completed."
+            default:
+                return "Pocket Option read-only capture ended; no data became actionable."
+            }
+        }
+        guard let failure = error as? OTChartsError else {
+            return "OTC research capture ended (provider or network failure); the market state is unknown"
+        }
+        switch failure {
+        case .httpStatus(402):
+            return "OTCharts free API tier is paused; a paid data plan is required. Pocket Option is not reported as closed."
+        case .httpStatus(403):
+            return "The OTCharts plan does not open this book or instrument."
+        case .httpStatus(429):
+            return "OTCharts request or stream limit reached; retry later."
+        case .throttled:
+            return "OTCharts throttled the request; retry later."
+        case .disabled, .invalidCredential:
+            return "The OTCharts key is missing or no longer valid."
+        case .providerClosed(let reason):
+            return "Provider closed the stream: \(reason)"
+        default:
+            return "OTC research capture ended (provider or network failure); the market state is unknown"
+        }
+    }
+
+    private func finishOTCCapture(runID: UUID) {
+        guard otcCaptureRunID == runID else { return }
+        otcCaptureTask = nil
+        otcCaptureWatchdog?.cancel()
+        otcCaptureWatchdog = nil
+        otcCaptureRunID = nil
+        otcActiveService = nil
+        otcActiveStream?.cancel()
+        otcActiveStream = nil
+        otcCaptureActive = false
+        otcConnectionState = .disabled
+        Task { await refreshOTCValidationReport() }
+    }
+
+    private func recordOTCResearchObservation(_ observation: ShadowMarketObservation,
+                                              runID: UUID,
+                                              service: any DeskOTCResearchServing) async {
+        guard otcCaptureRunID == runID else { return }
+        guard observation.identity == service.researchIdentity else {
+            otcResearchIssue = "Provider returned an observation for a different instrument"
+            return
+        }
+        guard observation.isValid, observation.verification != .syntheticTestFixture else {
+            otcResearchIssue = "Provider returned an invalid research observation"
+            return
+        }
+        let now = Date()
+        otcTicksThisCapture += 1
+        if otcFirstTickAt == nil { otcFirstTickAt = now }
+        // Refresh tick and clock telemetry at most once per second, never per tick.
+        if otcLastTickPublishAt.map({ now.timeIntervalSince($0) >= 1 }) ?? true {
+            otcObservedTicks = otcTicksThisCapture
+            if let first = otcFirstTickAt {
+                let elapsed = now.timeIntervalSince(first)
+                otcObservedTickRate = elapsed > 0
+                    ? Double(max(0, otcTicksThisCapture - 1)) / elapsed : nil
+            }
+            // A systematic offset means the documented UTC+2 correction may not match the
+            // provider's current epoch (for example a DST shift). Surface it, never hide it.
+            let clockSkew = now.timeIntervalSince(observation.providerTimestamp.normalized)
+            otcClockSkewSeconds = clockSkew
+            if abs(clockSkew) > 120, otcResearchIssue == nil {
+                otcResearchIssue = "Provider clock offset is \(Int(clockSkew))s from the documented normalization"
+            }
+            otcLastTickPublishAt = now
+        }
+        // Persist at most one sample per second so a dense stream cannot flood the archive or
+        // the main actor. The 60-second bucket report does not need every tick.
+        if let last = otcLastPersistAt, now.timeIntervalSince(last) < 1 { return }
+        let reference: ShadowMarketObservation?
+        if marketMode == .fx, FxSession.isOpen(now), let quote {
+            reference = service.standardReference(from: quote, at: now)
+        } else {
+            reference = nil
+        }
+        do {
+            try await service.record(otc: observation, standard: reference, capturedAt: now)
+            guard otcCaptureRunID == runID else { return }
+            otcCapturedObservations += 1
+            otcLastPersistAt = now
+        } catch {
+            guard otcCaptureRunID == runID else { return }
+            otcResearchIssue = "OTC research sample could not be saved"
+        }
+    }
+
+    public func refreshOTCValidationReport() async {
+        do {
+            otcValidationReport = try await otcArchive.report()
+        } catch {
+            otcResearchIssue = "OTC validation archive unavailable: \(error.localizedDescription)"
+        }
+    }
+
+    public func recordManualOTCObservation(
+        brokerPrice: String,
+        providerPrice: String,
+        payoutPercent: String,
+        screenshotReference: String,
+        candleTimestamp: Date? = nil,
+        agreement: ManualAgreement,
+        confidence: ManualVerificationConfidence
+    ) async {
+        guard let broker = Double(brokerPrice), broker.isFinite, broker > 0 else {
+            otcResearchIssue = "Broker price must be a positive number"
+            return
+        }
+        let provider = providerPrice.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? nil : Double(providerPrice)
+        let payout = payoutPercent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? nil : Double(payoutPercent)
+        let screenshot = screenshotReference.trimmingCharacters(in: .whitespacesAndNewlines)
+        let observation = ManualBrokerChartObservation(
+            identity: otcArchive.researchIdentity,
+            observedAt: Date(), brokerDisplayedPrice: broker, providerPrice: provider,
+            candleTimestamp: candleTimestamp, payoutPercent: payout,
+            screenshotReference: screenshot.isEmpty ? nil : screenshot,
+            agreement: agreement, confidence: confidence)
+        guard observation.isValid else {
+            otcResearchIssue = "Manual observation contains an invalid optional value"
+            return
+        }
+        do {
+            try await otcArchive.recordManual(observation)
+            manualBrokerObservations = try await otcArchive.manualObservations()
+            otcResearchIssue = nil
+        } catch {
+            otcResearchIssue = "Manual OTC observation could not be saved"
+        }
+    }
+
     private let referenceStore: ReferenceOutcomeStore
     private var session: OandaSession?
     private var armID: String?
@@ -534,7 +947,9 @@ public final class LightningDeskModel: ObservableObject {
         let fixture = GoldenFixture.market()
         let bars = GoldenFixture.frozenBars(from: fixture)
         candles = bars
-        candleCache.store(bars, for: CandleCache.Key(market: marketMode, asset: pair))
+        // Demo bars are display fixtures, never a fresh transport observation.
+        candleCache.store(bars, for: CandleCache.Key(market: marketMode, asset: pair),
+                          fetchedAt: .distantPast)
         let signal = EngineSignal(
             asset: pair,
             cabinetSide: "WAIT",
@@ -628,6 +1043,7 @@ public final class LightningDeskModel: ObservableObject {
             diagLog("ENGINE_BOOT_OK \(StrategyEngine.engineHealth.sha?.prefix(12) ?? "?")")
         }
         await reloadFromDisk()
+        await refreshOTCValidationReport()
         Task { await assistant.refreshAvailability() }
         // Finish any settlement that was interrupted by a crash or a failed write.
         if pendingSaveCount > 0 {
@@ -1345,7 +1761,8 @@ public final class LightningDeskModel: ObservableObject {
     private func consumePendingScanIfReady() async -> Bool {
         #if os(iOS)
         guard backgroundedAt == nil, !scanning, activeTrade == nil,
-              !awaitingOutcome, !settlementInFlight else { return false }
+              !awaitingOutcome, !settlementInFlight,
+              scanCoordinator.isIdle else { return false }
         guard takePendingScanRequest() else { return false }
         await scan()
         return true
@@ -2067,6 +2484,15 @@ public final class LightningDeskModel: ObservableObject {
             restoredExecutionObservations = []
             executionLoadIssue = "Execution-quality archive unavailable: \(error.localizedDescription)"
         }
+        let restoredManualObservations: [ManualBrokerChartObservation]
+        let manualLoadIssue: String?
+        do {
+            restoredManualObservations = try await otcArchive.manualObservations()
+            manualLoadIssue = nil
+        } catch {
+            restoredManualObservations = []
+            manualLoadIssue = "Manual OTC archive unavailable: \(error.localizedDescription)"
+        }
         if let request, !isCurrentScan(request) { return }
         outcomeStats = restored.confirmedStats
         ledgerRows = restored.ledgerRows
@@ -2079,6 +2505,9 @@ public final class LightningDeskModel: ObservableObject {
         referenceOutcomes = restoredReferenceOutcomes
         executionObservations = restoredExecutionObservations
         executionObservationIssue = executionLoadIssue
+        manualBrokerObservations = restoredManualObservations
+        if let manualLoadIssue { otcResearchIssue = manualLoadIssue }
+        refreshOTCCredentialState()
         refreshExecutionIntelligence()
         // Attribute restored bars by persisted engine identity, not the mutable live watchlist.
         let entryMarkets = Dictionary(
