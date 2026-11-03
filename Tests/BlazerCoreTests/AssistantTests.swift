@@ -261,6 +261,31 @@ private func sampleDebriefContext(expectancy: Double? = 0.88) -> AssistantContex
     #endif
 }
 
+@Test func debriefRejectsModelNarratedRiskNumbersAndUsesDeterministicFacts() async throws {
+    #if canImport(FoundationModels) && !BLAZER_DISABLE_FOUNDATION_MODELS
+    if #available(macOS 26.0, iOS 26.0, *) {
+        var context = sampleDebriefContext()
+        let entered = Date(timeIntervalSince1970: 1_800_000_000)
+        let row = LedgerRow(
+            timestamp: entered.addingTimeInterval(60), pair: "EUR/USD", hash: "risk",
+            score: 70, side: "CALL", veto: false, drift: 0, outcome: "MISS",
+            outcomeEventID: "risk", payout: 0.88, stake: 10,
+            labelSource: "venue-confirmed", horizonSeconds: 60, enteredAt: entered)
+        let report = try CapitalPreservationReport.evaluate(
+            rows: [row], asOf: entered.addingTimeInterval(120), timeZoneIdentifier: "UTC")
+        context.capitalPreservation = CapitalPreservationSummary(report)
+        let engine = FakeEngine(data: try debriefData(
+            summary: "Maximum drawdown was 999.00 units and the loss streak was 12.",
+            citations: ["scan-1"]))
+        let assistant = DeskAssistant(engine: engine)
+        let result = await assistant.debrief(context: context)
+        #expect(result.origin == .deterministicFallback)
+        #expect(result.value.summary.contains("drawdown was 10.00"))
+        #expect(!result.value.summary.contains("999.00"))
+    }
+    #endif
+}
+
 @Test func unavailableModelReturnsLabelledFallback() async {
     let scan = sampleScan()
     let engine = FakeEngine(availabilityValue: .unavailable(.appleIntelligenceNotEnabled))

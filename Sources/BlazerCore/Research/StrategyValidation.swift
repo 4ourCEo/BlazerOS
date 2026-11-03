@@ -28,6 +28,15 @@ public enum ValidationResolution: String, Codable, Sendable {
     case win, loss, tie, unresolved
 }
 
+public enum ValidationTiePolicy: String, Codable, Sendable {
+    /// Venue behavior has not been verified. Any tie withholds expectancy/drawdown.
+    case unknown
+    /// Stake is returned and the tie contributes zero return.
+    case refund
+    /// Venue scores an unchanged expiry price as a full loss.
+    case loss
+}
+
 public struct ValidationPriceObservation: Codable, Sendable, Equatable {
     public let instrumentID: String
     public let venueID: String
@@ -96,6 +105,9 @@ public struct StrategyValidationCase: Codable, Sendable {
     public let signalTimestamp: Date
     public let engineSHA: String
     public let input: StrategyEngine.MarketInput
+    /// Authority of the quote/history used to create the signal input. Optional only for
+    /// archives written before signal-input authority was recorded.
+    public let signalPriceAuthority: ValidationPriceAuthority?
     public let observations: [ValidationPriceObservation]
     public let recordedExecution: RecordedValidationExecution?
     public let payoutRatio: Double?
@@ -113,6 +125,7 @@ public struct StrategyValidationCase: Codable, Sendable {
         signalTimestamp: Date,
         engineSHA: String,
         input: StrategyEngine.MarketInput,
+        signalPriceAuthority: ValidationPriceAuthority? = nil,
         observations: [ValidationPriceObservation],
         recordedExecution: RecordedValidationExecution? = nil,
         payoutRatio: Double? = nil,
@@ -129,6 +142,7 @@ public struct StrategyValidationCase: Codable, Sendable {
         self.signalTimestamp = signalTimestamp
         self.engineSHA = engineSHA
         self.input = input
+        self.signalPriceAuthority = signalPriceAuthority
         self.observations = observations
         self.recordedExecution = recordedExecution
         self.payoutRatio = payoutRatio
@@ -142,15 +156,18 @@ public struct StrategyValidationConfiguration: Codable, Sendable, Equatable {
     public let entryDelaySeconds: TimeInterval
     public let expirySeconds: Int
     public let observationToleranceSeconds: TimeInterval
+    public let tiePolicy: ValidationTiePolicy
 
     public init(
         entryDelaySeconds: TimeInterval = 0,
         expirySeconds: Int = 60,
-        observationToleranceSeconds: TimeInterval = 2
+        observationToleranceSeconds: TimeInterval = 2,
+        tiePolicy: ValidationTiePolicy = .unknown
     ) {
         self.entryDelaySeconds = entryDelaySeconds
         self.expirySeconds = expirySeconds
         self.observationToleranceSeconds = observationToleranceSeconds
+        self.tiePolicy = tiePolicy
     }
 
     public static let sixtySecond = StrategyValidationConfiguration()
@@ -178,6 +195,13 @@ public struct StrategyValidationRecord: Codable, Sendable, Equatable, Identifiab
     public let inputDigest: String
     public let caseDigest: String
     public let configurationDigest: String
+    /// Full replay configuration for reproducibility. Optional for legacy archives.
+    public let configuration: StrategyValidationConfiguration?
+    /// Optional for backward compatibility with validation archives written before tie
+    /// settlement policy was recorded. A missing value is treated as unverified.
+    public let tiePolicy: ValidationTiePolicy?
+    public let signalPriceAuthority: ValidationPriceAuthority?
+    public let venueEventID: String?
     public let dataSource: String
     public let priceAuthority: ValidationPriceAuthority?
     public let signalCategory: String?
@@ -245,6 +269,131 @@ public struct StrategyValidationSummary: Codable, Sendable, Equatable {
     }
 }
 
+/// Legitimately obtained historical observations used to construct frozen decision points.
+/// The builder exposes only candles and the latest quote available at each evaluation time.
+public struct HistoricalValidationSeries: Codable, Sendable {
+    public let instrumentID: String
+    public let engineAsset: String
+    public let venueID: String
+    public let marketKind: ShadowMarketKind
+    public let source: String
+    public let authority: ValidationPriceAuthority
+    public let candles1m: [StrategyEngine.CandlePayload]
+    public let candles5m: [StrategyEngine.CandlePayload]
+    public let prices: [ValidationPriceObservation]
+    public let evaluationTimes: [Date]
+    public let payoutRatio: Double?
+    public let signalCategory: String?
+    public let marketRegime: String?
+    public let provenance: String
+
+    public init(
+        instrumentID: String, engineAsset: String, venueID: String,
+        marketKind: ShadowMarketKind, source: String,
+        authority: ValidationPriceAuthority,
+        candles1m: [StrategyEngine.CandlePayload],
+        candles5m: [StrategyEngine.CandlePayload],
+        prices: [ValidationPriceObservation], evaluationTimes: [Date],
+        payoutRatio: Double? = nil, signalCategory: String? = nil,
+        marketRegime: String? = nil, provenance: String
+    ) {
+        self.instrumentID = instrumentID
+        self.engineAsset = engineAsset
+        self.venueID = venueID
+        self.marketKind = marketKind
+        self.source = source
+        self.authority = authority
+        self.candles1m = candles1m
+        self.candles5m = candles5m
+        self.prices = prices
+        self.evaluationTimes = evaluationTimes
+        self.payoutRatio = payoutRatio
+        self.signalCategory = signalCategory
+        self.marketRegime = marketRegime
+        self.provenance = provenance
+    }
+}
+
+public struct HistoricalValidationBuildRejection: Codable, Sendable, Equatable {
+    public let evaluationTime: Date
+    public let reason: String
+}
+
+public struct HistoricalValidationBuildResult: Codable, Sendable {
+    public let cases: [StrategyValidationCase]
+    public let rejections: [HistoricalValidationBuildRejection]
+}
+
+public enum HistoricalValidationCaseBuilder {
+    /// Builds rolling snapshots without exposing future candles or quotes to the engine input.
+    /// Later prices remain attached only for the settlement phase.
+    public static func build(
+        series: HistoricalValidationSeries,
+        stage: ValidationStage = .historicalReplay,
+        minimumM1: Int = 52,
+        minimumM5: Int = 12,
+        maximumBars: Int = 200
+    ) -> HistoricalValidationBuildResult {
+        guard stage != .liveObservation, minimumM1 > 0, minimumM5 > 0,
+              maximumBars >= max(minimumM1, minimumM5) else {
+            return HistoricalValidationBuildResult(
+                cases: [], rejections: series.evaluationTimes.map {
+                    HistoricalValidationBuildRejection(
+                        evaluationTime: $0, reason: "Invalid historical builder configuration")
+                })
+        }
+        var output: [StrategyValidationCase] = []
+        var rejected: [HistoricalValidationBuildRejection] = []
+        let times = Array(Set(series.evaluationTimes)).sorted()
+        for evaluationTime in times {
+            guard evaluationTime.timeIntervalSince1970.isFinite else {
+                rejected.append(.init(evaluationTime: evaluationTime, reason: "Invalid evaluation time"))
+                continue
+            }
+            let cutoffMs = evaluationTime.timeIntervalSince1970 * 1_000
+            let m1 = series.candles1m.filter { $0.time + 60_000 <= cutoffMs + 1 }
+                .sorted { $0.time < $1.time }.suffix(maximumBars)
+            let m5 = series.candles5m.filter { $0.time + 300_000 <= cutoffMs + 1 }
+                .sorted { $0.time < $1.time }.suffix(maximumBars)
+            guard m1.count >= minimumM1, m5.count >= minimumM5 else {
+                rejected.append(.init(
+                    evaluationTime: evaluationTime, reason: "Insufficient completed candle history"))
+                continue
+            }
+            let quote = series.prices
+                .filter { $0.instrumentID == series.instrumentID && $0.venueID == series.venueID }
+                .filter { $0.observedAt <= evaluationTime && $0.authority == series.authority }
+                .filter { $0.price.isFinite && $0.price > 0 }
+                .max { $0.observedAt < $1.observedAt }
+            guard let quote, let bid = quote.bid, let ask = quote.ask,
+                  bid.isFinite, ask.isFinite, bid > 0, ask > bid else {
+                rejected.append(.init(
+                    evaluationTime: evaluationTime, reason: "Historical bid/ask quote unavailable"))
+                continue
+            }
+            let input = StrategyEngine.MarketInput(
+                asset: series.engineAsset, source: series.source,
+                candles1m: Array(m1), candles5m: Array(m5),
+                lastPrice: quote.price, bid: bid, ask: ask, spread: ask - bid,
+                expirySeconds: 60,
+                quoteAsOfMs: quote.observedAt.timeIntervalSince1970 * 1_000,
+                evaluatedAtMs: cutoffMs, policy: .baseline)
+            output.append(StrategyValidationCase(
+                id: "\(series.instrumentID)-"
+                    + String(evaluationTime.timeIntervalSince1970.bitPattern, radix: 16),
+                stage: stage, instrumentID: series.instrumentID,
+                engineAsset: series.engineAsset, venueID: series.venueID,
+                marketKind: series.marketKind, signalTimestamp: evaluationTime,
+                engineSHA: EngineIdentity.pinnedSHA1, input: input,
+                signalPriceAuthority: series.authority,
+                observations: series.prices, payoutRatio: series.payoutRatio,
+                signalCategory: series.signalCategory, marketRegime: series.marketRegime,
+                provenance: series.provenance))
+        }
+        return HistoricalValidationBuildResult(cases: output, rejections: rejected)
+    }
+}
+
 public enum StrategyValidationEngine {
     public typealias Evaluator = @Sendable (StrategyEngine.MarketInput) async throws -> EngineSignal
 
@@ -280,17 +429,35 @@ public enum StrategyValidationEngine {
         canonicalDigest(item)
     }
 
+    public static func digest(of configuration: StrategyValidationConfiguration) -> String {
+        canonicalDigest(configuration)
+    }
+
+    public static func recordID(caseDigest: String, configurationDigest: String) -> String {
+        canonicalDigest([caseDigest, configurationDigest])
+    }
+
     public static func report(records: [StrategyValidationRecord], stage: ValidationStage) -> StrategyValidationReport {
         let stageRecords = records.filter { $0.stage == stage }
         let byCase = Dictionary(grouping: stageRecords, by: \.caseID)
         let uniqueCases = byCase.values.filter { $0.count == 1 }.compactMap(\.first)
+        let byVenueEvent = Dictionary(grouping: uniqueCases.compactMap { record in
+            record.venueEventID.map { ($0, record) }
+        }, by: { $0.0 })
+        let duplicateVenueCaseIDs = Set(byVenueEvent.values.filter { $0.count != 1 }
+            .flatMap { $0.map { $0.1.caseID } })
         // Reference and synthetic prices remain visible for comparison but cannot establish
         // venue performance. Paper/replay provider results are research evidence only.
         let eligible = uniqueCases.filter {
+            !duplicateVenueCaseIDs.contains($0.caseID)
+                &&
             !$0.isSynthetic && ($0.isVenueOutcome || stage != .liveObservation)
                 && !($0.marketKind == .otc && $0.priceAuthority == .oandaReference)
         }
-        let resolvedEligible = eligible.filter { $0.resolution == .win || $0.resolution == .loss }
+        let resolvedEligible = eligible.filter {
+            $0.resolution == .win || $0.resolution == .loss
+                || ($0.resolution == .tie && ($0.tiePolicy ?? .unknown) == .loss)
+        }
         func grouped(_ key: (StrategyValidationRecord) -> String) -> [StrategyValidationCohort] {
             Dictionary(grouping: eligible, by: key).keys.sorted().map {
                 cohort(key: $0, records: Dictionary(grouping: eligible, by: key)[$0, default: []])
@@ -302,7 +469,7 @@ public enum StrategyValidationEngine {
             total: stageRecords.count,
             performanceEligible: resolvedEligible.count,
             excludedDuplicateCases: byCase.values.filter { $0.count != 1 }
-                .reduce(0) { $0 + $1.count },
+                .reduce(0) { $0 + $1.count } + duplicateVenueCaseIDs.count,
             excludedReferenceOutcomes: stageRecords.filter {
                 $0.marketKind == .otc && $0.priceAuthority == .oandaReference
             }.count,
@@ -512,7 +679,8 @@ public enum StrategyValidationEngine {
     ) -> StrategyValidationRecord {
         let authority = expiryObservation?.2 ?? entry?.2
         return StrategyValidationRecord(
-            id: canonicalDigest([digest(of: item), canonicalDigest(configuration)]),
+            id: recordID(caseDigest: digest(of: item),
+                         configurationDigest: canonicalDigest(configuration)),
             caseID: item.id, stage: item.stage, executionKind: executionKind,
             instrumentID: item.instrumentID, venueID: item.venueID, marketKind: item.marketKind,
             signalDirection: direction, signalTimestamp: item.signalTimestamp,
@@ -525,12 +693,17 @@ public enum StrategyValidationEngine {
             inputDigest: canonicalDigest(item.input),
             caseDigest: digest(of: item),
             configurationDigest: canonicalDigest(configuration),
+            configuration: configuration,
+            tiePolicy: configuration.tiePolicy,
+            signalPriceAuthority: item.signalPriceAuthority,
+            venueEventID: item.recordedExecution?.venueEventID,
             dataSource: [item.provenance, expiryObservation?.3 ?? entry?.3]
                 .compactMap { $0 }.joined(separator: " | "),
             priceAuthority: authority,
             signalCategory: item.signalCategory, marketRegime: item.marketRegime,
             rejectionReason: reason, isVenueOutcome: isVenueOutcome,
-            isSynthetic: entry?.2 == .syntheticFixture
+            isSynthetic: item.signalPriceAuthority == .syntheticFixture
+                || entry?.2 == .syntheticFixture
                 || expiryObservation?.2 == .syntheticFixture
                 || authority == .syntheticFixture
                 || item.provenance.localizedCaseInsensitiveContains("synthetic")
@@ -538,7 +711,10 @@ public enum StrategyValidationEngine {
     }
 
     private static func cohort(key: String, records: [StrategyValidationRecord]) -> StrategyValidationCohort {
-        let directional = records.filter { $0.resolution == .win || $0.resolution == .loss }
+        let directional = records.filter {
+            $0.resolution == .win || $0.resolution == .loss
+                || ($0.resolution == .tie && ($0.tiePolicy ?? .unknown) == .loss)
+        }
         let wins = directional.filter { $0.resolution == .win }.count
         let losses = directional.count - wins
         let clustered = EvidenceClustering.adjust(directional.map {
@@ -547,18 +723,39 @@ public enum StrategyValidationEngine {
                 capturedAtMs: ($0.entryTimestamp ?? $0.signalTimestamp).timeIntervalSince1970 * 1_000,
                 won: $0.resolution == .win)
         }, bucketMs: 60_000)
-        let payouts = directional.compactMap(\.payoutRatio)
-        let expectancy: Double? = !directional.isEmpty && payouts.count == directional.count
-            ? zip(directional, payouts).map { $0.resolution == .win ? $1 : -1 }.reduce(0, +) / Double(directional.count)
+        let ties = records.filter { $0.resolution == .tie }
+        let refundableOrUnknownTies = ties.filter { ($0.tiePolicy ?? .unknown) != .loss }
+        let payoutRows = directional + refundableOrUnknownTies
+        let payouts = payoutRows.compactMap(\.payoutRatio)
+        let tiePolicies = Set(refundableOrUnknownTies.map { $0.tiePolicy ?? .unknown })
+        let tiesAreScorable = refundableOrUnknownTies.isEmpty
+            || (tiePolicies.count == 1 && tiePolicies.first != .unknown)
+        let expectancy: Double? = !directional.isEmpty && tiesAreScorable
+            && payouts.count == payoutRows.count
+            ? payoutRows.map { record in
+                switch record.resolution {
+                case .win: return record.payoutRatio ?? 0
+                case .loss: return -1
+                case .tie: return (record.tiePolicy ?? .unknown) == .loss ? -1 : 0
+                case .unresolved: return 0
+                }
+            }.reduce(0, +) / Double(payoutRows.count)
             : nil
         let minimumPayout = payouts.min()
         var streak = 0, maximumStreak = 0
         var balance = 0.0, peak = 0.0, drawdown = 0.0
-        for record in directional.sorted(by: {
+        let sequenced = (directional + refundableOrUnknownTies).sorted(by: {
             ($0.entryTimestamp ?? $0.signalTimestamp) < ($1.entryTimestamp ?? $1.signalTimestamp)
-        }) {
-            if record.resolution == .loss { streak += 1; balance -= 1 }
-            else { streak = 0; balance += record.payoutRatio ?? 0 }
+        })
+        for record in sequenced {
+            if record.resolution == .loss
+                || (record.resolution == .tie && (record.tiePolicy ?? .unknown) == .loss) {
+                streak += 1; balance -= 1
+            } else if record.resolution == .win {
+                streak = 0; balance += record.payoutRatio ?? 0
+            } else {
+                streak = 0
+            }
             maximumStreak = max(maximumStreak, streak)
             peak = max(peak, balance)
             drawdown = max(drawdown, peak - balance)
@@ -566,7 +763,7 @@ public enum StrategyValidationEngine {
         return StrategyValidationCohort(
             key: key, resolved: directional.count,
             wins: wins, losses: losses,
-            ties: records.filter { $0.resolution == .tie }.count,
+            ties: ties.count,
             unresolved: records.filter { $0.resolution == .unresolved }.count,
             winRate: directional.isEmpty ? nil : Double(wins) / Double(directional.count),
             lower95: directional.isEmpty ? nil : clustered.lower95,
@@ -576,7 +773,8 @@ public enum StrategyValidationEngine {
             payoutAdjustedExpectancy: expectancy,
             breakEvenWinRate: minimumPayout.map { 1 / (1 + $0) },
             maximumConsecutiveLosses: maximumStreak,
-            maximumUnitDrawdown: payouts.count == directional.count ? drawdown : nil
+            maximumUnitDrawdown: !directional.isEmpty && tiesAreScorable
+                && payouts.count == payoutRows.count ? drawdown : nil
         )
     }
 

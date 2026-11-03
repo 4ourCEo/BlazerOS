@@ -50,13 +50,16 @@ public enum ScanKernel {
                 complete: true
             )
         }
-        let frozenM5: [Candle] = input.candles5m.compactMap {
+        let completedM5: [StrategyEngine.CandlePayload] = input.candles5m.compactMap {
             guard Self.isClosed($0.time, intervalSeconds: 300, evaluatedAtMs: evaluationMs) else {
                 return nil
             }
-            return Candle(time: $0.time, open: $0.open, high: $0.high, low: $0.low, close: $0.close)
+            return $0
         }
-        guard completed.count >= 20, frozenM5.count >= 20 else {
+        let frozenM5 = completedM5.map {
+            Candle(time: $0.time, open: $0.open, high: $0.high, low: $0.low, close: $0.close)
+        }
+        guard completed.count >= 20, completedM5.count >= 20 else {
             throw ScanError.failed("Feed incomplete: forming or future candle present")
         }
         let frozenBid = input.bid
@@ -73,6 +76,7 @@ public enum ScanKernel {
                 close: $0.close
             )
         }
+        input.candles5m = completedM5
 
         input.expirySeconds = expiry
         let barComplete = !ringBars.isEmpty && ringBars.allSatisfy(\.complete)
@@ -191,6 +195,6 @@ public enum ScanKernel {
         guard time.isFinite, time > 0 else { return false }
         guard let evaluatedAtMs else { return true }
         guard evaluatedAtMs.isFinite, evaluatedAtMs > 0 else { return false }
-        return (time + intervalSeconds) * 1000 <= evaluatedAtMs + 1
+        return time + intervalSeconds * 1000 <= evaluatedAtMs + 1
     }
 }

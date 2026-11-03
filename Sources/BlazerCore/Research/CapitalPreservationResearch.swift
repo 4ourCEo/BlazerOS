@@ -163,9 +163,9 @@ public struct CapitalPreservationReport: Codable, Sendable, Equatable {
             return left == right ? $0.row.outcomeEventID < $1.row.outcomeEventID : left < right
         }
         let cashCoverageComplete = missingCash == 0 && missingEntry.isEmpty && duplicates == 0
-            && missingIdentity == 0 && excludedInvalidTimestamps == 0
+            && missingIdentity == 0 && excludedInvalidTimestamps == 0 && excludedUnresolved == 0
         let streakCoverageComplete = missingEntry.isEmpty && duplicates == 0
-            && missingIdentity == 0 && excludedInvalidTimestamps == 0
+            && missingIdentity == 0 && excludedInvalidTimestamps == 0 && excludedUnresolved == 0
         var streak = 0
         var maximumStreak = 0
         for event in events {
@@ -183,6 +183,7 @@ public struct CapitalPreservationReport: Codable, Sendable, Equatable {
             var cashComplete = cashCoverageComplete && cohort.allSatisfy { $0.profit != nil }
             var total = 0.0
             var balance = 0.0
+            var minimumBalance = 0.0
             var peak = 0.0
             var drawdown = 0.0
             var localStreak = 0
@@ -199,6 +200,7 @@ public struct CapitalPreservationReport: Codable, Sendable, Equatable {
                     if !total.isFinite { cashComplete = false; break }
                     balance += profit
                     if !balance.isFinite { cashComplete = false; break }
+                    minimumBalance = min(minimumBalance, balance)
                     peak = max(peak, balance)
                     drawdown = max(drawdown, peak - balance)
                 }
@@ -214,9 +216,9 @@ public struct CapitalPreservationReport: Codable, Sendable, Equatable {
                 cashCoverageComplete: cashComplete,
                 netProfit: net?.isFinite == true ? net : nil,
                 maximumDrawdown: validDrawdown,
-                sessionLossLimitReached: net.map { value in
-                    policy.maximumSessionLoss.map { value <= -$0 }
-                } ?? nil,
+                sessionLossLimitReached: cashComplete
+                    ? policy.maximumSessionLoss.map { minimumBalance <= -$0 }
+                    : nil,
                 drawdownLimitReached: validDrawdown.map { value in
                     policy.maximumSessionDrawdown.map { value >= $0 }
                 } ?? nil
@@ -330,10 +332,17 @@ public enum PositionSizingResearch {
         }
         let groups = Dictionary(grouping: confirmed, by: \.outcomeEventID)
         guard groups.values.allSatisfy({ $0.count == 1 }),
-              confirmed.allSatisfy({ !$0.outcomeEventID.isEmpty && $0.enteredAt != nil }) else {
+              confirmed.allSatisfy({
+                  !$0.outcomeEventID.isEmpty && $0.enteredAt != nil
+                      && [60, 180, 300].contains($0.horizonSeconds ?? -1)
+              }) else {
             throw CapitalPreservationError.incompleteConfirmedReturns
         }
         var events = confirmed
+        guard !rows.contains(where: {
+            $0.timestamp <= asOf && $0.labelSource == "venue-confirmed"
+                && $0.outcome == "UNRESOLVED"
+        }) else { throw CapitalPreservationError.incompleteConfirmedReturns }
         guard events.allSatisfy({ row in
             guard let enteredAt = row.enteredAt else { return false }
             return enteredAt <= row.timestamp && enteredAt <= asOf
@@ -342,6 +351,15 @@ public enum PositionSizingResearch {
             let a = $0.enteredAt ?? .distantPast
             let b = $1.enteredAt ?? .distantPast
             return a == b ? $0.outcomeEventID < $1.outcomeEventID : a < b
+        }
+        for (previous, next) in zip(events, events.dropFirst()) {
+            guard let enteredAt = previous.enteredAt,
+                  let nextEnteredAt = next.enteredAt,
+                  let horizon = previous.horizonSeconds,
+                  [60, 180, 300].contains(horizon),
+                  nextEnteredAt >= enteredAt.addingTimeInterval(Double(horizon)) else {
+                throw CapitalPreservationError.incompleteConfirmedReturns
+            }
         }
         guard !events.isEmpty else { throw CapitalPreservationError.incompleteConfirmedReturns }
         // Validate the complete cohort before producing a simulation. Never silently omit a row.

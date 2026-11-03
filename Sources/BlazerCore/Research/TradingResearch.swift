@@ -126,11 +126,10 @@ public actor PineScriptWebhookStore {
         throws -> PineScriptWebhookAlert {
         try loadReplayState()
         guard !secret.isEmpty else { throw TradingResearchError.unauthorized }
-        let expected = HMAC<SHA256>.authenticationCode(for: data, using: SymmetricKey(data: secret))
-        let expectedData = Data(expected)
         let supplied = Data(hex: authorization)
-        guard let supplied, supplied.count == expectedData.count,
-              supplied.elementsEqual(expectedData) else {
+        guard let supplied,
+              HMAC<SHA256>.isValidAuthenticationCode(
+                supplied, authenticating: data, using: SymmetricKey(data: secret)) else {
             throw TradingResearchError.unauthorized
         }
         let alert: PineScriptWebhookAlert
@@ -154,13 +153,16 @@ public actor PineScriptWebhookStore {
 
     private func loadReplayState() throws {
         guard !replayLoaded else { return }
-        replayLoaded = true
-        guard FileManager.default.fileExists(atPath: replayURL.path) else { return }
+        guard FileManager.default.fileExists(atPath: replayURL.path) else {
+            replayLoaded = true
+            return
+        }
         do {
             let data = try Data(contentsOf: replayURL)
             let values = try JSONDecoder().decode([String: Date].self, from: data)
             latestTimestampByID = values
             acceptedIDs = Set(values.keys)
+            replayLoaded = true
         } catch {
             throw TradingResearchError.replayStorageFailure
         }
@@ -234,36 +236,43 @@ public struct SixtySecondReplayResult: Codable, Sendable, Equatable {
                 entryDelaySeconds: TimeInterval = 0, toleranceSeconds: TimeInterval = 2) {
         let entryAt = alert.timestamp.addingTimeInterval(entryDelaySeconds)
         let expiryAt = entryAt.addingTimeInterval(60)
-        let matching: (Date, Double)? = observations
+        let matching: ValidationPriceObservation? = observations
             .filter { $0.instrumentID == alert.symbol && $0.venueID == alert.source
                 && $0.authority != .directBroker
-                && abs($0.observedAt.timeIntervalSince(entryAt)) <= toleranceSeconds }
+                && $0.observedAt >= entryAt
+                && $0.observedAt.timeIntervalSince(entryAt) <= toleranceSeconds
+                && $0.price.isFinite && $0.price > 0 }
             .sorted { $0.observedAt < $1.observedAt }
             .first
-            .map { ($0.observedAt, $0.price) }
-        let expiry: (Date, Double)? = observations
+        let expiry: ValidationPriceObservation? = observations
             .filter { $0.instrumentID == alert.symbol && $0.venueID == alert.source
-                && abs($0.observedAt.timeIntervalSince(expiryAt)) <= toleranceSeconds
                 && $0.observedAt >= expiryAt }
+            .filter { $0.observedAt.timeIntervalSince(expiryAt) <= toleranceSeconds
+                && $0.price.isFinite && $0.price > 0 }
             .sorted { $0.observedAt < $1.observedAt }
             .first
-            .map { ($0.observedAt, $0.price) }
         self.alertID = alert.id
         self.direction = alert.direction
         self.entryAt = entryAt
         self.expiryAt = expiryAt
-        self.entryPrice = matching?.1
-        self.expiryPrice = expiry?.1
+        self.entryPrice = matching?.price
+        self.expiryPrice = expiry?.price
         self.source = alert.source
         self.researchOnly = true
-        guard let matching, let expiry else {
+        guard alert.isValid, entryDelaySeconds.isFinite, entryDelaySeconds >= 0,
+              entryDelaySeconds < 60, toleranceSeconds.isFinite,
+              toleranceSeconds >= 0, toleranceSeconds <= 5,
+              let matching, let expiry,
+              matching.authority == expiry.authority,
+              matching.source == expiry.source else {
             self.resolution = .unresolved
             self.reason = "Timely source-matched observation missing"
             return
         }
-        if expiry.1 == matching.1 { self.resolution = .tie }
+        if expiry.price == matching.price { self.resolution = .tie }
         else {
-            let wins = alert.direction == "HIGH" ? expiry.1 > matching.1 : expiry.1 < matching.1
+            let wins = alert.direction == "HIGH"
+                ? expiry.price > matching.price : expiry.price < matching.price
             self.resolution = wins ? .win : .loss
         }
         self.reason = nil

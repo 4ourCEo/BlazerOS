@@ -133,7 +133,7 @@ private func riskRow(
     let rows = [
         riskRow("w", outcome: "HIT", enteredAt: start, stake: 10, payout: 0.88),
         riskRow("l1", outcome: "MISS", enteredAt: start.addingTimeInterval(60), stake: 10),
-        riskRow("l2", outcome: "MISS", enteredAt: start.addingTimeInterval(90), stake: 10)
+        riskRow("l2", outcome: "MISS", enteredAt: start.addingTimeInterval(120), stake: 10)
     ]
     let result = try PositionSizingResearch.simulate(
         rows: rows, initialBankroll: 1_000, riskFraction: 0.01, asOf: riskCutoff
@@ -149,6 +149,52 @@ private func riskRow(
         try PositionSizingResearch.simulate(
             rows: incomplete, initialBankroll: 1_000, riskFraction: 0.01, asOf: riskCutoff
         )
+    }
+}
+
+@Test func unresolvedConfirmedTradeWithholdsSequenceAndCashConclusions() throws {
+    let start = riskCutoff.addingTimeInterval(-180)
+    let rows = [
+        riskRow("loss-1", outcome: "MISS", enteredAt: start),
+        riskRow("unknown", outcome: "UNRESOLVED", enteredAt: start.addingTimeInterval(60)),
+        riskRow("loss-2", outcome: "MISS", enteredAt: start.addingTimeInterval(120))
+    ]
+    let report = try CapitalPreservationReport.evaluate(
+        rows: rows, asOf: riskCutoff, timeZoneIdentifier: "UTC")
+    #expect(report.excludedUnresolved == 1)
+    #expect(!report.cashCoverageComplete)
+    #expect(report.maximumConsecutiveLosses == nil)
+    #expect(report.currentConsecutiveLosses == nil)
+    #expect(report.maximumDrawdown == nil)
+    #expect(throws: CapitalPreservationError.incompleteConfirmedReturns) {
+        try PositionSizingResearch.simulate(
+            rows: rows, initialBankroll: 1_000, riskFraction: 0.01, asOf: riskCutoff)
+    }
+}
+
+@Test func sessionLossThresholdLatchesAfterIntradayRecovery() throws {
+    let start = riskCutoff.addingTimeInterval(-180)
+    let rows = [
+        riskRow("loss", outcome: "MISS", enteredAt: start, stake: 25),
+        riskRow("recovery", outcome: "HIT", enteredAt: start.addingTimeInterval(60),
+                stake: 50, payout: 0.88)
+    ]
+    let report = try CapitalPreservationReport.evaluate(
+        rows: rows, asOf: riskCutoff, timeZoneIdentifier: "UTC",
+        policy: CapitalPreservationPolicy(maximumSessionLoss: 20))
+    #expect(report.sessions.first?.netProfit == 19)
+    #expect(report.sessions.first?.sessionLossLimitReached == true)
+}
+
+@Test func positionSizingRejectsOverlappingHistoricalContracts() {
+    let start = riskCutoff.addingTimeInterval(-180)
+    let rows = [
+        riskRow("first", outcome: "HIT", enteredAt: start),
+        riskRow("overlap", outcome: "MISS", enteredAt: start.addingTimeInterval(30))
+    ]
+    #expect(throws: CapitalPreservationError.incompleteConfirmedReturns) {
+        try PositionSizingResearch.simulate(
+            rows: rows, initialBankroll: 1_000, riskFraction: 0.01, asOf: riskCutoff)
     }
 }
 

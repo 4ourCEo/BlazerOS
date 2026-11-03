@@ -64,20 +64,46 @@ public actor ResearchStore {
     public func record(_ result: StrategyValidationRecord) throws {
         guard result.engineSHA == EngineIdentity.pinnedSHA1,
               result.id.count == 64, result.id.allSatisfy(\.isHexDigit),
+              result.id == StrategyValidationEngine.recordID(
+                caseDigest: result.caseDigest,
+                configurationDigest: result.configurationDigest),
               result.inputDigest.count == 64, result.inputDigest.allSatisfy(\.isHexDigit),
               result.caseDigest.count == 64, result.caseDigest.allSatisfy(\.isHexDigit),
               result.configurationDigest.count == 64,
               result.configurationDigest.allSatisfy(\.isHexDigit),
               !result.caseID.isEmpty,
+              (result.configuration.map {
+                  StrategyValidationEngine.digest(of: $0) == result.configurationDigest
+              } ?? false),
               result.executionKind == (result.stage == .liveObservation ? .recordedManual : .simulated),
-              !result.isVenueOutcome || result.stage == .liveObservation else {
+              !result.isVenueOutcome || (result.stage == .liveObservation
+                  && !(result.venueEventID ?? "").isEmpty) else {
             throw ScanError.failed("Invalid strategy validation record")
         }
         try writeOnce(result, directory: "strategy-validation", name: result.id)
     }
 
     public func strategyValidationRecords() throws -> [StrategyValidationRecord] {
-        try load(StrategyValidationRecord.self, directory: "strategy-validation")
+        let named = try loadNamed(StrategyValidationRecord.self, directory: "strategy-validation")
+        let cases = try strategyValidationCases()
+        let casesByID = Dictionary(grouping: cases, by: \.id)
+        for (url, result) in named {
+            guard url.deletingPathExtension().lastPathComponent == result.id,
+                  result.id == StrategyValidationEngine.recordID(
+                    caseDigest: result.caseDigest,
+                    configurationDigest: result.configurationDigest),
+                  let matches = casesByID[result.caseID], matches.count == 1,
+                  let item = matches.first,
+                  StrategyValidationEngine.digest(of: item) == result.caseDigest,
+                  try ResearchEvent.digest(of: item.input) == result.inputDigest else {
+                throw ScanError.failed("Strategy validation record identity mismatch: \(result.caseID)")
+            }
+            if let configuration = result.configuration,
+               StrategyValidationEngine.digest(of: configuration) != result.configurationDigest {
+                throw ScanError.failed("Strategy validation configuration mismatch: \(result.caseID)")
+            }
+        }
+        return named.map(\.1)
     }
 
     public func record(_ item: StrategyValidationCase) throws {
@@ -86,11 +112,12 @@ public actor ResearchStore {
     }
 
     public func strategyValidationCases() throws -> [StrategyValidationCase] {
-        let values = try load(StrategyValidationCase.self, directory: "strategy-validation-cases")
-        guard values.allSatisfy({ StrategyValidationEngine.digest(of: $0).count == 64 }) else {
-            throw ScanError.failed("Invalid strategy validation case")
+        let named = try loadNamed(StrategyValidationCase.self, directory: "strategy-validation-cases")
+        for (url, item) in named where url.deletingPathExtension().lastPathComponent
+            != StrategyValidationEngine.digest(of: item) {
+            throw ScanError.failed("Strategy validation case identity mismatch: \(item.id)")
         }
-        return values
+        return named.map(\.1)
     }
 
     public func record(_ campaign: ForwardValidationCampaign) throws {
@@ -122,6 +149,10 @@ public actor ResearchStore {
     }
 
     private func load<T: Decodable>(_ type: T.Type, directory: String) throws -> [T] {
+        try loadNamed(type, directory: directory).map(\.1)
+    }
+
+    private func loadNamed<T: Decodable>(_ type: T.Type, directory: String) throws -> [(URL, T)] {
         let path = root.appendingPathComponent(directory)
         guard FileManager.default.fileExists(atPath: path.path) else { return [] }
         let decoder = JSONDecoder()
@@ -129,6 +160,6 @@ public actor ResearchStore {
         // A corrupt record is an explicit error, never silently converted into missing data.
         return try FileManager.default.contentsOfDirectory(at: path, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension == "json" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
-            .map { try decoder.decode(type, from: Data(contentsOf: $0)) }
+            .map { ($0, try decoder.decode(type, from: Data(contentsOf: $0))) }
     }
 }

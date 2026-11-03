@@ -158,7 +158,6 @@ public struct SessionDebrief: Codable, Sendable, Equatable {
 
     public static func fallback(context: AssistantContext) -> SessionDebrief {
         let p = context.performance
-        let risk = context.capitalPreservation
         let missing = context.gaps.filter { $0.kind == .missingConfirmation }.map(\.recordID)
         let late = context.gaps.filter { $0.kind == .lateEntry }.map(\.recordID)
         let stale = context.gaps.filter { $0.kind == .staleFeed }.map(\.recordID)
@@ -168,6 +167,20 @@ public struct SessionDebrief: Codable, Sendable, Equatable {
         } else {
             summary = "\(p.wins) confirmed wins and \(p.losses) confirmed losses out of \(p.sampleSize). \(p.caveat)"
         }
+        return SessionDebrief(
+            summary: summary + deterministicResearchSuffix(context: context),
+            sampleSize: p.sampleSize, wins: p.wins, losses: p.losses, ties: p.ties,
+            unresolved: p.unresolved, winRate: p.winRate, expectancy: p.expectancy,
+            missingConfirmations: missing,
+            lateEntries: late,
+            staleInterruptions: stale,
+            behavioralObservations: [],
+            citations: Array(context.allRecordIDs).sorted()
+        )
+    }
+
+    static func deterministicResearchSuffix(context: AssistantContext) -> String {
+        let risk = context.capitalPreservation
         let riskNote: String
         if let risk, risk.confirmedResolved > 0 {
             let streak = risk.maximumConsecutiveLosses.map(String.init) ?? "unavailable"
@@ -194,16 +207,7 @@ public struct SessionDebrief: Codable, Sendable, Equatable {
         } else {
             validationNote = ""
         }
-        return SessionDebrief(
-            summary: summary + riskNote + validationNote,
-            sampleSize: p.sampleSize, wins: p.wins, losses: p.losses, ties: p.ties,
-            unresolved: p.unresolved, winRate: p.winRate, expectancy: p.expectancy,
-            missingConfirmations: missing,
-            lateEntries: late,
-            staleInterruptions: stale,
-            behavioralObservations: [],
-            citations: Array(context.allRecordIDs).sorted()
-        )
+        return riskNote + validationNote
     }
 }
 

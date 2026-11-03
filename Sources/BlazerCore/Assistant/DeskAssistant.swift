@@ -182,10 +182,9 @@ public actor DeskAssistant {
         or invent values. Distinguish small samples from dependable evidence. Cite record IDs.
         The structured counts and gap groups are supplied by the app from the frozen records;
         do not reclassify gaps or invent IDs.
-        If confirmed-only capitalPreservation facts are present, explain them descriptively.
-        State that drawdown values use recorded stake denomination, not a labeled currency;
-        when cash coverage is incomplete, say the drawdown is unavailable. Do not recommend
-        changing a stake, entry gate, or stop based on these research-only facts.
+        Do not narrate capitalPreservation or strategyValidation numbers. The app appends those
+        deterministic facts after generation. Do not recommend changing a stake, entry gate,
+        or stop based on research-only facts.
         """
         let compactContext = context.bounded(
             maxScans: 0, maxEntries: 4, maxGaps: 4, maxNotes: 0, maxText: 100
@@ -205,7 +204,7 @@ public actor DeskAssistant {
             contextNotes: context.selectionNotes(after: modelContext)
         ) { data in
             try Self.decodeSessionDebrief(
-                data, performance: context.performance, gaps: context.gaps
+                data, context: context
             )
         } validate: {
             AssistantValidation.validate($0, context: context)
@@ -328,13 +327,21 @@ public actor DeskAssistant {
     }
 
     private static func decodeSessionDebrief(
-        _ data: Data, performance: PerformanceSummary, gaps: [ObservationGap]
+        _ data: Data, context: AssistantContext
     ) throws -> SessionDebrief {
         #if canImport(FoundationModels) && !BLAZER_DISABLE_FOUNDATION_MODELS
         if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *) {
             let dto = try JSONDecoder().decode(GeneratedSessionDebrief.self, from: data)
+            let lower = dto.summary.lowercased()
+            let deterministicTerms = ["drawdown", "loss streak", "effective n", "capitalpreservation",
+                                      "strategyvalidation", "cooldown"]
+            guard !deterministicTerms.contains(where: lower.contains) else {
+                throw ScanError.failed("Model attempted to narrate deterministic research metrics")
+            }
+            let performance = context.performance
+            let gaps = context.gaps
             return SessionDebrief(
-                summary: dto.summary,
+                summary: dto.summary + SessionDebrief.deterministicResearchSuffix(context: context),
                 sampleSize: performance.sampleSize,
                 wins: performance.wins,
                 losses: performance.losses,

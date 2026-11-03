@@ -202,7 +202,14 @@ public struct AssistantContext: Codable, Sendable, Equatable {
         self.confirmedEntries = confirmedEntries
         self.research = research
         self.capitalPreservation = capitalPreservation
-        self.strategyValidation = strategyValidation
+        if let strategyValidation {
+            var seen = Set<ValidationStage>()
+            self.strategyValidation = strategyValidation
+                .filter { seen.insert($0.stage).inserted }
+                .prefix(ValidationStage.allCases.count).map { $0 }
+        } else {
+            self.strategyValidation = nil
+        }
         self.performance = performance
         self.gaps = gaps
         self.notes = notes
@@ -239,6 +246,9 @@ public struct AssistantContext: Codable, Sendable, Equatable {
             return String(value.prefix(maxText)) + "…"
         }
         var copy = self
+        copy.strategyValidation = strategyValidation.map {
+            Array($0.prefix(ValidationStage.allCases.count))
+        }
         copy.scans = scans.prefix(maxScans).map { scan in
             var item = scan
             item.evidence = trim(item.evidence)

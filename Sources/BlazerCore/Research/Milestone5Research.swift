@@ -37,21 +37,45 @@ public enum StrategyCompetition {
         guard !candidates.isEmpty, candidates.map(\.id).count == Set(candidates.map(\.id)).count else {
             throw Milestone5ResearchError.invalidInput
         }
-        let valid = records.filter { $0.stage == .paperTrading || $0.stage == .liveObservation }
-        let grouped = Dictionary(grouping: valid, by: { $0.signalCategory ?? "" })
+        let staged = records.filter { $0.stage == .paperTrading || $0.stage == .liveObservation }
+        guard Set(staged.map(\.stage)).count <= 1 else {
+            throw Milestone5ResearchError.invalidInput
+        }
+        let grouped = Dictionary(grouping: staged, by: { $0.signalCategory ?? "" })
         return candidates.map { candidate in
             let rows = grouped[candidate.id] ?? []
-            let resolved = rows.filter { [.win, .loss, .tie].contains($0.resolution) }
+            let caseUnique = Dictionary(grouping: rows, by: \.caseID).values
+                .filter { $0.count == 1 }.compactMap(\.first)
+            let duplicateVenueIDs = Set(Dictionary(grouping: caseUnique.compactMap { record in
+                record.venueEventID.map { ($0, record) }
+            }, by: { $0.0 }).values.filter { $0.count != 1 }.flatMap { $0.map(\.0) })
+            let unique = caseUnique
+                .filter { $0.venueEventID.map { !duplicateVenueIDs.contains($0) } ?? true }
+                .filter { !$0.isSynthetic && ($0.stage != .liveObservation || $0.isVenueOutcome) }
+                .sorted {
+                    let left = $0.entryTimestamp ?? $0.signalTimestamp
+                    let right = $1.entryTimestamp ?? $1.signalTimestamp
+                    return left == right ? $0.caseID < $1.caseID : left < right
+                }
+            let resolved = unique.filter { [.win, .loss, .tie].contains($0.resolution) }
             let wins = resolved.filter { $0.resolution == .win }.count
             let returns = resolved.compactMap { record -> Double? in
                 guard let payout = record.payoutRatio, payout.isFinite, payout > 0 else { return nil }
                 switch record.resolution {
                 case .win: return payout
                 case .loss: return -1
-                case .tie, .unresolved: return 0
+                case .tie:
+                    switch record.tiePolicy ?? .unknown {
+                    case .refund: return 0
+                    case .loss: return -1
+                    case .unknown: return nil
+                    }
+                case .unresolved: return nil
                 }
             }
-            let expectancy = returns.isEmpty ? nil : returns.reduce(0, +) / Double(returns.count)
+            let coverageComplete = !resolved.isEmpty && returns.count == resolved.count
+            let expectancy = coverageComplete
+                ? returns.reduce(0, +) / Double(returns.count) : nil
             var balance = 0.0
             var peak = 0.0
             var drawdown = 0.0
@@ -69,7 +93,7 @@ public enum StrategyCompetition {
                 wins: wins,
                 unresolved: rows.count - resolved.count,
                 expectancy: expectancy,
-                maximumDrawdown: returns.isEmpty ? nil : drawdown,
+                maximumDrawdown: coverageComplete ? drawdown : nil,
                 meanExecutionDelaySeconds: delays.isEmpty ? nil : delays.reduce(0, +) / Double(delays.count)
             )
         }

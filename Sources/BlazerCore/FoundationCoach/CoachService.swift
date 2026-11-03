@@ -29,25 +29,7 @@ public struct FoundationCoachService: TradingCoach, Sendable {
     public func explain(seal: ParitySeal, evidence: String, question: String) async throws -> String {
         let spoken = question.trimmingCharacters(in: .whitespacesAndNewlines)
         if allowsModel, let assistant, let context {
-            let scan = ScanRecordContext(
-                id: seal.fingerprint,
-                fullFingerprint: seal.fingerprint,
-                pair: "Sealed",
-                engineCall: seal.side,
-                score: seal.score,
-                evidence: evidence,
-                veto: nil,
-                evaluationTime: Date(),
-                quoteMid: seal.strike,
-                spread: nil,
-                m1Count: seal.candleCount,
-                m5Count: 0,
-                engineSHA: seal.engineSHA1,
-                expirySeconds: 60,
-                isActionable: seal.side == "HIGH" || seal.side == "LOW",
-                blockingReason: nil,
-                recordedVerb: "sealed"
-            )
+            let scan = Self.scanContext(for: seal, evidence: evidence, context: context)
             let result = await assistant.explainScan(scan, context: context)
             if result.isModelGenerated {
                 return "\(result.value.summary) \(result.value.coachNote)"
@@ -61,6 +43,33 @@ public struct FoundationCoachService: TradingCoach, Sendable {
         }
         let brief = CoachBrief(pair: "Sealed", score: seal.score, evidence: evidence, hash: seal.fingerprint)
         return "Basic explanation. " + (await card(for: brief).summary)
+    }
+
+    static func scanContext(
+        for seal: ParitySeal, evidence: String, context: AssistantContext
+    ) -> ScanRecordContext {
+        context.scans.first {
+            ($0.id == seal.fingerprint || $0.fullFingerprint == seal.fingerprint)
+                && $0.engineSHA == seal.engineSHA1 && $0.score == seal.score
+        } ?? ScanRecordContext(
+                id: seal.fingerprint,
+                fullFingerprint: seal.fingerprint,
+                pair: "Sealed historical record",
+                engineCall: seal.side,
+                score: seal.score,
+                evidence: evidence,
+                veto: nil,
+                evaluationTime: Date(timeIntervalSince1970: 0),
+                quoteMid: seal.strike,
+                spread: nil,
+                m1Count: seal.candleCount,
+                m5Count: 0,
+                engineSHA: seal.engineSHA1,
+                expirySeconds: 60,
+                isActionable: false,
+                blockingReason: "Original scan timestamp unavailable; historical explanation only",
+                recordedVerb: "sealed historical"
+            )
     }
 
     public func tag(spoken: String, seal: ParitySeal) async throws -> JournalTags {

@@ -2,6 +2,28 @@ import Foundation
 import Testing
 @testable import BlazerCore
 
+private func competitionRecord(
+    id: String, stage: ValidationStage = .paperTrading,
+    time: TimeInterval, resolution: ValidationResolution,
+    payout: Double = 0.8
+) -> StrategyValidationRecord {
+    StrategyValidationRecord(
+        id: id, caseID: id, stage: stage,
+        executionKind: stage == .liveObservation ? .recordedManual : .simulated,
+        instrumentID: "EUR/USD", venueID: "research", marketKind: .standard,
+        signalDirection: "HIGH", signalTimestamp: Date(timeIntervalSince1970: time),
+        entryTimestamp: Date(timeIntervalSince1970: time), entryPrice: 1.1,
+        expiryTimestamp: Date(timeIntervalSince1970: time + 60),
+        expiryObservedAt: Date(timeIntervalSince1970: time + 60), expiryPrice: 1.2,
+        payoutRatio: payout, resolution: resolution, executionDelaySeconds: 0,
+        engineSHA: "sha", inputDigest: "input", caseDigest: "case-\(id)",
+        configurationDigest: "config", configuration: nil, tiePolicy: .unknown,
+        signalPriceAuthority: .independentProvider, venueEventID: nil,
+        dataSource: "test", priceAuthority: .independentProvider,
+        signalCategory: "baseline", marketRegime: "trend", rejectionReason: nil,
+        isVenueOutcome: stage == .liveObservation, isSynthetic: false)
+}
+
 @Test func strategyCompetitionSeparatesCandidatesAndUnresolvedRecords() throws {
     let candidates = [
         ResearchStrategyCandidate(id: "baseline", version: "v1", description: "control"),
@@ -14,13 +36,15 @@ import Testing
         entryPrice: 1.1, expiryTimestamp: Date(), expiryObservedAt: Date(),
         expiryPrice: 1.2, payoutRatio: 0.8, resolution: .win,
         executionDelaySeconds: 1, engineSHA: "sha", inputDigest: "input",
-        caseDigest: "case", configurationDigest: "config", dataSource: "test",
+        caseDigest: "case", configurationDigest: "config", configuration: nil,
+        tiePolicy: .unknown, signalPriceAuthority: nil, venueEventID: nil, dataSource: "test",
         priceAuthority: .syntheticFixture, signalCategory: "baseline",
         marketRegime: "trend", rejectionReason: nil, isVenueOutcome: false, isSynthetic: true
     )
     let rows = try StrategyCompetition.compare(records: [record], candidates: candidates)
-    #expect(rows[0].resolved == 1)
-    #expect(rows[0].expectancy == 0.8)
+    #expect(rows[0].matchedSignals == 1)
+    #expect(rows[0].resolved == 0)
+    #expect(rows[0].expectancy == nil)
     #expect(rows[1].resolved == 0)
     #expect(rows[1].expectancy == nil)
 }
@@ -36,6 +60,24 @@ import Testing
         baseline: row(0.2, 1, 0), recent: row(-0.1, 2, 5))
     #expect(alert.severity == .alert)
     #expect(alert.researchOnly)
+}
+
+@Test func strategyCompetitionSortsReturnsAndRejectsMixedValidationStages() throws {
+    let candidate = ResearchStrategyCandidate(id: "baseline", version: "v1", description: "control")
+    let records = [
+        competitionRecord(id: "third", time: 3, resolution: .loss),
+        competitionRecord(id: "first", time: 1, resolution: .loss),
+        competitionRecord(id: "second", time: 2, resolution: .win),
+    ]
+    let row = try #require(StrategyCompetition.compare(
+        records: records, candidates: [candidate]).first)
+    #expect(abs((row.maximumDrawdown ?? 99) - 1.2) < 1e-12)
+
+    let mixed = records + [competitionRecord(
+        id: "live", stage: .liveObservation, time: 4, resolution: .win)]
+    #expect(throws: Milestone5ResearchError.invalidInput) {
+        try StrategyCompetition.compare(records: mixed, candidates: [candidate])
+    }
 }
 
 @Test func capitalScenariosFailClosedForInvalidInputsAndMarkUnsuitableAccounts() throws {

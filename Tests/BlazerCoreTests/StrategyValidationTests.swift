@@ -37,7 +37,8 @@ private func validationCase(
     payout: Double? = 0.80,
     recorded: RecordedValidationExecution? = nil,
     input: StrategyEngine.MarketInput? = nil,
-    observationVenue: String = "OANDA"
+    observationVenue: String = "OANDA",
+    signalPriceAuthority: ValidationPriceAuthority? = nil
 ) -> StrategyValidationCase {
     let entry = validationSignalTime.addingTimeInterval(entryDelay)
     return StrategyValidationCase(
@@ -45,6 +46,7 @@ private func validationCase(
         instrumentID: "oanda:EUR/USD", engineAsset: "EUR/USD", venueID: "OANDA",
         marketKind: .standard, signalTimestamp: validationSignalTime,
         engineSHA: EngineIdentity.pinnedSHA1, input: input ?? validationInput(),
+        signalPriceAuthority: signalPriceAuthority,
         observations: [
             ValidationPriceObservation(
                 instrumentID: "oanda:EUR/USD", venueID: observationVenue,
@@ -190,6 +192,184 @@ private let highEvaluator: StrategyValidationEngine.Evaluator = { input in
     #expect(report.overall.maximumUnitDrawdown == nil)
 }
 
+@Test func invalidConfigurationAndManualPricesFailClosedWithoutTrapping() async throws {
+    let invalidDelay = try await StrategyValidationEngine.replay(
+        cases: [validationCase(id: "invalid-delay")],
+        configuration: StrategyValidationConfiguration(entryDelaySeconds: .nan),
+        evaluator: highEvaluator)
+    #expect(invalidDelay.first?.resolution == .unresolved)
+    #expect(invalidDelay.first?.rejectionReason == "Invalid 60-second replay configuration")
+
+    let entry = validationSignalTime.addingTimeInterval(1)
+    let invalidExecution = RecordedValidationExecution(
+        enteredAt: entry, entryPrice: .nan,
+        expiryObservedAt: entry.addingTimeInterval(60), expiryPrice: -1,
+        confirmedResolution: .win, venueEventID: "venue")
+    let live = try await StrategyValidationEngine.replay(
+        cases: [validationCase(id: "bad-live", stage: .liveObservation,
+                               recorded: invalidExecution)],
+        configuration: .sixtySecond, evaluator: highEvaluator)
+    #expect(live.first?.resolution == .unresolved)
+    #expect(live.first?.isVenueOutcome == false)
+    #expect(live.first?.rejectionReason == "Invalid recorded manual entry")
+}
+
+@Test func duplicateCasesAndForgedOANDAOTCPricesCannotInflateEvidence() async throws {
+    let record = try #require(try await StrategyValidationEngine.replay(
+        cases: [validationCase(id: "duplicate")],
+        configuration: StrategyValidationConfiguration(entryDelaySeconds: 3),
+        evaluator: highEvaluator).first)
+    let duplicated = StrategyValidationEngine.report(
+        records: [record, record], stage: .historicalReplay)
+    #expect(duplicated.excludedDuplicateCases == 2)
+    #expect(duplicated.performanceEligible == 0)
+
+    let entry = validationSignalTime.addingTimeInterval(3)
+    let otc = StrategyValidationCase(
+        id: "forged-oanda", stage: .historicalReplay,
+        instrumentID: "pocketoption:EURUSD_otc", engineAsset: "EUR/USD",
+        venueID: "Pocket Option", marketKind: .otc,
+        signalTimestamp: validationSignalTime, engineSHA: EngineIdentity.pinnedSHA1,
+        input: validationInput(), observations: [
+            ValidationPriceObservation(
+                instrumentID: "pocketoption:EURUSD_otc", venueID: "Pocket Option",
+                observedAt: entry, price: 1.10, source: "oanda", authority: .oandaReference),
+            ValidationPriceObservation(
+                instrumentID: "pocketoption:EURUSD_otc", venueID: "Pocket Option",
+                observedAt: entry.addingTimeInterval(60), price: 1.11,
+                source: "oanda", authority: .oandaReference)
+        ], payoutRatio: 0.8, provenance: "OANDA cross-check")
+    let otcRecord = try #require(try await StrategyValidationEngine.replay(
+        cases: [otc], configuration: StrategyValidationConfiguration(entryDelaySeconds: 3),
+        evaluator: highEvaluator).first)
+    #expect(otcRecord.resolution == .unresolved)
+    #expect(StrategyValidationEngine.report(
+        records: [otcRecord], stage: .historicalReplay).performanceEligible == 0)
+}
+
+@Test func unknownTiePolicyWithholdsExpectancyAndRefundPolicyCountsStake() async throws {
+    let tie = validationCase(id: "tie", entryPrice: 1.10, expiryPrice: 1.10)
+    let unknown = try await StrategyValidationEngine.replay(
+        cases: [validationCase(id: "win"), tie],
+        configuration: StrategyValidationConfiguration(entryDelaySeconds: 3),
+        evaluator: highEvaluator)
+    #expect(StrategyValidationEngine.report(
+        records: unknown, stage: .historicalReplay).overall.payoutAdjustedExpectancy == nil)
+
+    let refunded = try await StrategyValidationEngine.replay(
+        cases: [validationCase(id: "win"), tie],
+        configuration: StrategyValidationConfiguration(entryDelaySeconds: 3, tiePolicy: .refund),
+        evaluator: highEvaluator)
+    let expectancy = StrategyValidationEngine.report(
+        records: refunded, stage: .historicalReplay).overall.payoutAdjustedExpectancy
+    #expect(expectancy == 0.4)
+}
+
+@Test func tieSettledAsLossCountsInLossRateAndConfidenceSample() async throws {
+    let records = try await StrategyValidationEngine.replay(
+        cases: [validationCase(id: "win"),
+                validationCase(id: "flat-loss", entryPrice: 1.10, expiryPrice: 1.10)],
+        configuration: StrategyValidationConfiguration(entryDelaySeconds: 3, tiePolicy: .loss),
+        evaluator: highEvaluator)
+    let cohort = StrategyValidationEngine.report(
+        records: records, stage: .historicalReplay).overall
+    #expect(cohort.resolved == 2)
+    #expect(cohort.wins == 1)
+    #expect(cohort.losses == 1)
+    #expect(cohort.winRate == 0.5)
+}
+
+@Test func duplicateVenueSettlementCannotCountUnderDifferentCaseIDs() async throws {
+    let entry = validationSignalTime.addingTimeInterval(2)
+    let execution = RecordedValidationExecution(
+        enteredAt: entry, entryPrice: 1.10,
+        expiryObservedAt: entry.addingTimeInterval(60), expiryPrice: 1.11,
+        confirmedResolution: .win, venueEventID: "same-venue-event")
+    let records = try await StrategyValidationEngine.replay(
+        cases: [validationCase(id: "live-a", stage: .liveObservation, recorded: execution),
+                validationCase(id: "live-b", stage: .liveObservation, recorded: execution)],
+        configuration: .sixtySecond, evaluator: highEvaluator)
+    let report = StrategyValidationEngine.report(records: records, stage: .liveObservation)
+    #expect(report.performanceEligible == 0)
+    #expect(report.excludedDuplicateCases == 2)
+}
+
+@Test func historicalBuilderCreatesOnlyPastCompletedSnapshots() throws {
+    let input = validationInput()
+    let quote = ValidationPriceObservation(
+        instrumentID: "oanda:EUR/USD", venueID: "OANDA",
+        observedAt: validationSignalTime.addingTimeInterval(-1), price: 1.101,
+        bid: 1.1009, ask: 1.1011, source: "oanda-history", authority: .oandaReference)
+    let future = ValidationPriceObservation(
+        instrumentID: "oanda:EUR/USD", venueID: "OANDA",
+        observedAt: validationSignalTime.addingTimeInterval(3), price: 1.102,
+        bid: 1.1019, ask: 1.1021, source: "oanda-history", authority: .oandaReference)
+    let built = HistoricalValidationCaseBuilder.build(
+        series: HistoricalValidationSeries(
+            instrumentID: "oanda:EUR/USD", engineAsset: "EUR/USD", venueID: "OANDA",
+            marketKind: .standard, source: "oanda-history", authority: .oandaReference,
+            candles1m: input.candles1m, candles5m: input.candles5m,
+            prices: [quote, future], evaluationTimes: [validationSignalTime],
+            payoutRatio: 0.88, provenance: "historical fixture"),
+        minimumM1: 2, minimumM5: 2)
+    let item = try #require(built.cases.first)
+    #expect(built.rejections.isEmpty)
+    #expect(item.input.quoteAsOfMs == quote.observedAt.timeIntervalSince1970 * 1_000)
+    #expect(item.input.lastPrice == quote.price)
+    #expect(item.observations.contains(future))
+    #expect(item.input.candles1m.allSatisfy {
+        $0.time + 60_000 <= validationSignalTime.timeIntervalSince1970 * 1_000 + 1
+    })
+}
+
+@Test func syntheticSignalInputRemainsSyntheticWithIndependentSettlementPrices() async throws {
+    let input = validationInput()
+    let signalQuote = ValidationPriceObservation(
+        instrumentID: "oanda:EUR/USD", venueID: "OANDA",
+        observedAt: validationSignalTime, price: 1.101, bid: 1.1009, ask: 1.1011,
+        source: "synthetic-history", authority: .syntheticFixture)
+    let entry = ValidationPriceObservation(
+        instrumentID: "oanda:EUR/USD", venueID: "OANDA",
+        observedAt: validationSignalTime.addingTimeInterval(3), price: 1.101,
+        source: "independent", authority: .independentProvider)
+    let expiry = ValidationPriceObservation(
+        instrumentID: "oanda:EUR/USD", venueID: "OANDA",
+        observedAt: validationSignalTime.addingTimeInterval(63), price: 1.102,
+        source: "independent", authority: .independentProvider)
+    let built = HistoricalValidationCaseBuilder.build(series: .init(
+        instrumentID: "oanda:EUR/USD", engineAsset: "EUR/USD", venueID: "OANDA",
+        marketKind: .standard, source: "synthetic-history", authority: .syntheticFixture,
+        candles1m: input.candles1m, candles5m: input.candles5m,
+        prices: [signalQuote, entry, expiry], evaluationTimes: [validationSignalTime],
+        payoutRatio: 0.8, provenance: "test history"), minimumM1: 2, minimumM5: 2)
+    let item = try #require(built.cases.first)
+    let record = try #require(try await StrategyValidationEngine.replay(
+        cases: [item], configuration: StrategyValidationConfiguration(entryDelaySeconds: 3),
+        evaluator: highEvaluator).first)
+    #expect(record.resolution == .win)
+    #expect(record.signalPriceAuthority == .syntheticFixture)
+    #expect(record.isSynthetic)
+    #expect(StrategyValidationEngine.report(
+        records: [record], stage: .historicalReplay).performanceEligible == 0)
+}
+
+@Test func replayPropagatesCancellation() async {
+    let task = Task {
+        try await StrategyValidationEngine.replay(
+            cases: [validationCase()], configuration: .sixtySecond,
+            evaluator: { _ in
+                try await Task.sleep(for: .seconds(5))
+                return try await highEvaluator(validationInput())
+            })
+    }
+    task.cancel()
+    var cancelled = false
+    do { _ = try await task.value }
+    catch is CancellationError { cancelled = true }
+    catch { }
+    #expect(cancelled)
+}
+
 @Test func pinnedHistoricalReplayIsDeterministic() async throws {
     var input = GoldenFixture.market()
     let lastOpen = try #require(input.candles5m.last?.time)
@@ -227,10 +407,46 @@ private let highEvaluator: StrategyValidationEngine.Evaluator = { input in
         configuration: StrategyValidationConfiguration(entryDelaySeconds: 3),
         evaluator: highEvaluator).first)
     let store = ResearchStore(root: root)
+    let item = validationCase(id: "persist")
+    try await store.record(item)
     try await store.record(record)
     try await store.record(record)
     let loaded = try await store.strategyValidationRecords()
     #expect(loaded == [record])
+    #expect(loaded.first?.configuration
+        == StrategyValidationConfiguration(entryDelaySeconds: 3))
+    #expect(try await store.strategyValidationCases().count == 1)
+}
+
+@Test func researchStoreRejectsDecodableCaseWhoseContentDoesNotMatchFilename() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("strategy-validation-tamper-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let item = validationCase(id: "original")
+    let store = ResearchStore(root: root)
+    try await store.record(item)
+    let digest = StrategyValidationEngine.digest(of: item)
+    let url = root.appendingPathComponent("strategy-validation-cases")
+        .appendingPathComponent(digest + ".json")
+    var object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+    object["id"] = "modified-but-decodable"
+    try JSONSerialization.data(withJSONObject: object).write(to: url)
+    await #expect(throws: (any Error).self) { try await store.strategyValidationCases() }
+}
+
+@Test func validationRecordDecodesArchivesWrittenBeforeTiePolicy() async throws {
+    let record = try #require(try await StrategyValidationEngine.replay(
+        cases: [validationCase(id: "legacy")],
+        configuration: StrategyValidationConfiguration(entryDelaySeconds: 3),
+        evaluator: highEvaluator).first)
+    let encoded = try JSONEncoder().encode(record)
+    var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+    object.removeValue(forKey: "tiePolicy")
+    let legacy = try JSONSerialization.data(withJSONObject: object)
+    let decoded = try JSONDecoder().decode(StrategyValidationRecord.self, from: legacy)
+    #expect(decoded.tiePolicy == nil)
+    let report = StrategyValidationEngine.report(records: [decoded], stage: .historicalReplay)
+    #expect(report.performanceEligible == 1)
 }
 
 @Test func boundedAssistantDiagnosticsReportOmittedJournalNotes() {
@@ -240,4 +456,15 @@ private let highEvaluator: StrategyValidationEngine.Evaluator = { input in
                                    createdAt: validationSignalTime)])
     let bounded = context.bounded(maxScans: 0, maxEntries: 0, maxGaps: 0, maxNotes: 0)
     #expect(context.selectionNotes(after: bounded).contains("notes 0/1"))
+}
+
+@Test func assistantValidationSummariesAreBoundedToOnePerStage() {
+    let empty = StrategyValidationEngine.report(records: [], stage: .historicalReplay)
+    let paper = StrategyValidationEngine.report(records: [], stage: .paperTrading)
+    let summaries = [StrategyValidationSummary(empty), StrategyValidationSummary(empty),
+                     StrategyValidationSummary(paper)]
+    let context = AssistantContext(strategyValidation: summaries)
+    #expect(context.strategyValidation?.count == 2)
+    #expect(context.bounded(maxScans: 0, maxEntries: 0, maxGaps: 0, maxNotes: 0)
+        .strategyValidation?.count == 2)
 }
