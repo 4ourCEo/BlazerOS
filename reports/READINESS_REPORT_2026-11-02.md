@@ -131,8 +131,12 @@ Offshore fixed-expiry venues and unverified claims are excluded from live recomm
 - Deterministic lifecycle verification: source-matched replay, exact 60-second expiry,
   timestamp integrity, future-candle rejection, and restart-safe webhook tests pass.
 - Authentic forward collection: the local OANDA-proxy campaign is running with a frozen v1
-  campaign record and all-policy comparison. The first observed batch contained 60 captured
-  candidates, all WAIT/vetoed; no accepted signal or outcome has been claimed.
+  campaign record and all-policy comparison. It has captured 120 candidates, including 8
+  accepted baseline/control entries, with 2 source-matched 60-second OANDA-proxy outcomes.
+- End-to-end evidence: the accepted signals were persisted before outcome resolution, both
+  observed outcomes are `hit`, and `ForwardTest --replay` reproduced all 120 frozen events.
+  This proves operation and provenance, not strategy performance; the sample remains far below
+  any promotion threshold.
 - Campaign safety: no OANDA-proxy observation is treated as Pocket Option OTC evidence, no
   order placement is enabled, and no synthetic record is mixed into the authentic archive.
 - Physical iPhone validation remains blocked until an authorized device workflow is available.

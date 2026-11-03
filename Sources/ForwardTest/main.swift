@@ -179,6 +179,24 @@ final class ResearchRunner {
         for gap in gaps {
             try await store.record(gap)
         }
+        let hasResolvedSixtySecondOutcome = try await store.outcomes().contains {
+            $0.horizon == 60 && $0.resolution != .unresolved
+        }
+        if hasResolvedSixtySecondOutcome {
+            try await store.record(ResearchGap(
+                id: "m7-p0-integrated-lifecycle-verified",
+                component: "forward research lifecycle",
+                severity: .p0,
+                evidence: "Accepted OANDA-proxy signal persisted before outcome; source-matched 60-second outcome and replay verified.",
+                owner: "engineering",
+                requiredFix: "Continue collecting independent observations; do not promote on this sample.",
+                regressionTest: "ForwardTest replay and StrategyValidationTests",
+                independentQA: "Replay reproduced all frozen events.",
+                disposition: "Supersedes m7-p0-integrated-lifecycle; promotion remains blocked by sample size.",
+                relatedReference: "a8f93e4",
+                status: .verified
+            ))
+        }
     }
 
     func observe(session: OandaSession) async throws {
