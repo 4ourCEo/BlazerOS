@@ -11,6 +11,10 @@ struct DeskScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            deskMasthead
+                .padding(.horizontal, 20)
+                .padding(.top, 2)
+
             topIntelligenceBar
                 .padding(.horizontal, 20)
                 .padding(.top, 4)
@@ -79,6 +83,40 @@ struct DeskScreen: View {
         .onChange(of: model.marketMode) { _, _ in
             Task { await model.scan() }
         }
+    }
+
+    private var deskMasthead: some View {
+        HStack(alignment: .bottom) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Image(systemName: "bolt.horizontal.circle.fill")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(DeskInk.electric)
+                    Text("BLAZEROS")
+                        .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                        .tracking(1.8)
+                        .foregroundStyle(DeskInk.electric)
+                }
+                Text("Command desk")
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .foregroundStyle(DeskInk.ink)
+            }
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 3) {
+                Text(model.marketMode == .crypto ? "CRYPTO RESEARCH" : "FX RESEARCH")
+                    .font(.system(size: 9, weight: .heavy, design: .monospaced))
+                    .tracking(0.8)
+                    .foregroundStyle(DeskInk.slate)
+                Text("MANUAL ONLY")
+                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                    .tracking(0.7)
+                    .foregroundStyle(DeskInk.emerald.opacity(0.85))
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("BlazerOS command desk, \(model.marketMode == .crypto ? "crypto" : "FX") research, manual only")
     }
 
     private var topIntelligenceBar: some View {
@@ -210,16 +248,40 @@ struct DeskScreen: View {
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 scanFreshnessBadge(asOf: model.lastScanAt, now: context.date)
             }
-            MiniCandleChart(
-                candles: model.candles,
-                strike: model.activeTrade?.strike ?? (isArmed ? model.frame?.strike : nil),
-                currentPrice: model.currentPrice,
-                side: model.activeTrade?.side ?? model.side(for: model.pair),
-                pair: model.pair
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Label("PRICE ACTION", systemImage: "chart.xyaxis.line")
+                        .font(.system(size: 9, weight: .heavy, design: .monospaced))
+                        .tracking(0.9)
+                        .foregroundStyle(DeskInk.slate)
+                    Spacer()
+                    Text("M1 · 32 BARS")
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .foregroundStyle(DeskInk.slate.opacity(0.65))
+                }
+
+                MiniCandleChart(
+                    candles: model.candles,
+                    strike: model.activeTrade?.strike ?? (isArmed ? model.frame?.strike : nil),
+                    currentPrice: model.currentPrice,
+                    side: model.activeTrade?.side ?? model.side(for: model.pair),
+                    pair: model.pair
+                )
+                .equatable()
+                .frame(height: 145)
+                .frame(maxWidth: .infinity)
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 10)
+            .padding(.bottom, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color.black.opacity(0.16))
             )
-            .equatable()
-            .frame(height: 160)
-            .frame(maxWidth: .infinity)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.07), lineWidth: 0.8)
+            )
             verdict
             if isArmed {
                 rail
