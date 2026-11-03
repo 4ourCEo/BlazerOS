@@ -44,6 +44,15 @@ Chunk 1 result: no PR was merged, closed, replayed, or force-pushed. Duplicate s
 - [x] Finite-extreme arithmetic, malformed inputs, non-finite quotes/candles, cancellation, stale work, and duplicate scan handling remain fail-closed.
 - [x] No production strategy, pinned engine artifact, completed-candle rule, or eight-second eligibility logic changed.
 
+## Chunk 3 result — consolidated infrastructure
+
+- [x] Targeted execution/research integration suite: **170/170 passed**.
+- [x] Journal, snapshot, ledger, pending-settlement, and execution-observation corruption remain explicit and non-destructive.
+- [x] Cancellation, stale-work suppression, market-data service boundaries, candle cache identity, and source attribution remain covered.
+- [x] Foundation Model outputs remain bounded/read-only and cannot select signals, mutate research, or authorize entry.
+- [x] OANDA proxy, Pocket Option research, synthetic data, and venue-confirmed outcomes remain provenance-separated.
+- [x] No LightningDeskModel refactor was introduced solely for line-count reduction.
+
 ## Authorized milestones
 
 - [x] **A — Research infrastructure:** add a shadow-only signal-support contract without changing engine or entry eligibility.
