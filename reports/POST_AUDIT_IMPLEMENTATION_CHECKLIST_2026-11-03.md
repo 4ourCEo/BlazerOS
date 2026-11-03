@@ -93,6 +93,18 @@ Chunk 1 result: no PR was merged, closed, replayed, or force-pushed. Duplicate s
 - [x] Approved app icon asset remains present in `Brand/AppIcon.png`.
 - [ ] Physical iPhone acceptance for this final RC1 source remains pending; simulator evidence is not device evidence.
 
+## Chunk 8 result — RC1 stabilization
+
+- [x] `swift build` passed.
+- [x] Full Swift suite passed: **374 tests**.
+- [x] `CoreAudit`: **71/71 passed**.
+- [x] `Parity`: **43/43 passed**; pinned engine remains `7c02e550e2e6ca656a258ceefc6083f098ff40b2`.
+- [x] Final serialized iOS simulator scheme passed: **20/20 tests**, including layout, execution flow, OTC integration, phone target, and parity.
+- [x] `git diff --check` passed; approved `Brand/AppIcon.png` is a valid 1024×1024 PNG.
+- [x] No live-capital, broker order-placement, or strategy-promotion capability was enabled.
+- [ ] No CI run exists for local commit `76daed5`; the RC1 branch has not been pushed.
+- [ ] Signed distribution/TestFlight artifact and final physical-device acceptance remain unavailable.
+
 ## Authorized milestones
 
 - [x] **A — Research infrastructure:** add a shadow-only signal-support contract without changing engine or entry eligibility.
