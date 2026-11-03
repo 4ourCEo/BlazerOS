@@ -73,6 +73,15 @@ Chunk 1 result: no PR was merged, closed, replayed, or force-pushed. Duplicate s
 - [x] Missing forward observations remain unresolved and are not treated as losses or fabricated outcomes.
 - [ ] Filtered-versus-baseline performance remains unqualified until a frozen, source-matched, out-of-sample cohort with complete cost/latency evidence exists.
 
+## Chunk 6 result — candidate comparison and execution analysis
+
+- [x] Added matched-observation comparison scaffolding for baseline and independent research candidates.
+- [x] Comparisons require stable observation identity, instrument/source agreement, explicit payout/cost data, and recorded latency.
+- [x] Missing payout or cost withholds post-cost expectancy; unresolved outcomes remain unresolved.
+- [x] Candidate comparison tests: **2/2 passed**.
+- [x] Promotion is hard-disabled in the comparison report; no Candidate 001/002 result can alter production selection.
+- [ ] Candidate 001/002 archive adapters and real out-of-sample cohorts remain pending prospective research data.
+
 ## Authorized milestones
 
 - [x] **A — Research infrastructure:** add a shadow-only signal-support contract without changing engine or entry eligibility.

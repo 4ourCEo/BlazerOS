@@ -17,9 +17,23 @@ public struct ExecutionObservation: Codable, Sendable, Equatable, Identifiable {
     public let spread: Double?
     public let strikeDisplacement: Double?
     public let remainingWindowMs: Double?
+    /// Prospective timestamps supplied by the app/operator. Missing values stay missing.
+    public let signalPublishedAt: Date?
+    public let presentedAt: Date?
+    public let acknowledgedAt: Date?
+    public let recordedAt: Date?
+    /// Broker facts are never inferred from the local recording timestamp.
+    public let brokerEntryAt: Date?
+    public let brokerEntryPrice: Double?
+    public let referencePrice: Double?
+    public let durationSeconds: Int?
 
     public init(armID: String, commit: ScanCommit, quote: LiveQuote?,
-                kind: String, reason: String? = nil, regime: String? = nil, now: Date = Date()) {
+                kind: String, reason: String? = nil, regime: String? = nil, now: Date = Date(),
+                signalPublishedAt: Date? = nil, presentedAt: Date? = nil,
+                acknowledgedAt: Date? = nil, recordedAt: Date? = nil,
+                brokerEntryAt: Date? = nil, brokerEntryPrice: Double? = nil,
+                referencePrice: Double? = nil, durationSeconds: Int? = nil) {
         id = UUID().uuidString
         self.armID = armID
         pair = commit.asset
@@ -32,6 +46,14 @@ public struct ExecutionObservation: Codable, Sendable, Equatable, Identifiable {
         let age = now.timeIntervalSince(commit.scannedAt) * 1000
         scanToRecordMs = age.isFinite && age >= 0 ? age : nil
         remainingWindowMs = scanToRecordMs.map { max(0, Timing.liveMs - $0) }
+        self.signalPublishedAt = signalPublishedAt
+        self.presentedAt = presentedAt
+        self.acknowledgedAt = acknowledgedAt
+        self.recordedAt = recordedAt ?? now
+        self.brokerEntryAt = brokerEntryAt
+        self.brokerEntryPrice = brokerEntryPrice.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+        self.referencePrice = referencePrice.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+        self.durationSeconds = durationSeconds.flatMap { [60, 180, 300].contains($0) ? $0 : nil }
         if let quote, quote.asset == commit.asset, quote.asOfMs.isFinite,
            quote.bid.isFinite, quote.ask.isFinite, quote.mid.isFinite,
            quote.bid > 0, quote.ask > quote.bid {
@@ -43,6 +65,64 @@ public struct ExecutionObservation: Codable, Sendable, Equatable, Identifiable {
         } else {
             quoteAgeMs = nil; spread = nil; strikeDisplacement = nil
         }
+    }
+}
+
+public enum ExecutionQualityClass: String, Codable, Sendable, Equatable {
+    case withinValidatedConditions
+    case lateEntry
+    case earlyOrUnconfirmed
+    case signalMissed
+    case invalidatedBeforeEntry
+    case unknownExecutionQuality
+    case applicationRelatedFailure
+}
+
+public struct ExecutionQualityAssessment: Codable, Sendable, Equatable {
+    public let classification: ExecutionQualityClass
+    public let reasons: [String]
+
+    public init(classification: ExecutionQualityClass, reasons: [String]) {
+        self.classification = classification
+        self.reasons = reasons
+    }
+}
+
+/// Attributes an observation to timing and evidence, never to its eventual outcome.
+public enum ExecutionQualityEvaluator {
+    public static func assess(
+        observation: ExecutionObservation,
+        signalAt: Date,
+        eligibilitySeconds: TimeInterval = EntryQuality.maxAgeSeconds,
+        invalidatedBeforeEntry: Bool = false
+    ) -> ExecutionQualityAssessment {
+        if observation.reason?.localizedCaseInsensitiveContains("application") == true {
+            return .init(classification: .applicationRelatedFailure,
+                reasons: [observation.reason ?? "Application-related failure"])
+        }
+        if invalidatedBeforeEntry {
+            return .init(classification: .invalidatedBeforeEntry,
+                reasons: ["The setup was invalidated before the recorded entry."])
+        }
+        guard observation.kind == "manual-entry" else {
+            return .init(classification: .signalMissed,
+                reasons: ["No manual entry was recorded for this observation."])
+        }
+        guard let brokerEntryAt = observation.brokerEntryAt else {
+            return .init(classification: .unknownExecutionQuality,
+                reasons: ["Broker entry time was not supplied or independently verified."])
+        }
+        let delta = brokerEntryAt.timeIntervalSince(signalAt)
+        guard delta >= -1 else {
+            return .init(classification: .earlyOrUnconfirmed,
+                reasons: ["Broker entry predates the signal timestamp."])
+        }
+        guard delta <= eligibilitySeconds else {
+            return .init(classification: .lateEntry,
+                reasons: ["Broker entry occurred after the validated entry window."])
+        }
+        return .init(classification: .withinValidatedConditions,
+            reasons: ["Broker entry time falls inside the validated entry window."])
     }
 }
 

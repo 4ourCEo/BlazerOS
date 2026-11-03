@@ -152,3 +152,25 @@ private func executionRow(_ id: Int, won: Bool, payout: Double? = 0.88, source: 
     conflict.outcome = "HIT"; conflict.pair = "GBP/USD"
     #expect(LedgerStatsEngine.evaluate(pair: "EUR/USD", rows: [first, conflict]).sampleSize == 0)
 }
+
+@Test func executionQualityDoesNotUseProfitToJudgeAdherence() {
+    let signalAt = cutoff.addingTimeInterval(-2)
+    let commit = ScanCommit(asset: "EUR/USD", engineCall: "HIGH", score: 80,
+        evidence: "fixture", strike: 1.1, fingerprint: "fixture", candleCount: 0,
+        candles: [], scannedAt: signalAt)
+    let observation = ExecutionObservation(armID: "arm", commit: commit, quote: nil,
+        kind: "manual-entry", now: signalAt.addingTimeInterval(2), brokerEntryAt: signalAt.addingTimeInterval(3))
+    let result = ExecutionQualityEvaluator.assess(observation: observation, signalAt: signalAt)
+    #expect(result.classification == .withinValidatedConditions)
+}
+
+@Test func missingBrokerTimeIsUnknownNotCompliant() {
+    let signalAt = cutoff.addingTimeInterval(-2)
+    let commit = ScanCommit(asset: "EUR/USD", engineCall: "HIGH", score: 80,
+        evidence: "fixture", strike: 1.1, fingerprint: "fixture", candleCount: 0,
+        candles: [], scannedAt: signalAt)
+    let observation = ExecutionObservation(armID: "arm", commit: commit, quote: nil,
+        kind: "manual-entry", now: signalAt.addingTimeInterval(2))
+    let result = ExecutionQualityEvaluator.assess(observation: observation, signalAt: signalAt)
+    #expect(result.classification == .unknownExecutionQuality)
+}
