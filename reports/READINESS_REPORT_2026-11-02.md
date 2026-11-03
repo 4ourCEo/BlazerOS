@@ -49,7 +49,10 @@
 - `swift build`: **passed after the visual refresh and domain-type extraction**
 - `git diff --check`: **passed**
 - Physical iPhone Xcode build: **passed** with automatic signing and provisioning updates
-- Physical iPhone install/launch: **passed** for commit `08ecc64`
+- Physical iPhone install/launch: **passed** for commit `351d100`
+- Physical iPhone screenshot: **captured after the STRIKE layout correction; compact no-action
+  hero state exposes the watchlist while preserving live chart and signal semantics**
+- Approved STRIKE app icon kit: **installed and included in the device build**
 - Independent adversarial QA: completed; findings were used to implement the fixes above
 
 ## Milestone 7 architectural hardening
@@ -60,13 +63,16 @@
   justified without introducing additional state synchronization.
 - `DeskScreen.swift` remains a cohesive presentation surface; its extracted visual components
   and chart/control subviews already isolate reusable UI behavior.
+- The final Scan correction was layout-only: the header, integrated market selector, hero
+  spacing, neutral verdict density, watchlist, and five-tab navigation were refined without
+  changing signal state, entry eligibility, or execution behavior.
 - `StrategyValidation.swift` remains a cohesive BlazerCore validation contract and engine; it
   has no LightningDesk dependencies or UI state.
 - Extracted `DeskMarket` and `SettleReceipt` into `Sources/LightningDesk/DeskDomainTypes.swift`.
   This reduced model-only domain declarations without changing public interfaces or behavior.
 - Before/after line counts: model `2813 → 2781` plus 34 lines in the new domain file; desk
   screen `1350`; strategy validation `803`.
-- Independent QA of `08ecc64` found no significant issues. Engine SHA remains
+- Independent QA of `351d100` found no significant issues. Engine SHA remains
   `7c02e550e2e6ca656a258ceefc6083f098ff40b2`.
 
 ## Data-quality assessment
