@@ -36,6 +36,14 @@
 
 Chunk 1 result: no PR was merged, closed, replayed, or force-pushed. Duplicate stacked work is not being reintroduced.
 
+## Chunk 2 result — critical safety
+
+- [x] Focused crypto, numeric, engine-boundary, scheduler, entry-gate, and feed-health suite: **41/41 passed**.
+- [x] Release `CoreAudit`: **71/71 passed**.
+- [x] Release `Parity`: **43/43 passed**; engine pin remains `7c02e550e2e6ca656a258ceefc6083f098ff40b2`.
+- [x] Finite-extreme arithmetic, malformed inputs, non-finite quotes/candles, cancellation, stale work, and duplicate scan handling remain fail-closed.
+- [x] No production strategy, pinned engine artifact, completed-candle rule, or eight-second eligibility logic changed.
+
 ## Authorized milestones
 
 - [x] **A — Research infrastructure:** add a shadow-only signal-support contract without changing engine or entry eligibility.
