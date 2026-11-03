@@ -3,7 +3,7 @@
 ## Status
 
 - Branch: `upgrade/strategy-validation-risk-research`
-- Latest implementation commit: `1bb9545` plus the current Milestone 6 campaign/register changes
+- Latest implementation commit: `08ecc64` (`Extract desk domain value types`)
 - Pull request: [#16](https://github.com/4ourCEo/BlazerOS/pull/16)
 - Live execution: disabled; no account or funds were changed
 
@@ -45,11 +45,29 @@
 
 ## Verification
 
-- `swift test`: **337 tests passed before Milestone 6 additions; targeted campaign/register tests pass**
-- `swift build`: **passed after Milestone 6 additions**
+- `swift test`: **359 tests passed in the latest independent QA run; focused hardening tests pass**
+- `swift build`: **passed after the visual refresh and domain-type extraction**
 - `git diff --check`: **passed**
-- iPhone simulator Xcode build: previously passed; rerun required after this pass
+- Physical iPhone Xcode build: **passed** with automatic signing and provisioning updates
+- Physical iPhone install/launch: **passed** for commit `08ecc64`
 - Independent adversarial QA: completed; findings were used to implement the fixes above
+
+## Milestone 7 architectural hardening
+
+- `LightningDeskModel.swift` remains intentionally cohesive around one `@MainActor` state
+  machine: scan ownership, the eight-second entry rail, durable settlement recovery, and
+  foreground/background invalidation share ordering and isolation invariants. No safe split was
+  justified without introducing additional state synchronization.
+- `DeskScreen.swift` remains a cohesive presentation surface; its extracted visual components
+  and chart/control subviews already isolate reusable UI behavior.
+- `StrategyValidation.swift` remains a cohesive BlazerCore validation contract and engine; it
+  has no LightningDesk dependencies or UI state.
+- Extracted `DeskMarket` and `SettleReceipt` into `Sources/LightningDesk/DeskDomainTypes.swift`.
+  This reduced model-only domain declarations without changing public interfaces or behavior.
+- Before/after line counts: model `2813 → 2781` plus 34 lines in the new domain file; desk
+  screen `1350`; strategy validation `803`.
+- Independent QA of `08ecc64` found no significant issues. Engine SHA remains
+  `7c02e550e2e6ca656a258ceefc6083f098ff40b2`.
 
 ## Data-quality assessment
 
@@ -139,15 +157,15 @@ Offshore fixed-expiry venues and unverified claims are excluded from live recomm
   any promotion threshold.
 - Campaign safety: no OANDA-proxy observation is treated as Pocket Option OTC evidence, no
   order placement is enabled, and no synthetic record is mixed into the authentic archive.
-- Physical iPhone validation remains blocked until an authorized device workflow is available.
-- A physical iPhone is now connected and detected (`Gilbert's iPhone`, iOS 27.0), but installation
-  is blocked on this Mac because no valid iOS Development signing identity or provisioning
-  profiles are installed. No device-level behavior is claimed until signing is repaired.
+- Physical iPhone workflow is partially verified: the signed app is installed and launched on
+  `Gilbert's iPhone` (iPhone 16, iOS 27.0). Full operator workflow coverage for interruption,
+  backgrounding, and manual settlement remains pending.
 - The forward collector is installed as a launchd `KeepAlive` service using the release runner,
   corrected repository paths, all-policy research mode, and persistent output at
   `~/Library/Logs/BlazerOS/primesettler.log`.
 
 ## Highest-priority next action
 
-Run the bounded forward paper-trading cohort with the journal enabled; do not allocate live capital
-or promote a strategy before its independently auditable evidence meets the declared gates.
+Run the bounded forward paper-trading cohort with the journal enabled and complete the remaining
+physical-device interruption checks; do not allocate live capital or promote a strategy before
+its independently auditable evidence meets the declared gates.
