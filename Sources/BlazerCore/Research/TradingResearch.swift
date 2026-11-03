@@ -101,6 +101,7 @@ public enum TradingResearchError: Error, Sendable, Equatable {
     case replayedAlert
     case missingObservation
     case mismatchedSource
+    case replayStorageFailure
 }
 
 /// Minimal webhook boundary. It is intentionally transport-agnostic so an HTTP server can
@@ -110,14 +111,20 @@ public actor PineScriptWebhookStore {
     private var latestTimestampByID: [String: Date] = [:]
     private let secret: Data
     private let maxClockSkew: TimeInterval
+    private let replayURL: URL
+    private var replayLoaded = false
 
-    public init(secret: String, maxClockSkew: TimeInterval = 120) {
+    public init(secret: String, maxClockSkew: TimeInterval = 120,
+                replayURL: URL = FileLocations.applicationSupport()
+                    .appendingPathComponent("Research/pine-webhook-replay.json")) {
         self.secret = Data(secret.utf8)
         self.maxClockSkew = maxClockSkew
+        self.replayURL = replayURL
     }
 
     public func ingest(_ data: Data, authorization: String, now: Date = Date())
         throws -> PineScriptWebhookAlert {
+        try loadReplayState()
         guard !secret.isEmpty else { throw TradingResearchError.unauthorized }
         let expected = HMAC<SHA256>.authenticationCode(for: data, using: SymmetricKey(data: secret))
         let expectedData = Data(expected)
@@ -141,7 +148,33 @@ public actor PineScriptWebhookStore {
         guard latestTimestampByID[alert.id] == nil else { throw TradingResearchError.replayedAlert }
         acceptedIDs.insert(alert.id)
         latestTimestampByID[alert.id] = alert.timestamp
+        try persistReplayState()
         return alert
+    }
+
+    private func loadReplayState() throws {
+        guard !replayLoaded else { return }
+        replayLoaded = true
+        guard FileManager.default.fileExists(atPath: replayURL.path) else { return }
+        do {
+            let data = try Data(contentsOf: replayURL)
+            let values = try JSONDecoder().decode([String: Date].self, from: data)
+            latestTimestampByID = values
+            acceptedIDs = Set(values.keys)
+        } catch {
+            throw TradingResearchError.replayStorageFailure
+        }
+    }
+
+    private func persistReplayState() throws {
+        do {
+            let parent = replayURL.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+            let data = try JSONEncoder().encode(latestTimestampByID)
+            try AtomicFile.write(data, to: replayURL)
+        } catch {
+            throw TradingResearchError.replayStorageFailure
+        }
     }
 }
 

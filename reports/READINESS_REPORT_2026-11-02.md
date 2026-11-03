@@ -13,12 +13,15 @@
 - Candidate 001 remains research-only and is rendered only in frozen replay.
 - TradingView Lightweight Charts-compatible export is local and source-labelled.
 - Pine webhook ingestion is authenticated, timestamp-bounded, deduplicated, replay-protected,
-  and research-only.
+  restart-safe through an atomic local replay ledger, and research-only.
 - Source-separated signal comparison and exact 60-second replay are implemented.
 - Frozen M1/M5 snapshots persist through replay restoration.
 - Research, paper, live-observation, proxy, synthetic, and venue-confirmed evidence types remain
   distinct in the validation models.
 - Capital-preservation reporting fails closed on incomplete confirmed cash inputs.
+- Milestone 5 research infrastructure compares matched candidate records, emits research-only
+  deterioration alerts, simulates hypothetical capital scenarios, and keeps broker suitability
+  states conservative until verified.
 - Foundation Models are bounded to local evidence and cannot mutate scans or execution.
 
 ## Fixes implemented in this pass
@@ -32,6 +35,8 @@
 - Sealed Foundation Model explanations use the scan-specific explanation and validation path.
 - Crypto scan timing begins before feed and engine work, avoiding an optimistic scan-to-record
   measurement.
+- Existing persistence recovery remains backward-compatible: valid journal lines are recovered
+  while malformed lines are quarantined.
 
 ## Verification
 
@@ -88,8 +93,20 @@ Offshore fixed-expiry venues and unverified claims are excluded from live recomm
 4. Add full conventional-market execution modelling only when a supported instrument and broker
    contract are selected.
 
+## Milestone 5 implementation status
+
+- Strategy competition: implemented for matched paper/live records; unresolved records remain
+  visible and are not counted as resolved performance.
+- Deterioration monitoring: implemented as a research-only watch/alert calculation; it never
+  retunes, replaces, or promotes a strategy.
+- Capital readiness scenarios: implemented for hypothetical account sizes and explicit minimum
+  position/cost/slippage assumptions; no funds or broker state are touched.
+- Broker decision engine: implemented with conservative pending-verification entries; it does not
+  convert web or broker claims into a live recommendation.
+- Continuous collection and physical iPhone background operation: pending platform-authorized
+  execution and provider evidence; no unsupported always-on service was introduced.
+
 ## Highest-priority next action
 
 Run the bounded forward paper-trading cohort with the journal enabled; do not allocate live capital
 or promote a strategy before its independently auditable evidence meets the declared gates.
-

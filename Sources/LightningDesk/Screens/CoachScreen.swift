@@ -89,7 +89,7 @@ struct CoachExpectancyMathCard: View {
                 Text("Expectancy = (P(Win) × Payout) − (P(Loss) × Risk)")
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
                     .foregroundStyle(DeskInk.electric)
-                Text("At an assumed 88% broker payout, break-even requires 53.2% verified wins. Directional score is not win probability; sizing must follow disciplined account risk.")
+                Text("Break-even depends on the recorded contract payout and costs. Directional score is not win probability; research results do not authorize sizing.")
                     .font(.system(size: 12, weight: .regular))
                     .foregroundStyle(DeskInk.slate)
             }
@@ -98,10 +98,10 @@ struct CoachExpectancyMathCard: View {
 
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Break-Even (88%)")
+                    Text("Break-Even")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(DeskInk.slate)
-                    Text("53.2%")
+                    Text("Unavailable")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundStyle(DeskInk.ink)
                 }

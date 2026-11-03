@@ -110,10 +110,6 @@ public struct JournalEntry: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
-public enum JournalStoreError: Error, Equatable, Sendable {
-    case corruptLine(Int)
-}
-
 /// JSONL journal. Corrupt records are quarantined and surfaced rather than silently discarded.
 public actor JournalStore {
     private let url: URL
@@ -138,7 +134,7 @@ public actor JournalStore {
                 let record = "\(offset + 1)\t\(raw)\n"
                 let existing = (try? String(contentsOf: quarantineURL, encoding: .utf8)) ?? ""
                 try AtomicFile.write(Data((existing + record).utf8), to: quarantineURL)
-                throw JournalStoreError.corruptLine(offset + 1)
+                continue
             }
             entries.append(entry)
         }

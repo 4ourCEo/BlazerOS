@@ -14,14 +14,33 @@ private func signed(_ alert: PineScriptWebhookAlert, secret: String) throws -> (
     let alert = PineScriptWebhookAlert(id: "a1", symbol: "EUR/USD", direction: "HIGH",
         timestamp: now, price: 1.1, timeframeSeconds: 60, strategyVersion: "pine-v1")
     let (data, signature) = try signed(alert, secret: "secret")
-    let store = PineScriptWebhookStore(secret: "secret")
+    let replayURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("pine-replay-\(UUID().uuidString).json")
+    let store = PineScriptWebhookStore(secret: "secret", replayURL: replayURL)
     await #expect(throws: TradingResearchError.unauthorized) {
         try await store.ingest(data, authorization: "bad", now: now)
     }
+
     let accepted = try await store.ingest(data, authorization: signature, now: now)
     #expect(accepted == alert)
     await #expect(throws: TradingResearchError.duplicateAlert) {
         try await store.ingest(data, authorization: signature, now: now)
+    }
+
+}
+
+@Test func webhookReplayStateSurvivesStoreRestart() async throws {
+    let now = Date(timeIntervalSince1970: 1_700_000_100)
+    let alert = PineScriptWebhookAlert(id: "restart-1", symbol: "EUR/USD", direction: "HIGH",
+        timestamp: now, price: 1.1, timeframeSeconds: 60, strategyVersion: "pine-v1")
+    let (data, signature) = try signed(alert, secret: "secret")
+    let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent("pine-replay-\(UUID().uuidString).json")
+    let first = PineScriptWebhookStore(secret: "secret", replayURL: url)
+    _ = try await first.ingest(data, authorization: signature, now: now)
+    let restarted = PineScriptWebhookStore(secret: "secret", replayURL: url)
+    await #expect(throws: TradingResearchError.duplicateAlert) {
+        try await restarted.ingest(data, authorization: signature, now: now)
     }
 }
 

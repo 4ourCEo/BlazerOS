@@ -689,7 +689,7 @@ public struct IntelScreen: View {
                     .padding(.vertical, 2)
 
                 HStack {
-                    Text("Break-even: 53.2% (at 88% payout)")
+                    Text("Break-even: unavailable until a contract payout and cost basis are recorded")
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .foregroundStyle(DeskInk.slate)
                     Spacer()
