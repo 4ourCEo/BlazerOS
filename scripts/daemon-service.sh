@@ -2,12 +2,13 @@
 set -euo pipefail
 
 PLIST_NAME="com.blazeros.primesettler.plist"
-SOURCE_PLIST="/Users/thagreat/BlazerOS/LaunchAgents/${PLIST_NAME}"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SOURCE_PLIST="${REPO_ROOT}/LaunchAgents/${PLIST_NAME}"
 TARGET_DIR="${HOME}/Library/LaunchAgents"
 TARGET_PLIST="${TARGET_DIR}/${PLIST_NAME}"
 LOG_DIR="${HOME}/Library/Logs/BlazerOS"
 LOG_FILE="${LOG_DIR}/primesettler.log"
-BINARY="/Users/thagreat/BlazerOS/.build/out/Products/Release/ForwardTest"
+BINARY="${REPO_ROOT}/.build/out/Products/Release/ForwardTest"
 
 mkdir -p "${TARGET_DIR}" "${LOG_DIR}"
 
@@ -16,7 +17,7 @@ action="${1:-status}"
 case "$action" in
     install|start)
         echo "==> Building optimized release ForwardTest binary..."
-        swift build -c release --target ForwardTest
+        (cd "${REPO_ROOT}" && swift build -c release --target ForwardTest)
         
         echo "==> Installing LaunchAgent to ${TARGET_PLIST}..."
         cp "${SOURCE_PLIST}" "${TARGET_PLIST}"

@@ -140,6 +140,12 @@ Offshore fixed-expiry venues and unverified claims are excluded from live recomm
 - Campaign safety: no OANDA-proxy observation is treated as Pocket Option OTC evidence, no
   order placement is enabled, and no synthetic record is mixed into the authentic archive.
 - Physical iPhone validation remains blocked until an authorized device workflow is available.
+- A physical iPhone is now connected and detected (`Gilbert's iPhone`, iOS 27.0), but installation
+  is blocked on this Mac because no valid iOS Development signing identity or provisioning
+  profiles are installed. No device-level behavior is claimed until signing is repaired.
+- The forward collector is installed as a launchd `KeepAlive` service using the release runner,
+  corrected repository paths, all-policy research mode, and persistent output at
+  `~/Library/Logs/BlazerOS/primesettler.log`.
 
 ## Highest-priority next action
 
