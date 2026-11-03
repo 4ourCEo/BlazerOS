@@ -82,6 +82,17 @@ Chunk 1 result: no PR was merged, closed, replayed, or force-pushed. Duplicate s
 - [x] Promotion is hard-disabled in the comparison report; no Candidate 001/002 result can alter production selection.
 - [ ] Candidate 001/002 archive adapters and real out-of-sample cohorts remain pending prospective research data.
 
+## Chunk 7 result — RC1 STRIKE UI/application verification
+
+- [x] iOS simulator build and full `BlazerOS` test scheme passed on iPhone 18 Pro / iOS 27.0 simulator.
+- [x] Execution flow coverage passed, including manual entry, stale/historical refusal, expired unentered signals, late-entry timestamp validation, journal recovery, and settlement reference handling.
+- [x] Layout coverage passed at the iPhone 16 canvas and largest Dynamic Type size.
+- [x] Engine parity, phone target, and OTC integration tests passed.
+- [x] Fixed expired directional signals being rendered as `WAIT` instead of `EXPIRED`; expired signals remain non-actionable and do not create awaiting-outcome state.
+- [x] STRIKE desk surfaces and existing Radar/Intel/Coach/Journal navigation remain in the tested application; no static mock replacement or primary-path shadow indicator was added.
+- [x] Approved app icon asset remains present in `Brand/AppIcon.png`.
+- [ ] Physical iPhone acceptance for this final RC1 source remains pending; simulator evidence is not device evidence.
+
 ## Authorized milestones
 
 - [x] **A — Research infrastructure:** add a shadow-only signal-support contract without changing engine or entry eligibility.

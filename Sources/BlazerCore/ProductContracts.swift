@@ -140,7 +140,11 @@ public struct DeskFrame: Sendable, Equatable {
         historical: Bool = false
     ) -> DeskFrame {
         let actionable = !historical && (cabinetSide == "HIGH" || cabinetSide == "LOW") && elapsedMs > 0 && BeamContract.remainingMs(elapsedMs: elapsedMs, historical: historical) > 0 && feed == .live && commit.veto == nil
-        let verb = actionable || historical
+        let expired = !historical
+            && commit.veto == nil
+            && (cabinetSide == "HIGH" || cabinetSide == "LOW")
+            && elapsedMs > Timing.liveMs
+        let verb = actionable || historical || expired
             ? BeamContract.verb(
                 cabinetSide: cabinetSide,
                 elapsedMs: elapsedMs,

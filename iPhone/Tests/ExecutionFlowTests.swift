@@ -120,6 +120,111 @@ final class ExecutionFlowTests: XCTestCase {
         XCTAssertEqual(model.entryIssue, "Historical scan; scan again before entry")
     }
 
+    func testExpiredUnenteredSignalDoesNotBecomeAwaitingOutcome() {
+        let root = root()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = LightningDeskModel(storageRoot: root)
+        let (commit, signal, quote) = armedFixture()
+        model.installArmedScanForTesting(
+            commit: commit, signal: signal, quote: quote,
+            armedAt: Date().addingTimeInterval(-9))
+
+        XCTAssertEqual(model.frame?.verb, "EXPIRED")
+        XCTAssertFalse(model.awaitingOutcome)
+        XCTAssertNil(model.activeTrade)
+        XCTAssertTrue(model.canLogLateEntry)
+    }
+
+    func testDemoDeskCannotReuseExpiredDirectionalSignalForLateEntry() {
+        let root = root()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = LightningDeskModel(storageRoot: root)
+        let (commit, signal, quote) = armedFixture()
+        model.installArmedScanForTesting(
+            commit: commit, signal: signal, quote: quote,
+            armedAt: Date().addingTimeInterval(-9))
+        XCTAssertTrue(model.canLogLateEntry)
+
+        model.loadDemoDesk()
+        XCTAssertFalse(model.canLogLateEntry)
+        XCTAssertEqual(model.frame?.verb, "HISTORICAL")
+        XCTAssertFalse(model.awaitingOutcome)
+    }
+
+    func testLateEntryRequiresAndPreservesActualBrokerTime() async {
+        let root = root()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = LightningDeskModel(storageRoot: root)
+        let (commit, signal, quote) = armedFixture()
+        model.installArmedScanForTesting(
+            commit: commit, signal: signal, quote: quote,
+            armedAt: Date().addingTimeInterval(-9))
+        _ = await model.rememberForTesting()
+
+        await model.lockInTrade(late: true)
+        XCTAssertNil(model.activeTrade)
+        XCTAssertEqual(model.entryIssue, "Actual broker entry time is required for late logging")
+
+        let actual = Date()
+        await model.lockInTrade(duration: 180, late: true, actualEntryTime: actual)
+        guard let activeTrade = model.activeTrade else {
+            XCTFail("Late entry should create an active trade")
+            return
+        }
+        XCTAssertEqual(activeTrade.enteredAt.timeIntervalSince1970,
+                       actual.timeIntervalSince1970, accuracy: 0.001)
+        XCTAssertEqual(activeTrade.expiresAt.timeIntervalSince1970,
+                       actual.addingTimeInterval(180).timeIntervalSince1970, accuracy: 0.001)
+        XCTAssertNil(model.activeTrade?.brokerEntryPrice)
+    }
+
+    func testUnknownLateEntryTimeCreatesOnlyIncompleteResearchObservation() async {
+        let root = root()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = LightningDeskModel(storageRoot: root)
+        let (commit, signal, quote) = armedFixture()
+        model.installArmedScanForTesting(
+            commit: commit, signal: signal, quote: quote,
+            armedAt: Date().addingTimeInterval(-9))
+        _ = await model.rememberForTesting()
+
+        await model.recordUnknownLateEntryTime()
+        XCTAssertNil(model.activeTrade)
+        XCTAssertFalse(model.awaitingOutcome)
+        XCTAssertEqual(model.executionObservations.last?.kind, "late-entry-unknown-time")
+    }
+
+    func testExpiredPositionRestoredAfterRelaunchCanBeSettled() async throws {
+        let root = root()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (commit, _, _) = armedFixture()
+        let armID = "restored-expired-arm"
+        let trade = ActiveTrade(
+            id: armID, pair: commit.asset, side: "HIGH", strike: commit.strike,
+            score: commit.score, enteredAt: Date().addingTimeInterval(-120),
+            durationSec: 60, fingerprint: commit.fingerprint)
+        let persistence = PersistenceCoordinator(root: root)
+        try await persistence.recordScan(
+            JournalEntry(
+                id: armID, fingerprint: commit.fingerprint, pair: commit.asset,
+                score: commit.score, side: "HIGH", verb: "TAP HIGH", why: "test",
+                strike: commit.strike, veto: nil, scannedAt: commit.scannedAt),
+            snapshot: SnapshotRecord(
+                hash: commit.fingerprint, fullFingerprint: commit.fullFingerprint,
+                pair: commit.asset, bars: commit.candles, strike: commit.strike,
+                score: commit.score, side: commit.engineCall))
+        try await persistence.saveOpenPosition(ActivePositionRecord(
+            armID: armID, trade: trade, fullFingerprint: commit.fullFingerprint,
+            scanInput: commit.inputSnapshot))
+
+        let model = LightningDeskModel(storageRoot: root)
+        await model.restoreForTesting()
+        XCTAssertTrue(model.awaitingOutcome)
+        XCTAssertNil(model.activeTrade)
+        await model.settle(.hit)
+        XCTAssertEqual(model.journal.first(where: { $0.id == armID })?.outcome, "HIT")
+    }
+
     func testLockedEntrySurvivesRelaunch() async {
         let root = root()
         defer { try? FileManager.default.removeItem(at: root) }
