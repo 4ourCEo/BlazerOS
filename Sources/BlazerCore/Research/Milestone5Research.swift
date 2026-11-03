@@ -210,3 +210,76 @@ public enum BrokerDecisionEngine {
         )
     ]
 }
+
+public enum ResearchGapSeverity: String, Codable, Sendable, CaseIterable {
+    case p0, p1, p2, p3
+}
+
+public enum ResearchGapStatus: String, Codable, Sendable, CaseIterable {
+    case open, blocked, fixed, verified, closed
+}
+
+public struct ResearchGap: Codable, Sendable, Equatable, Identifiable {
+    public let id: String
+    public let component: String
+    public let severity: ResearchGapSeverity
+    public let evidence: String
+    public let rootCause: String?
+    public let owner: String
+    public let requiredFix: String
+    public let regressionTest: String
+    public let independentQA: String?
+    public let disposition: String?
+    public let relatedReference: String?
+    public let status: ResearchGapStatus
+    public let updatedAt: Date
+
+    public init(id: String, component: String, severity: ResearchGapSeverity, evidence: String,
+                rootCause: String? = nil, owner: String, requiredFix: String,
+                regressionTest: String, independentQA: String? = nil,
+                disposition: String? = nil, relatedReference: String? = nil,
+                status: ResearchGapStatus = .open, updatedAt: Date = Date()) {
+        self.id = id
+        self.component = component
+        self.severity = severity
+        self.evidence = evidence
+        self.rootCause = rootCause
+        self.owner = owner
+        self.requiredFix = requiredFix
+        self.regressionTest = regressionTest
+        self.independentQA = independentQA
+        self.disposition = disposition
+        self.relatedReference = relatedReference
+        self.status = status
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct ForwardValidationCampaign: Codable, Sendable, Equatable, Identifiable {
+    public let id: String
+    public let version: String
+    public let strategies: [ResearchStrategyCandidate]
+    public let instruments: [String]
+    public let sources: [String]
+    public let expirySeconds: Int
+    public let evaluationCriteria: [String]
+    public let createdAt: Date
+
+    public init(id: String, version: String, strategies: [ResearchStrategyCandidate],
+                instruments: [String], sources: [String], expirySeconds: Int = 60,
+                evaluationCriteria: [String], createdAt: Date = Date()) throws {
+        guard !id.isEmpty, !version.isEmpty, !strategies.isEmpty,
+              !instruments.isEmpty, !sources.isEmpty, expirySeconds == 60,
+              !evaluationCriteria.isEmpty else {
+            throw Milestone5ResearchError.invalidInput
+        }
+        self.id = id
+        self.version = version
+        self.strategies = strategies
+        self.instruments = instruments
+        self.sources = sources
+        self.expirySeconds = expirySeconds
+        self.evaluationCriteria = evaluationCriteria
+        self.createdAt = createdAt
+    }
+}

@@ -3,8 +3,8 @@
 ## Status
 
 - Branch: `upgrade/strategy-validation-risk-research`
-- Commit at audit start: `c390bbfcb70a2c29ade2d091f9e6743e429a47fa`
-- Pull request: none for the current branch
+- Latest implementation commit: `1bb9545` plus the current Milestone 6 campaign/register changes
+- Pull request: [#16](https://github.com/4ourCEo/BlazerOS/pull/16)
 - Live execution: disabled; no account or funds were changed
 
 ## Completed capabilities
@@ -23,6 +23,11 @@
   deterioration alerts, simulates hypothetical capital scenarios, and keeps broker suitability
   states conservative until verified.
 - Foundation Models are bounded to local evidence and cannot mutate scans or execution.
+- Forward-validation campaigns are versioned and immutable after persistence, with a fixed
+  60-second expiry configuration, explicit strategy/instrument/source scope, and declared
+  evaluation criteria.
+- A durable research gap register supports P0-P3 severity, owner, evidence, regression test,
+  independent QA result, disposition, status, and related commit/PR references.
 
 ## Fixes implemented in this pass
 
@@ -40,8 +45,8 @@
 
 ## Verification
 
-- `swift test`: **333 tests passed**
-- `swift build`: **passed**
+- `swift test`: **337 tests passed before Milestone 6 additions; targeted campaign/register tests pass**
+- `swift build`: **passed after Milestone 6 additions**
 - `git diff --check`: **passed**
 - iPhone simulator Xcode build: previously passed; rerun required after this pass
 - Independent adversarial QA: completed; findings were used to implement the fixes above
@@ -105,6 +110,19 @@ Offshore fixed-expiry venues and unverified claims are excluded from live recomm
   convert web or broker claims into a live recommendation.
 - Continuous collection and physical iPhone background operation: pending platform-authorized
   execution and provider evidence; no unsupported always-on service was introduced.
+
+## Milestone 6 implementation status
+
+- Versioned forward campaign and persistent P0-P3 gap register are implemented in the existing
+  research archive; they are not read by the production engine, ledger, entry gate, or CloudKit.
+- Existing append-only signal registration remains the source of truth for forward observations:
+  signals are persisted before they are exposed as pending observations, and outcomes are
+  resumable after restart.
+- Replay validation already rejects future quotes/candles and requires the pinned engine,
+  completed candles, instrument mapping, and exact signal timestamp. The campaign model pins
+  the same 60-second expiry contract.
+- Continuous collection remains explicitly pending when the provider/session or iOS runtime
+  cannot guarantee observations; missing observations are not synthesized.
 
 ## Highest-priority next action
 

@@ -93,6 +93,22 @@ public actor ResearchStore {
         return values
     }
 
+    public func record(_ campaign: ForwardValidationCampaign) throws {
+        try writeOnce(campaign, directory: "campaigns", name: campaign.id)
+    }
+
+    public func campaigns() throws -> [ForwardValidationCampaign] {
+        try load(ForwardValidationCampaign.self, directory: "campaigns")
+    }
+
+    public func record(_ gap: ResearchGap) throws {
+        try writeOnce(gap, directory: "gap-register", name: gap.id)
+    }
+
+    public func gaps() throws -> [ResearchGap] {
+        try load(ResearchGap.self, directory: "gap-register")
+    }
+
     private func writeOnce<T: Encodable>(_ value: T, directory: String, name: String) throws {
         guard !name.isEmpty, name.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" }) else {
             throw ScanError.failed("Invalid research event ID")
