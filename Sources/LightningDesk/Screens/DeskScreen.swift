@@ -16,16 +16,12 @@ struct DeskScreen: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 2)
 
-            topIntelligenceBar
-                .padding(.horizontal, 20)
-                .padding(.top, 4)
-
             HStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Scan")
-                        .font(.system(size: 30, weight: .bold, design: .rounded))
+                        .font(.system(size: 29, weight: .bold, design: .rounded))
                         .foregroundStyle(DeskInk.ink)
-                    Text("High-probability opportunities, filtered and ready.")
+                    Text("Live market intelligence.")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(DeskInk.slate)
                 }
@@ -38,18 +34,11 @@ struct DeskScreen: View {
                     .overlay(Circle().strokeBorder(Color.white.opacity(0.08), lineWidth: 0.6))
             }
             .padding(.horizontal, 20)
-            .padding(.top, 18)
+            .padding(.top, 16)
 
-            Picker("Market", selection: $model.marketMode) {
-                Text("FX").tag(DeskMarket.fx)
-                Text("Crypto").tag(DeskMarket.crypto)
-            }
-            .pickerStyle(.segmented)
-            .tint(DeskInk.electric)
-            .labelsHidden()
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
-            .disabled(model.activeTrade != nil || model.awaitingOutcome || model.isSettlementInFlight)
+            marketSelector
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
 
             hero
                 .padding(.horizontal, 20)
@@ -108,6 +97,39 @@ struct DeskScreen: View {
         .onChange(of: model.marketMode) { _, _ in
             Task { await model.scan() }
         }
+    }
+
+    private var marketSelector: some View {
+        HStack(spacing: 3) {
+            marketOption(.fx, title: "FX")
+            marketOption(.crypto, title: "Crypto")
+        }
+        .padding(3)
+        .background(DeskInk.surface.opacity(0.82), in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.07), lineWidth: 0.6))
+        .disabled(model.activeTrade != nil || model.awaitingOutcome || model.isSettlementInFlight)
+    }
+
+    private func marketOption(_ market: DeskMarket, title: String) -> some View {
+        let selected = model.marketMode == market
+        return Button {
+            guard !selected else { return }
+            DeskHaptics.tabSwitch()
+            model.marketMode = market
+        } label: {
+            Text(title)
+                .font(.system(size: 12, weight: selected ? .semibold : .medium))
+                .foregroundStyle(selected ? DeskInk.ink : DeskInk.slate)
+                .frame(maxWidth: .infinity)
+                .frame(height: 32)
+                .background(
+                    Capsule()
+                        .fill(selected ? DeskInk.indigo.opacity(0.9) : .clear)
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private var watchlistSection: some View {
@@ -205,37 +227,22 @@ struct DeskScreen: View {
     }
 
     private var deskMasthead: some View {
-        HStack(alignment: .bottom) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Image(systemName: "bolt.horizontal.circle.fill")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(DeskInk.electric)
-                    Text("BLAZEROS")
-                        .font(.system(size: 10, weight: .heavy, design: .monospaced))
-                        .tracking(1.8)
-                        .foregroundStyle(DeskInk.electric)
-                }
-                Text("Command desk")
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
-                    .foregroundStyle(DeskInk.ink)
-            }
-
+        HStack(spacing: 7) {
+            Image(systemName: "bolt.horizontal.circle.fill")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(DeskInk.electric)
+            Text("BLAZEROS")
+                .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                .tracking(1.8)
+                .foregroundStyle(DeskInk.ink)
             Spacer()
-
-            VStack(alignment: .trailing, spacing: 3) {
-                Text(model.marketMode == .crypto ? "CRYPTO RESEARCH" : "FX RESEARCH")
-                    .font(.system(size: 9, weight: .heavy, design: .monospaced))
-                    .tracking(0.8)
-                    .foregroundStyle(DeskInk.slate)
-                Text("MANUAL ONLY")
-                    .font(.system(size: 8, weight: .bold, design: .monospaced))
-                    .tracking(0.7)
-                    .foregroundStyle(DeskInk.emerald.opacity(0.85))
-            }
+            Circle()
+                .fill(feedColor)
+                .frame(width: 6, height: 6)
+                .shadow(color: feedColor.opacity(0.75), radius: 4)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("BlazerOS command desk, \(model.marketMode == .crypto ? "crypto" : "FX") research, manual only")
+        .accessibilityLabel("BlazerOS, \(feedWord)")
     }
 
     private var topIntelligenceBar: some View {
@@ -362,21 +369,17 @@ struct DeskScreen: View {
     }
 
     private var hero: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 10) {
             pairRow
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                scanFreshnessBadge(asOf: model.lastScanAt, now: context.date)
-            }
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Label("PRICE ACTION", systemImage: "chart.xyaxis.line")
-                        .font(.system(size: 9, weight: .heavy, design: .monospaced))
-                        .tracking(0.9)
+                    Label("Market movement", systemImage: "chart.xyaxis.line")
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(DeskInk.slate)
                     Spacer()
-                    Text("M1 · 32 BARS")
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
-                        .foregroundStyle(DeskInk.slate.opacity(0.65))
+                    Text(feedWord)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(feedColor)
                 }
 
                 MiniCandleChart(
@@ -387,12 +390,12 @@ struct DeskScreen: View {
                     pair: model.pair
                 )
                 .equatable()
-                .frame(height: 145)
+                .frame(height: 104)
                 .frame(maxWidth: .infinity)
             }
             .padding(.horizontal, 12)
-            .padding(.top, 10)
-            .padding(.bottom, 8)
+            .padding(.top, 8)
+            .padding(.bottom, 6)
             .background(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(Color.black.opacity(0.16))
@@ -406,7 +409,7 @@ struct DeskScreen: View {
                 rail
             }
         }
-        .padding(20)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(heroSurface)
         .overlay(alignment: .bottom) {
@@ -644,15 +647,16 @@ struct DeskScreen: View {
     }
 
     private var verdict: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let compact = model.activeTrade == nil && !isArmed
+        return VStack(alignment: .leading, spacing: compact ? 4 : 6) {
             // Header Row: Score + Live Strike
             HStack(alignment: .firstTextBaseline) {
                 Text(scoreText)
-                    .font(.system(size: 54, weight: .semibold))
+                    .font(.system(size: compact ? 38 : 54, weight: .semibold))
                     .foregroundStyle(DeskInk.ink)
                     .monospacedDigit()
                     .contentTransition(.numericText())
-                    .frame(minHeight: 56, alignment: .leading)
+                    .frame(minHeight: compact ? 38 : 56, alignment: .leading)
                     .animation(.spring(response: 0.45, dampingFraction: 0.72), value: scoreText)
 
                 Spacer()
@@ -741,11 +745,11 @@ struct DeskScreen: View {
                 .animation(.spring(response: 0.35, dampingFraction: 0.7), value: verbText)
 
                 Text(telemetry.telemetryDetail)
-                    .font(.system(size: 13, weight: .regular))
+                    .font(.system(size: compact ? 11 : 13, weight: .regular))
                     .foregroundStyle(DeskInk.slate)
-                    .lineLimit(2)
+                    .lineLimit(compact ? 1 : 2)
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, minHeight: 32, alignment: .topLeading)
+                    .frame(maxWidth: .infinity, minHeight: compact ? 20 : 32, alignment: .topLeading)
             }
 
             if model.activeTrade == nil && isArmed {
