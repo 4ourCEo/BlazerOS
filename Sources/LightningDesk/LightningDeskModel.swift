@@ -956,7 +956,13 @@ public final class LightningDeskModel: ObservableObject {
     }
 
     public func side(for asset: String) -> String? {
-        book.first(where: { $0.asset == asset })?.side ?? cabinetSideByAsset[asset]
+        guard let bookSide = book.first(where: { $0.asset == asset })?.side,
+              bookSide != "—",
+              !bookSide.isEmpty
+        else {
+            return cabinetSideByAsset[asset]
+        }
+        return bookSide
     }
 
     /// True while a settlement write is in progress. Used to freeze navigation.

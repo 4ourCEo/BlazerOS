@@ -257,6 +257,8 @@ private struct RadarPlot: View {
                         radarMarker(pair: pair, isSelected: pair == model.pair)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(radarAccessibilityLabel(for: pair))
+                    .accessibilityAddTraits(pair == model.pair ? .isSelected : [])
                     .position(markerPoint(index: index, pair: pair, center: center, radius: radius))
                 }
 
@@ -308,6 +310,13 @@ private struct RadarPlot: View {
                     .background(DeskInk.surface.opacity(0.95), in: Capsule())
             }
         }
+    }
+
+    private func radarAccessibilityLabel(for pair: String) -> String {
+        let side = model.side(for: pair) ?? "WAIT"
+        let direction = side == "HIGH" ? "CALL" : side == "LOW" ? "PUT" : side
+        let score = model.score(for: pair).map { ", score \($0)" } ?? ""
+        return "\(pair), \(direction)\(score)\(pair == model.pair ? ", selected" : "")"
     }
 }
 
