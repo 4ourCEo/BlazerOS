@@ -51,6 +51,7 @@ struct DeskScreen: View {
                 Text("FX").tag(DeskMarket.fx)
             }
             .pickerStyle(.segmented)
+            .tint(DeskInk.electric)
             .labelsHidden()
             .frame(maxWidth: 220)
             .disabled(model.activeTrade != nil || model.awaitingOutcome || model.isSettlementInFlight)
