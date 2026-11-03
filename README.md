@@ -112,6 +112,16 @@ A calendar/news feed, trained probability calibrator and prospective promotion e
 
 See [the design report](reports/SCAN_ENGINE_DESIGN_DEBATE_2026-10-02.md) and [implementation notes](reports/SCAN_RESEARCH_IMPLEMENTATION.md).
 
+## Candidate 001 research
+
+Candidate 001 is an isolated, research-only analyzer for completed-candle structure,
+BOS/CHoCH, three-candle FVGs, Fibonacci 0.50/0.618 levels, optional completed M15
+confirmation, and bounded retracement lifecycle states. Replay annotations are rendered
+in the Journal replay inspector from the frozen candle snapshot; they never modify the
+JavaScriptCore signal, desk call, entry rail, or execution rules. Pine webhook alerts,
+when supplied by a host transport, remain authenticated external research observations
+and are source-separated from authoritative BlazerOS signals.
+
 ## Verified execution intelligence
 
 One expandable Intel card shows confirmed evidence, execution timing, quote coverage and market/expiry breakdowns. Entry and gate-rejection telemetry lives under `Research/execution-quality`, separate from the immutable execution ledger. It records scan-to-record timing; it cannot infer venue fill timing. Historical missing policy/regime/payout fields remain unknown.

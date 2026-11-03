@@ -36,8 +36,12 @@ public enum ScanKernel {
         guard StrategyEngine.isReady else {
             throw ScanError.failed("SCAN ENGINE OFFLINE")
         }
-        let completed = input.candles1m.map {
-            CompletedBar(
+        let evaluationMs = input.evaluatedAtMs
+        let completed: [CompletedBar] = input.candles1m.compactMap {
+            guard Self.isClosed($0.time, intervalSeconds: 60, evaluatedAtMs: evaluationMs) else {
+                return nil
+            }
+            return CompletedBar(
                 time: $0.time,
                 open: $0.open,
                 high: $0.high,
@@ -46,8 +50,14 @@ public enum ScanKernel {
                 complete: true
             )
         }
-        let frozenM5 = input.candles5m.map {
-            Candle(time: $0.time, open: $0.open, high: $0.high, low: $0.low, close: $0.close)
+        let frozenM5: [Candle] = input.candles5m.compactMap {
+            guard Self.isClosed($0.time, intervalSeconds: 300, evaluatedAtMs: evaluationMs) else {
+                return nil
+            }
+            return Candle(time: $0.time, open: $0.open, high: $0.high, low: $0.low, close: $0.close)
+        }
+        guard completed.count >= 20, frozenM5.count >= 20 else {
+            throw ScanError.failed("Feed incomplete: forming or future candle present")
         }
         let frozenBid = input.bid
         let frozenAsk = input.ask
@@ -63,6 +73,7 @@ public enum ScanKernel {
                 close: $0.close
             )
         }
+
         input.expirySeconds = expiry
         let barComplete = !ringBars.isEmpty && ringBars.allSatisfy(\.complete)
         let realSpread: Double? = input.spread.isFinite && input.spread > 0 ? input.spread : nil
@@ -170,5 +181,16 @@ public enum ScanKernel {
             veto: scoreValid ? nil : "Invalid engine numeric output",
             driftPips: nil
         )
+    }
+
+    private static func isClosed(
+        _ time: Double,
+        intervalSeconds: Double,
+        evaluatedAtMs: Double?
+    ) -> Bool {
+        guard time.isFinite, time > 0 else { return false }
+        guard let evaluatedAtMs else { return true }
+        guard evaluatedAtMs.isFinite, evaluatedAtMs > 0 else { return false }
+        return (time + intervalSeconds) * 1000 <= evaluatedAtMs + 1
     }
 }

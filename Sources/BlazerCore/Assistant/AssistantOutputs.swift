@@ -158,6 +158,7 @@ public struct SessionDebrief: Codable, Sendable, Equatable {
 
     public static func fallback(context: AssistantContext) -> SessionDebrief {
         let p = context.performance
+        let risk = context.capitalPreservation
         let missing = context.gaps.filter { $0.kind == .missingConfirmation }.map(\.recordID)
         let late = context.gaps.filter { $0.kind == .lateEntry }.map(\.recordID)
         let stale = context.gaps.filter { $0.kind == .staleFeed }.map(\.recordID)
@@ -167,8 +168,34 @@ public struct SessionDebrief: Codable, Sendable, Equatable {
         } else {
             summary = "\(p.wins) confirmed wins and \(p.losses) confirmed losses out of \(p.sampleSize). \(p.caveat)"
         }
+        let riskNote: String
+        if let risk, risk.confirmedResolved > 0 {
+            let streak = risk.maximumConsecutiveLosses.map(String.init) ?? "unavailable"
+            if risk.cashCoverageComplete, let drawdown = risk.maximumDrawdown {
+                riskNote = " Confirmed-only research risk: maximum peak-to-valley drawdown was "
+                    + String(format: "%.2f", drawdown)
+                    + " in recorded stake-denomination units; longest loss streak was "
+                    + "\(streak). This is descriptive and does not set a stop."
+            } else {
+                riskNote = " Confirmed-only research risk: cash drawdown is unavailable because "
+                    + "input coverage or safe aggregation is incomplete; longest loss streak was "
+                    + "\(streak)."
+            }
+        } else {
+            riskNote = ""
+        }
+        let validationNote: String
+        if let validation = context.strategyValidation?.first {
+            let expectancy = validation.payoutAdjustedExpectancy
+                .map { String(format: "%+.4f", $0) } ?? "unavailable"
+            validationNote = " \(validation.stage.rawValue) research: \(validation.resolved) resolved, "
+                + "effective N \(String(format: "%.1f", validation.effectiveSampleSize)), "
+                + "payout-adjusted expectancy \(expectancy). \(validation.status)."
+        } else {
+            validationNote = ""
+        }
         return SessionDebrief(
-            summary: summary,
+            summary: summary + riskNote + validationNote,
             sampleSize: p.sampleSize, wins: p.wins, losses: p.losses, ties: p.ties,
             unresolved: p.unresolved, winRate: p.winRate, expectancy: p.expectancy,
             missingConfirmations: missing,

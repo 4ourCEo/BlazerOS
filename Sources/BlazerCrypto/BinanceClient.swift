@@ -19,6 +19,10 @@ private let binanceLog = Logger(subsystem: "com.blazer.ct", category: "BinanceCl
 
 public enum BinanceClient {
 
+    private struct ServerTimeResponse: Decodable {
+        let serverTime: Int64
+    }
+
     public static let symbolMap: [String: String] = [
         "BTC/USDT": "BTCUSDT",
         "ETH/USDT": "ETHUSDT",
@@ -68,6 +72,36 @@ public enum BinanceClient {
     /// A restricted-geography response invalidates the cached endpoint for the next call.
     private static func invalidateBase() {
         cacheBase(nil)
+    }
+
+    /// Measures local-to-exchange skew using Binance's lightweight server-time endpoint.
+    /// Binance can be restricted by geography, so the clock sample falls back to Kraken.
+    public static func fetchClockOffset() async throws -> ClockOffset {
+        let sentAt = Date()
+        let base = await resolvedBase()
+        guard let url = URL(string: "\(base)/api/v3/time") else {
+            return try await KrakenClient.fetchClockOffset()
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard code == 200,
+                  let payload = try? JSONDecoder().decode(ServerTimeResponse.self, from: data),
+                  let offset = ExchangeClock.offset(
+                      sentAt: sentAt,
+                      serverTimeMilliseconds: payload.serverTime,
+                      receivedAt: Date(),
+                      source: "binance"
+                  )
+            else {
+                if code == 451 { invalidateBase() }
+                return try await KrakenClient.fetchClockOffset()
+            }
+            return offset
+        } catch {
+            return try await KrakenClient.fetchClockOffset()
+        }
     }
 
     // Fetches up to `limit` completed 1m candles for walk-forward benchmarking.

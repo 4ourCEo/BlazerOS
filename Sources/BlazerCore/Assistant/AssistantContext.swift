@@ -178,6 +178,10 @@ public struct AssistantContext: Codable, Sendable, Equatable {
     public var scans: [ScanRecordContext]
     public var confirmedEntries: [ConfirmedEntryContext]
     public var research: ExecutionResearchSummary?
+    /// Deterministic confirmed-only drawdown facts. No field carries gate authority.
+    public var capitalPreservation: CapitalPreservationSummary?
+    /// Deterministic research-stage summaries. They never carry signal or promotion authority.
+    public var strategyValidation: [StrategyValidationSummary]?
     public var performance: PerformanceSummary
     public var gaps: [ObservationGap]
     public var notes: [JournalNoteContext]
@@ -188,6 +192,8 @@ public struct AssistantContext: Codable, Sendable, Equatable {
         confirmedEntries: [ConfirmedEntryContext] = [],
         performance: PerformanceSummary = .empty,
         research: ExecutionResearchSummary? = nil,
+        capitalPreservation: CapitalPreservationSummary? = nil,
+        strategyValidation: [StrategyValidationSummary]? = nil,
         gaps: [ObservationGap] = [],
         notes: [JournalNoteContext] = []
     ) {
@@ -195,6 +201,8 @@ public struct AssistantContext: Codable, Sendable, Equatable {
         self.scans = scans
         self.confirmedEntries = confirmedEntries
         self.research = research
+        self.capitalPreservation = capitalPreservation
+        self.strategyValidation = strategyValidation
         self.performance = performance
         self.gaps = gaps
         self.notes = notes
@@ -254,20 +262,20 @@ public struct AssistantContext: Codable, Sendable, Equatable {
 
     /// Describes what a bounded context omitted. Used in diagnostics, never as model facts.
     public func selectionNotes(after bounded: AssistantContext) -> [String] {
-        var notes: [String] = []
+        var selection: [String] = []
         if bounded.scans.count < scans.count {
-            notes.append("scans \(bounded.scans.count)/\(scans.count)")
+            selection.append("scans \(bounded.scans.count)/\(scans.count)")
         }
         if bounded.confirmedEntries.count < confirmedEntries.count {
-            notes.append("entries \(bounded.confirmedEntries.count)/\(confirmedEntries.count)")
+            selection.append("entries \(bounded.confirmedEntries.count)/\(confirmedEntries.count)")
         }
         if bounded.gaps.count < gaps.count {
-            notes.append("gaps \(bounded.gaps.count)/\(gaps.count)")
+            selection.append("gaps \(bounded.gaps.count)/\(gaps.count)")
         }
         if bounded.notes.count < notes.count {
-            notes.append("notes \(bounded.notes.count)/\(notes.count)")
+            selection.append("notes \(bounded.notes.count)/\(notes.count)")
         }
-        return notes
+        return selection
     }
 }
 
@@ -277,7 +285,9 @@ public enum AssistantContextBuilder {
         journal: [JournalEntry],
         ledgerRows: [LedgerRow],
         observations: [ExecutionObservation] = [],
-        now: Date = Date()
+        validationReports: [StrategyValidationReport] = [],
+        now: Date = Date(),
+        sessionTimeZoneIdentifier: String = TimeZone.current.identifier
     ) -> AssistantContext {
         let sortedJournal = journal.sorted { $0.scannedAt > $1.scannedAt }
         let scanTimeByID = Dictionary(
@@ -351,6 +361,9 @@ public enum AssistantContextBuilder {
         // Calculate from the complete archive before bounding records for the model.
         let report = try? ExecutionIntelligence.report(rows: ledgerRows, journal: journal,
             observations: observations, asOf: now)
+        let riskReport = try? CapitalPreservationReport.evaluate(
+            rows: ledgerRows, asOf: now, timeZoneIdentifier: sessionTimeZoneIdentifier
+        )
         let wins = report?.wins ?? 0
         let resolved = report?.resolved ?? 0
         let losses = resolved - wins
@@ -415,6 +428,8 @@ public enum AssistantContextBuilder {
             confirmedEntries: Array(confirmedEntries),
             performance: performance,
             research: report.map(ExecutionResearchSummary.init),
+            capitalPreservation: riskReport.map(CapitalPreservationSummary.init),
+            strategyValidation: validationReports.map(StrategyValidationSummary.init),
             gaps: Array(gaps.prefix(60)),
             notes: Array(notes)
         )

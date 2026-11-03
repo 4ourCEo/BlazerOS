@@ -182,6 +182,10 @@ public actor DeskAssistant {
         or invent values. Distinguish small samples from dependable evidence. Cite record IDs.
         The structured counts and gap groups are supplied by the app from the frozen records;
         do not reclassify gaps or invent IDs.
+        If confirmed-only capitalPreservation facts are present, explain them descriptively.
+        State that drawdown values use recorded stake denomination, not a labeled currency;
+        when cash coverage is incomplete, say the drawdown is unavailable. Do not recommend
+        changing a stake, entry gate, or stop based on these research-only facts.
         """
         let compactContext = context.bounded(
             maxScans: 0, maxEntries: 4, maxGaps: 4, maxNotes: 0, maxText: 100

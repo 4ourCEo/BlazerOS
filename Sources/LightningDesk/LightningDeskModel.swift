@@ -91,6 +91,8 @@ public final class LightningDeskModel: ObservableObject {
     }
     @Published public var pair: String = "EUR/USD"
     @Published var feed: FeedStatus = .connecting
+    @Published public private(set) var exchangeClockOffset: ClockOffset?
+    @Published public private(set) var exchangeClockDrift: ClockDrift?
     @Published var candles: [Candle] = []
     @Published var scanning = false
     /// Walk label, for example "GBP/USD 2/6". Nil when idle.
@@ -287,7 +289,9 @@ public final class LightningDeskModel: ObservableObject {
         let decision = ForegroundResume.decide(
             suspendedForMs: suspendedMs,
             lastPollAgeMs: lastFreshPollAt.map { max(0, now.timeIntervalSince($0) * 1000) },
-            clockSampleAgeMs: nil
+            clockSampleAgeMs: exchangeClockOffset.map {
+                max(0, now.timeIntervalSince($0.measuredAt) * 1000)
+            }
         )
         backgroundedAt = nil
         foregroundResumeCount += 1
@@ -295,12 +299,27 @@ public final class LightningDeskModel: ObservableObject {
             feed = .connecting
         }
         refreshTrackedStrikePositions()
+        if marketMode == .crypto, decision.needsClockRemeasure {
+            Task { await remeasureExchangeClock() }
+        }
         Task {
             await refreshActiveTradeQuote()
             await refreshQuote()
             // A Siri request can arrive while a session is already loaded. Consume it here
             // instead of waiting for the next Keychain read.
             await consumePendingScanIfReady()
+        }
+    }
+
+    private func remeasureExchangeClock() async {
+        do {
+            let offset = try await BinanceClient.fetchClockOffset()
+            exchangeClockOffset = offset
+            exchangeClockDrift = ExchangeClock.drift(of: offset)
+            diagLog("EXCHANGE_CLOCK source=\(offset.source) skewMs=\(Int(offset.skewMs)) rttMs=\(Int(offset.roundTripMs))")
+        } catch {
+            exchangeClockDrift = nil
+            diagLog("EXCHANGE_CLOCK_FAILED \(error)")
         }
     }
 
@@ -1067,6 +1086,9 @@ public final class LightningDeskModel: ObservableObject {
                 Task { await self.loadCandles(for: self.pair) }
             }
         }
+        if marketMode == .crypto {
+            await remeasureExchangeClock()
+        }
         #if DEBUG
         if ProcessInfo.processInfo.environment["BLAZER_START_TAB"] == "coach" {
             activeTab = .coach
@@ -1162,6 +1184,7 @@ public final class LightningDeskModel: ObservableObject {
         publishFrame()
         scanStep = asset
 
+        let started = Date()
         let snapshot = try? await marketData.scan(market: .crypto, asset: asset, session: nil)
         guard isCurrentScan(request) else { return }
         guard let snapshot, !snapshot.candles.isEmpty else {
@@ -1176,7 +1199,6 @@ public final class LightningDeskModel: ObservableObject {
         let bars = snapshot.candles
         let mid = (snapshot.bid.flatMap { bid in snapshot.ask.map { (bid + $0) / 2 } }) ?? cryptoSignal.price
         diagLog("CRYPTO_SCAN \(asset) side=\(cryptoSignal.cabinetSide) conv=\(cryptoSignal.confidence ?? 0) candles=\(bars.count) mid=\(mid) source=\(snapshot.source)")
-        let started = Date()
         var next = ScanKernel.commit(
             from: cryptoSignal,
             bars: bars,
@@ -1414,7 +1436,10 @@ public final class LightningDeskModel: ObservableObject {
     ) async {
         guard !settlementInFlight,
               let settleCommit = commit,
-              let settleArmID = armID
+              let settleArmID = armID,
+              activeTrade == nil,
+              let expiry = pendingExpiry,
+              Date() >= expiry.targetExpiry
         else { return }
         settlementInFlight = true
         defer { settlementInFlight = false }
@@ -1425,13 +1450,12 @@ public final class LightningDeskModel: ObservableObject {
         // Capture a fully self-contained settlement record before any await. Nothing below
         // reads mutable desk state that a later task could change.
         let trade = pendingTrade
-        let expiry = pendingExpiry
         let windowName = MarketEdgeWindow.current(at: trade?.enteredAt ?? settleCommit.scannedAt).badgeTitle
         let resolvedEntryQuote = entryQuote ?? trade?.brokerEntryPrice ?? trade?.strike ?? settleCommit.strike
-        let resolvedExpiryPrice = expiryPrice ?? expiry?.exitPrice
+        let resolvedExpiryPrice = expiryPrice ?? expiry.exitPrice
         let horizonSeconds = trade.map { Int($0.durationSec) }
         let enteredAt = trade?.enteredAt
-        let expiryObservedMs = expiry?.quoteTimeMs
+        let expiryObservedMs = expiry.quoteTimeMs
         let evaluationAgeMs = trade?.evaluationAgeMs
         let recordingDelayMs = trade?.recordingDelayMs
         let remainingBeamMs = trade?.remainingBeamMs
@@ -2500,7 +2524,9 @@ public final class LightningDeskModel: ObservableObject {
         pendingSaveCount = restored.pendingSettlements.count
         storedJournal = restored.entries
         journal = restored.entries.map {
-            replay($0, bars: restored.bars(for: $0.fullFingerprint ?? $0.fingerprint))
+            replay($0,
+                bars: restored.bars(for: $0.fullFingerprint ?? $0.fingerprint),
+                m5Bars: restored.m5Bars(for: $0.fullFingerprint ?? $0.fingerprint))
         }
         referenceOutcomes = restoredReferenceOutcomes
         executionObservations = restoredExecutionObservations
@@ -2591,7 +2617,7 @@ public final class LightningDeskModel: ObservableObject {
         publishFrame()
     }
 
-    private func replay(_ entry: JournalEntry, bars: [Candle]) -> ReplayEntry {
+    private func replay(_ entry: JournalEntry, bars: [Candle], m5Bars: [Candle] = []) -> ReplayEntry {
         ReplayEntry(
             id: entry.id,
             pair: entry.pair,
@@ -2602,6 +2628,7 @@ public final class LightningDeskModel: ObservableObject {
             veto: entry.veto,
             fingerprint: entry.fingerprint,
             candles: bars,
+            m5Candles: m5Bars,
             scannedAt: entry.scannedAt,
             voiceNote: entry.voiceNote,
             tag: entry.tag,
@@ -2705,6 +2732,7 @@ struct ReplayEntry: Identifiable, Equatable {
     var veto: String?
     var fingerprint: String
     var candles: [Candle]
+    var m5Candles: [Candle]
     var scannedAt: Date
     var voiceNote: VoiceNote?
     var tag: Tag?

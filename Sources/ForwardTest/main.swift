@@ -351,11 +351,23 @@ final class ResearchRunner {
                 let missing = rows.filter { $0.resolution == .unresolved }.count
                 let n = wins + losses
                 let rate = n > 0 ? String(format: "%.1f%%", Double(wins) / Double(n) * 100) : "unavailable"
-                let ev = n > 0 ? String(format: "%+.4f", (Double(wins) * EntryQuality.assumedPayout - Double(losses)) / Double(n)) : "unavailable"
+                let directional = rows.filter { $0.resolution == .hit || $0.resolution == .miss }
+                let returns = directional.compactMap { outcome -> Double? in
+                    guard let event = byID[outcome.eventID], event.assumedPayout.isFinite,
+                          event.assumedPayout > 0 else { return nil }
+                    return outcome.resolution == .hit ? event.assumedPayout : -1
+                }
+                let payoutComplete = n > 0 && returns.count == n
+                let ev = payoutComplete
+                    ? String(format: "%+.4f", returns.reduce(0, +) / Double(n))
+                    : "unavailable"
                 let interval = EdgeEvidence.wilsonScoreInterval(wins: wins, total: n)
                 let ci = n > 0 ? String(format: "%.1f–%.1f%%", interval.lower * 100, interval.upper * 100) : "unavailable"
-                print("\(horizon)s: \(wins)/\(n) resolved wins (\(rate)); nominal Wilson CI=\(ci); assumed EV88=\(ev); ties=\(ties), unresolved=\(missing).")
-                if options.bootstrap, n > 0, let boot = ExpectancyMath.bootstrapStressTest(wins: wins, sampleSize: n, iterations: 500) {
+                print("\(horizon)s: \(wins)/\(n) resolved wins (\(rate)); nominal Wilson CI=\(ci); mixed event-payout EV=\(ev) (coverage \(returns.count)/\(n)); ties=\(ties), unresolved=\(missing).")
+                let conservativePayout = directional.compactMap { byID[$0.eventID]?.assumedPayout }.min()
+                if options.bootstrap, n > 0, let payout = conservativePayout,
+                   let boot = ExpectancyMath.bootstrapStressTest(
+                       wins: wins, sampleSize: n, iterations: 500, payoutRatio: payout) {
                     let bootRate = String(format: "%.1f%%", boot.medianWinRate * 100)
                     let p5 = String(format: "%.1f%%", boot.p5WinRate * 100)
                     let p95 = String(format: "%.1f%%", boot.p95WinRate * 100)
@@ -365,7 +377,7 @@ final class ResearchRunner {
                 }
             }
         }
-        print("Descriptive proxy/synthetic labels. No profitable-edge certification; payout is assumed, not verified.")
+        print("Descriptive proxy/synthetic labels. Event payouts may include capture-time fallbacks; no profitable-edge certification.")
     }
 }
 

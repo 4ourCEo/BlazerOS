@@ -29,11 +29,30 @@ public struct FoundationCoachService: TradingCoach, Sendable {
     public func explain(seal: ParitySeal, evidence: String, question: String) async throws -> String {
         let spoken = question.trimmingCharacters(in: .whitespacesAndNewlines)
         if allowsModel, let assistant, let context {
-            let result = await assistant.answer(spoken, context: context)
+            let scan = ScanRecordContext(
+                id: seal.fingerprint,
+                fullFingerprint: seal.fingerprint,
+                pair: "Sealed",
+                engineCall: seal.side,
+                score: seal.score,
+                evidence: evidence,
+                veto: nil,
+                evaluationTime: Date(),
+                quoteMid: seal.strike,
+                spread: nil,
+                m1Count: seal.candleCount,
+                m5Count: 0,
+                engineSHA: seal.engineSHA1,
+                expirySeconds: 60,
+                isActionable: seal.side == "HIGH" || seal.side == "LOW",
+                blockingReason: nil,
+                recordedVerb: "sealed"
+            )
+            let result = await assistant.explainScan(scan, context: context)
             if result.isModelGenerated {
-                return result.value.answer
+                return "\(result.value.summary) \(result.value.coachNote)"
             }
-            return "Basic explanation. \(result.value.answer)"
+            return "Basic explanation. \(result.value.summary) \(result.value.coachNote)"
         }
         if !spoken.isEmpty {
             return "Basic explanation. " + CoachIntelligence.synthesizeAnswer(

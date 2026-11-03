@@ -34,6 +34,7 @@ public struct RestoreIssue: Equatable, Sendable {
 public struct RestoredDesk: Equatable, Sendable {
     public var entries: [JournalEntry]
     public var barsByHash: [String: [Candle]]
+    public var m5BarsByHash: [String: [Candle]]
     public var stats: OutcomeStats
     /// Venue-confirmed outcomes only. The performance header reads this, never `stats`.
     public var confirmedStats: OutcomeStats
@@ -48,6 +49,7 @@ public struct RestoredDesk: Equatable, Sendable {
     public init(
         entries: [JournalEntry],
         barsByHash: [String: [Candle]],
+        m5BarsByHash: [String: [Candle]] = [:],
         stats: OutcomeStats,
         ledgerRows: [LedgerRow] = [],
         confirmedStats: OutcomeStats? = nil,
@@ -57,6 +59,7 @@ public struct RestoredDesk: Equatable, Sendable {
     ) {
         self.entries = entries
         self.barsByHash = barsByHash
+        self.m5BarsByHash = m5BarsByHash
         self.stats = stats
         self.confirmedStats = confirmedStats ?? stats
         self.ledgerRows = ledgerRows
@@ -67,6 +70,10 @@ public struct RestoredDesk: Equatable, Sendable {
 
     public func bars(for hash: String) -> [Candle] {
         barsByHash[hash] ?? []
+    }
+
+    public func m5Bars(for hash: String) -> [Candle] {
+        m5BarsByHash[hash] ?? []
     }
 
     public var hasRecoverableState: Bool {
@@ -175,10 +182,13 @@ public actor PersistenceCoordinator {
         }
 
         var bars: [String: [Candle]] = [:]
+        var m5Bars: [String: [Candle]] = [:]
         for record in snapshotRecords {
             bars[record.hash] = record.bars
+            m5Bars[record.hash] = record.m5Bars ?? []
             if let full = record.fullFingerprint {
                 bars[full] = record.bars
+                m5Bars[full] = record.m5Bars ?? []
             }
         }
 
@@ -186,6 +196,7 @@ public actor PersistenceCoordinator {
         return RestoredDesk(
             entries: newestFirst,
             barsByHash: bars,
+            m5BarsByHash: m5Bars,
             stats: OutcomeStats.tally(rows),
             ledgerRows: rows,
             confirmedStats: OutcomeStats.confirmedTally(rows),

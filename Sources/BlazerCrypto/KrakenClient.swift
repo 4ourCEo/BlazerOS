@@ -19,6 +19,29 @@ private let krakenLog = Logger(subsystem: "com.blazer.ct", category: "KrakenClie
 
 public enum KrakenClient {
 
+    /// Measures local-to-exchange skew using Kraken's public server-time endpoint.
+    public static func fetchClockOffset() async throws -> ClockOffset {
+        let sentAt = Date()
+        guard let url = URL(string: "https://api.kraken.com/0/public/Time") else {
+            throw CTFeedError.decodingError("Kraken time URL")
+        }
+        let (data, response) = try await URLSession.shared.data(from: url)
+        guard (response as? HTTPURLResponse)?.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let result = json["result"] as? [String: Any],
+              let unixSeconds = result["unixtime"] as? Int,
+              let offset = ExchangeClock.offset(
+                  sentAt: sentAt,
+                  serverTimeMilliseconds: Int64(unixSeconds) * 1_000,
+                  receivedAt: Date(),
+                  source: "kraken"
+              )
+        else {
+            throw CTFeedError.decodingError("Kraken time response")
+        }
+        return offset
+    }
+
     public static let pairMap: [String: String] = [
         "BTC/USDT": "XBTUSDT",
         "ETH/USDT": "ETHUSDT",

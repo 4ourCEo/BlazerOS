@@ -59,6 +59,40 @@ public actor ResearchStore {
         try load(RollingRevalidationResult.self, directory: "rolling-revalidation")
     }
 
+    /// Validation-stage records share the existing immutable research archive. They are never
+    /// read by the live engine, ledger, entry gate, or CloudKit mapper.
+    public func record(_ result: StrategyValidationRecord) throws {
+        guard result.engineSHA == EngineIdentity.pinnedSHA1,
+              result.id.count == 64, result.id.allSatisfy(\.isHexDigit),
+              result.inputDigest.count == 64, result.inputDigest.allSatisfy(\.isHexDigit),
+              result.caseDigest.count == 64, result.caseDigest.allSatisfy(\.isHexDigit),
+              result.configurationDigest.count == 64,
+              result.configurationDigest.allSatisfy(\.isHexDigit),
+              !result.caseID.isEmpty,
+              result.executionKind == (result.stage == .liveObservation ? .recordedManual : .simulated),
+              !result.isVenueOutcome || result.stage == .liveObservation else {
+            throw ScanError.failed("Invalid strategy validation record")
+        }
+        try writeOnce(result, directory: "strategy-validation", name: result.id)
+    }
+
+    public func strategyValidationRecords() throws -> [StrategyValidationRecord] {
+        try load(StrategyValidationRecord.self, directory: "strategy-validation")
+    }
+
+    public func record(_ item: StrategyValidationCase) throws {
+        let digest = StrategyValidationEngine.digest(of: item)
+        try writeOnce(item, directory: "strategy-validation-cases", name: digest)
+    }
+
+    public func strategyValidationCases() throws -> [StrategyValidationCase] {
+        let values = try load(StrategyValidationCase.self, directory: "strategy-validation-cases")
+        guard values.allSatisfy({ StrategyValidationEngine.digest(of: $0).count == 64 }) else {
+            throw ScanError.failed("Invalid strategy validation case")
+        }
+        return values
+    }
+
     private func writeOnce<T: Encodable>(_ value: T, directory: String, name: String) throws {
         guard !name.isEmpty, name.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" }) else {
             throw ScanError.failed("Invalid research event ID")

@@ -113,6 +113,22 @@ public actor PocketOptionReadOnlyProvider: ShadowMarketObservationProvider {
     private let transport: any PocketOptionReadOnlyTransport
     private let clock: any OTCResearchClock
     private var activeStreamID: UUID?
+    /// Incremented on each new connection. Only when `successauth` arrives
+    /// does the current connection's epoch become "ready". This prevents
+    /// race conditions where a reconnection callback runs before the server
+    /// has accepted the new session.
+    private var authEpoch: UInt64 = 0
+    private var authReadyEpoch: UInt64 = 0
+    /// Interval for sending Socket.IO keep-alive messages (42["ps"]).
+    /// PocketOption may drop idle connections without this.
+    private static let keepAliveInterval: TimeInterval = 25
+    /// Socket.IO event names the server emits when it refuses the auth payload.
+    /// These are terminal: the server follows them with a disconnect (41).
+    private static let authRejectedEvents: Set<String> = [
+        "NotAuthorized",
+        "notAuthorized",
+        "auth_error"
+    ]
 
     public init(
         configuration: PocketOptionReadOnlyConfiguration,
@@ -144,6 +160,36 @@ public actor PocketOptionReadOnlyProvider: ShadowMarketObservationProvider {
         guard intervalSeconds > 0, limit > 0 else {
             throw PocketOptionReadOnlyError.invalidResponse
         }
+
+        // Use the current time as the anchor point for historical data
+        let now = clock.now().timeIntervalSince1970
+        let endTime = Int(now)
+
+        // Request format: 42["loadHistoryPeriod",{"asset":"SYMBOL","time":<ts>,"period":<s>,"index":<idx>,"offset":<off>}]
+        let requestPayload: [String: Any] = [
+            "asset": identity.venueSymbol,
+            "time": endTime,
+            "period": intervalSeconds,
+            "index": 0,
+            "offset": limit
+        ]
+
+        guard let requestData = try? JSONSerialization.data(withJSONObject: requestPayload),
+              let requestJSON = String(data: requestData, encoding: .utf8) else {
+            throw PocketOptionReadOnlyError.invalidResponse
+        }
+
+        _ = "42[\"loadHistoryPeriod\",\(requestJSON)]"
+
+        // For historical candles, we need a temporary connection since the main stream
+        // is for live updates only. This is a design limitation of the current
+        // read-only provider. To fully implement this, the provider would need to:
+        // 1. Open a temporary WebSocket connection
+        // 2. Authenticate
+        // 3. Send the loadHistoryPeriod request
+        // 4. Wait for the response
+        // 5. Parse the response into ShadowCandle objects
+        // 6. Close the temporary connection
         throw PocketOptionReadOnlyError.historicalCandlesUnavailable
     }
 
@@ -159,6 +205,9 @@ public actor PocketOptionReadOnlyProvider: ShadowMarketObservationProvider {
         try validate(identity)
         let streamID = UUID()
         activeStreamID = streamID
+        authEpoch &+= 1
+        authReadyEpoch = 0
+        let currentEpoch = authEpoch
         let frames: AsyncThrowingStream<PocketOptionSocketFrame, any Error>
         do {
             frames = try await transport.connect(makeRequest())
@@ -170,6 +219,18 @@ public actor PocketOptionReadOnlyProvider: ShadowMarketObservationProvider {
         let clock = self.clock
 
         return AsyncThrowingStream { continuation in
+            // Start keep-alive task
+            let keepAliveTask = Task {
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: UInt64(Self.keepAliveInterval * 1_000_000_000))
+                    guard !Task.isCancelled,
+                          self.authEpoch == currentEpoch,
+                          self.isAuthReady(currentEpoch: currentEpoch) else {
+                        break
+                    }
+                    try? await self.transport.send("42[\"ps\"]")
+                }
+            }
             let task = Task {
                 var state = ProtocolState()
                 var lastTimestamp = -Double.infinity
@@ -177,10 +238,17 @@ public actor PocketOptionReadOnlyProvider: ShadowMarketObservationProvider {
                     continuation.yield(.connection(.connecting, reason: nil))
                     for try await frame in frames {
                         try Task.checkCancellation()
+                        // Ignore frames from a stale connection if we've reconnected
+                        guard self.authEpoch == currentEpoch else {
+                            continuation.yield(.connection(.disconnected, reason: "Stale connection"))
+                            continuation.finish()
+                            return
+                        }
                         let output = try await self.consume(
                             frame,
                             state: &state,
-                            expectedSymbol: identity.venueSymbol
+                            expectedSymbol: identity.venueSymbol,
+                            currentEpoch: currentEpoch
                         )
                         // Authentication alone is not healthy market data. The desk moves to
                         // LIVE only after the first validated observation arrives.
@@ -229,10 +297,12 @@ public actor PocketOptionReadOnlyProvider: ShadowMarketObservationProvider {
                 } catch {
                     continuation.finish(throwing: error)
                 }
+                keepAliveTask.cancel()
                 await self.finishStream(streamID)
             }
             continuation.onTermination = { _ in
                 task.cancel()
+                keepAliveTask.cancel()
                 Task { await self.finishStream(streamID) }
             }
         }
@@ -242,6 +312,12 @@ public actor PocketOptionReadOnlyProvider: ShadowMarketObservationProvider {
         guard activeStreamID == streamID else { return }
         activeStreamID = nil
         await transport.disconnect()
+    }
+
+    /// Whether the server has accepted the current connection's session.
+    /// Returns true only when `successauth` has arrived on the current epoch.
+    private func isAuthReady(currentEpoch: UInt64) -> Bool {
+        authReadyEpoch == currentEpoch && authEpoch == currentEpoch
     }
 
     private func validateConfiguration() throws {
@@ -271,7 +347,8 @@ public actor PocketOptionReadOnlyProvider: ShadowMarketObservationProvider {
     private func consume(
         _ frame: PocketOptionSocketFrame,
         state: inout ProtocolState,
-        expectedSymbol: String?
+        expectedSymbol: String?,
+        currentEpoch: UInt64
     ) async throws -> ProtocolOutput {
         switch frame {
         case .text(let text):
@@ -287,15 +364,24 @@ public actor PocketOptionReadOnlyProvider: ShadowMarketObservationProvider {
                 try await transport.send(configuration.authFrame)
                 return ProtocolOutput()
             }
-            if text == "41" || text.contains("NotAuthorized") || text.contains("auth_error") {
+            if text == "41" || Self.authRejectedEvents.contains(where: { text.contains($0) }) {
                 throw PocketOptionReadOnlyError.authenticationRejected
             }
             if text.hasPrefix("451-") {
+                // Validate the placeholder pattern before setting pending event
+                if let start = text.firstIndex(of: "["),
+                   let payload = String(text[start...]).data(using: .utf8),
+                   let array = try? JSONSerialization.jsonObject(with: payload) as? [Any] {
+                    if !Self.hasBinaryPlaceholder(array) {
+                        // Invalid frame: 451- without placeholder pattern
+                        return ProtocolOutput()
+                    }
+                }
                 state.pendingBinaryEvent = Self.socketEventName(text)
                 return ProtocolOutput()
             }
             if let event = Self.socketEvent(text) {
-                return try await consume(event: event, state: &state, expectedSymbol: expectedSymbol)
+                return try await consume(event: event, state: &state, expectedSymbol: expectedSymbol, currentEpoch: currentEpoch)
             }
             return ProtocolOutput(ticks: try Self.decodeTicks(Data(text.utf8), expectedSymbol: expectedSymbol))
         case .data(let data):
@@ -304,7 +390,8 @@ public actor PocketOptionReadOnlyProvider: ShadowMarketObservationProvider {
                 return try await consume(
                     event: SocketEvent(name: "successauth", payload: data),
                     state: &state,
-                    expectedSymbol: expectedSymbol
+                    expectedSymbol: expectedSymbol,
+                    currentEpoch: currentEpoch
                 )
             }
             if state.pendingBinaryEvent == "updateAssets" {
@@ -327,10 +414,16 @@ public actor PocketOptionReadOnlyProvider: ShadowMarketObservationProvider {
     private func consume(
         event: SocketEvent,
         state: inout ProtocolState,
-        expectedSymbol: String?
+        expectedSymbol: String?,
+        currentEpoch: UInt64
     ) async throws -> ProtocolOutput {
         switch event.name {
         case "successauth":
+            // Mark this connection as auth-ready only if it's still the current epoch
+            guard authEpoch == currentEpoch else {
+                throw PocketOptionReadOnlyError.connectionClosed
+            }
+            authReadyEpoch = currentEpoch
             try await transport.send(#"42["assets/load"]"#)
             if let expectedSymbol {
                 try await transport.send(#"42["changeSymbol",{"asset":"\#(expectedSymbol)","period":60}]"#)
@@ -364,6 +457,24 @@ public actor PocketOptionReadOnlyProvider: ShadowMarketObservationProvider {
         guard let data = payload.data(using: .utf8),
               let array = try? JSONSerialization.jsonObject(with: data) as? [Any] else { return nil }
         return array.first as? String
+    }
+
+    /// Whether a Socket.IO event array has a binary placeholder.
+    /// Header-only frames (["event"]) and frames with {"_placeholder":true,"num":0}
+    /// announce that the real payload follows in a binary frame.
+    private nonisolated static func hasBinaryPlaceholder(_ array: [Any]) -> Bool {
+        guard array.count >= 1 else { return false }
+        // Header-only frame: ["event"]
+        if array.count == 1 { return true }
+        // Check for placeholder object in any element after the event name
+        for element in array.dropFirst() {
+            if let dict = element as? [String: Any],
+               let placeholder = dict["_placeholder"] as? Bool,
+               placeholder == true {
+                return true
+            }
+        }
+        return false
     }
 
     private nonisolated static func socketEvent(_ text: String) -> SocketEvent? {
@@ -410,6 +521,7 @@ public actor PocketOptionReadOnlyProvider: ShadowMarketObservationProvider {
         }
         state.payoutBySymbol.removeAll(keepingCapacity: true)
         state.openBySymbol.removeAll(keepingCapacity: true)
+        state.allowedCandlesBySymbol.removeAll(keepingCapacity: true)
         return rows.compactMap { row in
             guard row.count > 15,
                   let symbol = row[1] as? String,
@@ -426,8 +538,21 @@ public actor PocketOptionReadOnlyProvider: ShadowMarketObservationProvider {
             } else {
                 return nil
             }
+
+            // Parse allowed candle intervals from index 15
+            var allowedCandles: [Int] = []
+            if let candleData = row[15] as? [[String: Any]] {
+                for candle in candleData {
+                    if let time = candle["time"] as? Int {
+                        allowedCandles.append(time)
+                    }
+                }
+            }
+
             state.payoutBySymbol[symbol] = payout
             state.openBySymbol[symbol] = active
+            state.allowedCandlesBySymbol[symbol] = allowedCandles
+
             let identity = ShadowMarketIdentity(
                 marketKind: .otc,
                 venue: "Pocket Option",
@@ -465,4 +590,5 @@ private struct ProtocolState: Sendable {
     var pendingBinaryEvent: String?
     var payoutBySymbol: [String: Double] = [:]
     var openBySymbol: [String: Bool] = [:]
+    var allowedCandlesBySymbol: [String: [Int]] = [:]
 }
