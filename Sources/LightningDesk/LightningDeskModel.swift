@@ -116,6 +116,7 @@ public final class LightningDeskModel: ObservableObject {
         if let quote, quote.asset == pair { return quote.mid }
         return nil
     }
+    public var lastScanAt: Date? { commit?.scannedAt }
     /// Brand cover. Dismisses on a real LIVE feed, otherwise after a short beat. Never invents LIVE.
     @Published public var showingLaunch = true
     @Published var launchMarkLit = false

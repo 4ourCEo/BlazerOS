@@ -207,6 +207,9 @@ struct DeskScreen: View {
     private var hero: some View {
         VStack(alignment: .leading, spacing: 14) {
             pairRow
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                scanFreshnessBadge(asOf: model.lastScanAt, now: context.date)
+            }
             MiniCandleChart(
                 candles: model.candles,
                 strike: model.activeTrade?.strike ?? (isArmed ? model.frame?.strike : nil),
@@ -288,6 +291,31 @@ struct DeskScreen: View {
                     }
                 }
         )
+    }
+
+    private func scanFreshnessBadge(asOf: Date?, now: Date) -> some View {
+        let age = asOf.map { max(0, now.timeIntervalSince($0)) }
+        let isOld = age.map { $0 > 60 } ?? true
+        let label: String
+        if let age {
+            if age < 1 {
+                label = "Updated now"
+            } else if age < 60 {
+                label = "Updated \(Int(age))s ago"
+            } else {
+                label = "Updated \(Int(age / 60))m ago"
+            }
+        } else {
+            label = "No scan recorded"
+        }
+        return HStack(spacing: 5) {
+            Image(systemName: isOld ? "clock.badge.exclamationmark" : "clock")
+                .font(.system(size: 9, weight: .semibold))
+            Text(label)
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+        }
+        .foregroundStyle(isOld ? DeskInk.coral : DeskInk.slate)
+        .accessibilityLabel(age.map { "Last scan \(Int($0)) seconds ago" } ?? "No scan recorded")
     }
 
     private var heroSurface: some View {
