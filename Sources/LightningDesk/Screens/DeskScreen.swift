@@ -10,7 +10,8 @@ struct DeskScreen: View {
     @State private var pressingOutcome: DeskOutcome?
 
     var body: some View {
-        VStack(spacing: 0) {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 0) {
             deskMasthead
                 .padding(.horizontal, 20)
                 .padding(.top, 2)
@@ -19,9 +20,40 @@ struct DeskScreen: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 4)
 
+            HStack(alignment: .bottom) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Scan")
+                        .font(.system(size: 30, weight: .bold, design: .rounded))
+                        .foregroundStyle(DeskInk.ink)
+                    Text("High-probability opportunities, filtered and ready.")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(DeskInk.slate)
+                }
+                Spacer()
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(DeskInk.slate)
+                    .frame(width: 32, height: 32)
+                    .background(DeskInk.surface, in: Circle())
+                    .overlay(Circle().strokeBorder(Color.white.opacity(0.08), lineWidth: 0.6))
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 18)
+
+            Picker("Market", selection: $model.marketMode) {
+                Text("FX").tag(DeskMarket.fx)
+                Text("Crypto").tag(DeskMarket.crypto)
+            }
+            .pickerStyle(.segmented)
+            .tint(DeskInk.electric)
+            .labelsHidden()
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            .disabled(model.activeTrade != nil || model.awaitingOutcome || model.isSettlementInFlight)
+
             hero
                 .padding(.horizontal, 20)
-                .padding(.top, 8)
+                .padding(.top, 12)
                 .offset(y: reduceMotion ? 0 : model.heroLift)
 
             if let receipt = model.settleReceipt {
@@ -34,7 +66,9 @@ struct DeskScreen: View {
                     ))
             }
 
-            Spacer(minLength: 10)
+            watchlistSection
+                .padding(.horizontal, 20)
+                .padding(.top, 14)
 
             ScanControl(
                 scanning: model.scanning,
@@ -44,18 +78,7 @@ struct DeskScreen: View {
                 Task { await model.scan() }
             }
             .padding(.horizontal, 20)
-            .padding(.bottom, 6)
-
-            Picker("Market", selection: $model.marketMode) {
-                Text("Crypto").tag(DeskMarket.crypto)
-                Text("FX").tag(DeskMarket.fx)
-            }
-            .pickerStyle(.segmented)
-            .tint(DeskInk.electric)
-            .labelsHidden()
-            .frame(maxWidth: 220)
-            .disabled(model.activeTrade != nil || model.awaitingOutcome || model.isSettlementInFlight)
-            .padding(.bottom, 8)
+            .padding(.top, 12)
 
             Button {
                 DeskHaptics.tabSwitch()
@@ -69,7 +92,8 @@ struct DeskScreen: View {
                 .foregroundStyle(DeskInk.electric)
             }
             .buttonStyle(.plain)
-            .padding(.bottom, 10)
+            .padding(.vertical, 12)
+            }
         }
         .animation(.easeOut(duration: 0.22), value: model.settleReceipt)
         .sheet(isPresented: $showingPrimeSchedule) {
@@ -84,6 +108,100 @@ struct DeskScreen: View {
         .onChange(of: model.marketMode) { _, _ in
             Task { await model.scan() }
         }
+    }
+
+    private var watchlistSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Watchlist")
+                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                    .foregroundStyle(DeskInk.ink)
+                Text("\(model.pairs.count)")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundStyle(DeskInk.slate)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(DeskInk.surface, in: Capsule())
+                Spacer()
+                Text("See all")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(DeskInk.electric)
+            }
+
+            VStack(spacing: 0) {
+                ForEach(Array(model.pairs.prefix(6)), id: \.self) { pair in
+                    watchlistRow(pair)
+                    if pair != model.pairs.prefix(6).last {
+                        Divider()
+                            .overlay(Color.white.opacity(0.06))
+                            .padding(.leading, 44)
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .background(DeskInk.surface.opacity(0.72), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.07), lineWidth: 0.7)
+            )
+        }
+    }
+
+    private func watchlistRow(_ pair: String) -> some View {
+        let side = model.side(for: pair) ?? "WAIT"
+        let tint = bookInk(side)
+        return Button {
+            DeskHaptics.tabSwitch()
+            model.select(pair: pair)
+        } label: {
+            HStack(spacing: 10) {
+                Circle()
+                    .fill(tint.opacity(side == "HIGH" || side == "LOW" ? 0.95 : 0.35))
+                    .frame(width: 7, height: 7)
+                    .shadow(color: tint.opacity(0.7), radius: 4)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(pair)
+                            .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(DeskInk.ink)
+                        Text("M1")
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundStyle(DeskInk.slate)
+                    }
+                    Text(side == "HIGH" ? "CALL ↑" : side == "LOW" ? "PUT ↓" : "WAIT")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(tint)
+                }
+
+                Spacer()
+
+                MiniCandleChart(
+                    candles: model.candles(for: pair),
+                    pair: pair
+                )
+                .frame(width: 66, height: 28)
+                .allowsHitTesting(false)
+
+                if let score = model.score(for: pair) {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(model.strike(for: pair).map { PriceFormat.px($0) } ?? "—")
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(DeskInk.ink)
+                        Text("\(score)")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundStyle(tint)
+                    }
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(DeskInk.slate.opacity(0.55))
+                }
+            }
+            .padding(.vertical, 10)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(pair), \(side)")
     }
 
     private var deskMasthead: some View {
