@@ -105,6 +105,22 @@ Chunk 1 result: no PR was merged, closed, replayed, or force-pushed. Duplicate s
 - [ ] No CI run exists for local commit `76daed5`; the RC1 branch has not been pushed.
 - [ ] Signed distribution/TestFlight artifact and final physical-device acceptance remain unavailable.
 
+## Chunk 9 result — physical iPhone acceptance
+
+- [ ] **BLOCKED:** no physical iPhone was available for final-build acceptance.
+- [x] Prior PR #16 device evidence remains historical evidence for its earlier STRIKE commit only.
+- [ ] Initial launch, notification/background behavior, weak-network behavior, force-quit recovery, and installed-icon verification on the final RC1 build remain unverified on hardware.
+- [ ] No TestFlight or signed distribution artifact was created or submitted.
+
+## Chunk 10 result — independent RC1 decision
+
+- [x] Integrated PR requirements and dispositions are recorded above; no PR was merged or rewritten.
+- [x] Frozen engine identity, research-only boundaries, OTC read-only quarantine, journal provenance, and paper-trading posture were rechecked.
+- [x] Engineering evidence is green for the tested working tree: Swift build, 374 Swift tests, CoreAudit 71/71, Parity 43/43, and serialized iOS simulator 20/20.
+- [ ] Exact-commit CI, signed artifact identity, and physical-device evidence are unavailable.
+- [x] **RC1 decision: CONDITIONAL GO for internal research/paper-trading evaluation only.** Distribution, public suitability claims, and live capital remain blocked by the device/distribution gate, exact-commit CI gap, provider suitability gap, and insufficient independent forward evidence.
+- [x] Highest-priority next action: test a clean, explicitly committed RC1 snapshot on a physical iPhone, then obtain CI evidence for that exact commit before distribution.
+
 ## Authorized milestones
 
 - [x] **A — Research infrastructure:** add a shadow-only signal-support contract without changing engine or entry eligibility.
