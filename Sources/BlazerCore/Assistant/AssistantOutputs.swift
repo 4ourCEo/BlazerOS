@@ -73,7 +73,7 @@ public struct CoachAnswer: Codable, Sendable, Equatable {
                 text = "There are no venue-confirmed outcomes yet, so no performance claim can be made."
             } else {
                 let rate = p.winRate.map { String(format: "%.1f%%", $0 * 100) } ?? "unavailable"
-                text = "Confirmed outcomes: \(p.wins) wins and \(p.losses) losses out of \(p.sampleSize). Descriptive win rate \(rate); assumed payout break-even \(String(format: "%.1f%%", p.breakEven * 100))."
+                text = "Confirmed outcomes: \(p.wins) wins and \(p.losses) losses out of \(p.sampleSize). Descriptive win rate \(rate); break-even \(String(format: "%.1f%%", p.breakEven * 100)) (\(p.payoutBasis ?? "assumed payout"))."
             }
         } else if lower.contains("low"), let latest,
                   AssistantValidation.canonicalDecision(latest.engineCall) == "TAP LOW" {
@@ -168,7 +168,7 @@ public struct SessionDebrief: Codable, Sendable, Equatable {
             summary = "\(p.wins) confirmed wins and \(p.losses) confirmed losses out of \(p.sampleSize). \(p.caveat)"
         }
         return SessionDebrief(
-            summary: summary,
+            summary: summary + deterministicResearchSuffix(context: context),
             sampleSize: p.sampleSize, wins: p.wins, losses: p.losses, ties: p.ties,
             unresolved: p.unresolved, winRate: p.winRate, expectancy: p.expectancy,
             missingConfirmations: missing,
@@ -177,6 +177,37 @@ public struct SessionDebrief: Codable, Sendable, Equatable {
             behavioralObservations: [],
             citations: Array(context.allRecordIDs).sorted()
         )
+    }
+
+    static func deterministicResearchSuffix(context: AssistantContext) -> String {
+        let risk = context.capitalPreservation
+        let riskNote: String
+        if let risk, risk.confirmedResolved > 0 {
+            let streak = risk.maximumConsecutiveLosses.map(String.init) ?? "unavailable"
+            if risk.cashCoverageComplete, let drawdown = risk.maximumDrawdown {
+                riskNote = " Confirmed-only research risk: maximum peak-to-valley drawdown was "
+                    + String(format: "%.2f", drawdown)
+                    + " in recorded stake-denomination units; longest loss streak was "
+                    + "\(streak). This is descriptive and does not set a stop."
+            } else {
+                riskNote = " Confirmed-only research risk: cash drawdown is unavailable because "
+                    + "input coverage or safe aggregation is incomplete; longest loss streak was "
+                    + "\(streak)."
+            }
+        } else {
+            riskNote = ""
+        }
+        let validationNote: String
+        if let validation = context.strategyValidation?.first {
+            let expectancy = validation.payoutAdjustedExpectancy
+                .map { String(format: "%+.4f", $0) } ?? "unavailable"
+            validationNote = " \(validation.stage.rawValue) research: \(validation.resolved) resolved, "
+                + "effective N \(String(format: "%.1f", validation.effectiveSampleSize)), "
+                + "payout-adjusted expectancy \(expectancy). \(validation.status)."
+        } else {
+            validationNote = ""
+        }
+        return riskNote + validationNote
     }
 }
 

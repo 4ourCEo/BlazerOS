@@ -29,4 +29,6 @@ import Testing
     #expect(AIProvider.deepseek.keychainKeyName != AIProvider.gemini.keychainKeyName)
     // Stored secrets never live under a generic/shared name.
     #expect(KeychainKey.deepseekAPIKey != KeychainKey.geminiAPIKey)
+    #expect(KeychainKey.otchartsAPIKey != KeychainKey.deepseekAPIKey)
+    #expect(KeychainKey.otchartsAPIKey != KeychainKey.geminiAPIKey)
 }

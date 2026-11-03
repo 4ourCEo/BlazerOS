@@ -166,6 +166,7 @@ public struct ResearchEvent: Codable, Sendable, Identifiable {
 
     public init(input: StrategyEngine.MarketInput, signal: EngineSignal, sourceKind: String,
                 capturedAt: Date, entryQuote: LiveQuote? = nil,
+                assumedPayout: Double = EntryQuality.assumedPayout,
                 engineSHA: String = EngineIdentity.loadedSHA1() ?? "unverified") throws {
         id = UUID().uuidString
         inputDigest = try Self.digest(of: input)
@@ -180,7 +181,10 @@ public struct ResearchEvent: Codable, Sendable, Identifiable {
         entryObservation = entryQuote
         entryTime = veto == nil ? capturedAt : nil
         entryPrice = veto == nil ? entryQuote?.mid : nil
-        assumedPayout = EntryQuality.assumedPayout
+        // Record the venue payout in force when the event was captured. Scoring every
+        // experiment at an assumed 88% hides a book that only pays 80%.
+        self.assumedPayout = assumedPayout.isFinite && assumedPayout > 0
+            ? assumedPayout : EntryQuality.assumedPayout
     }
 
     public static func digest(of input: StrategyEngine.MarketInput) throws -> String {

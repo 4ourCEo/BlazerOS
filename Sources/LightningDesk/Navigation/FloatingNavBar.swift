@@ -20,30 +20,30 @@ struct FloatingNavBar: View {
                             Capsule()
                                 .fill(
                                     LinearGradient(
-                                        colors: [DeskInk.indigo.opacity(0.38), DeskInk.electric.opacity(0.18)],
+                                        colors: [DeskInk.indigo.opacity(0.30), DeskInk.electric.opacity(0.14)],
                                         startPoint: .topLeading,
                                         endPoint: .bottomTrailing
                                     )
                                 )
                                 .overlay(
                                     Capsule()
-                                        .strokeBorder(DeskInk.electric.opacity(0.45), lineWidth: 0.75)
+                                        .strokeBorder(DeskInk.electric.opacity(0.55), lineWidth: 0.75)
                                 )
                                 .matchedGeometryEffect(id: "activeTabPill", in: tabNamespace)
                                 .padding(.horizontal, 3)
                                 .padding(.vertical, 3)
-                                .shadow(color: DeskInk.electric.opacity(0.2), radius: 6, x: 0, y: 0)
+                                .shadow(color: DeskInk.electric.opacity(0.16), radius: 6, x: 0, y: 0)
                         }
 
                         VStack(spacing: 3) {
                             Image(systemName: tab.icon)
                                 .font(.system(size: 15, weight: isSelected ? .bold : .regular))
-                                .foregroundStyle(isSelected ? DeskInk.ink : DeskInk.slate.opacity(0.55))
+                                .foregroundStyle(isSelected ? DeskInk.electric : DeskInk.slate.opacity(0.55))
                                 .frame(height: 18)
                                 .scaleEffect(isSelected ? 1.1 : 1.0)
                             Text(tab.rawValue)
                                 .font(.system(size: 10, weight: isSelected ? .bold : .medium))
-                                .foregroundStyle(isSelected ? DeskInk.ink : DeskInk.slate.opacity(0.55))
+                                .foregroundStyle(isSelected ? DeskInk.electric : DeskInk.slate.opacity(0.55))
                                 .lineLimit(1)
                         }
                     }
@@ -60,7 +60,7 @@ struct FloatingNavBar: View {
         .padding(.vertical, 4)
         .background(
             Capsule()
-                .fill(DeskInk.surface.opacity(0.92))
+                .fill(DeskInk.surface.opacity(0.96))
                 .background(.ultraThinMaterial, in: Capsule())
         )
         .overlay(

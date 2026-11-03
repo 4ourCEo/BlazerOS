@@ -124,6 +124,12 @@ public enum ModelBudgetPolicy {
     public static let fallbackContextSize = 4_096
     public static let safetyMargin = 640
 
+    /// Some OS/model runtime combinations report zero despite being available. Treat that as
+    /// missing capacity metadata, never as a zero-token context that rejects every request.
+    public static func effectiveContextSize(reported: Int) -> Int {
+        reported > 0 ? reported : fallbackContextSize
+    }
+
     public static func outputReserve(for feature: AssistantFeature) -> Int {
         switch feature {
         case .scanExplanation: return 420

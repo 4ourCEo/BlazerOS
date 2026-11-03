@@ -110,12 +110,14 @@ public struct JournalEntry: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
-/// JSONL journal. A bad line is skipped. Saving rewrites the recovered entries plus the change.
+/// JSONL journal. Corrupt records are quarantined and surfaced rather than silently discarded.
 public actor JournalStore {
     private let url: URL
+    private let quarantineURL: URL
 
     public init(root: URL) {
         self.url = FileLocations.journal(in: root)
+        self.quarantineURL = root.appendingPathComponent("journal.corrupt.jsonl")
     }
 
     public func load() throws -> [JournalEntry] {
@@ -124,11 +126,16 @@ public actor JournalStore {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         var entries: [JournalEntry] = []
-        for raw in text.split(separator: "\n", omittingEmptySubsequences: true) {
+        for (offset, raw) in text.split(separator: "\n", omittingEmptySubsequences: true).enumerated() {
             guard let data = String(raw).data(using: .utf8),
                 let entry = try? decoder.decode(JournalEntry.self, from: data),
                 !entry.id.isEmpty
-            else { continue }
+            else {
+                let record = "\(offset + 1)\t\(raw)\n"
+                let existing = (try? String(contentsOf: quarantineURL, encoding: .utf8)) ?? ""
+                try AtomicFile.write(Data((existing + record).utf8), to: quarantineURL)
+                continue
+            }
             entries.append(entry)
         }
         return entries

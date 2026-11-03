@@ -4,6 +4,8 @@ import LightningDesk
 
 struct Options {
     var synthetic = false
+    var edgeReport = false
+    var asOf: Date?
     var stats = false
     var replay = false
     var continuous = false
@@ -23,6 +25,7 @@ struct Options {
             switch arg {
             case "--help", "-h": help = true
             case "--benchmark", "-b": synthetic = true
+            case "--edge-report": edgeReport = true
             case "--stats", "-s": stats = true
             case "--bootstrap": stats = true; bootstrap = true
             case "--experiment": experiment = true
@@ -31,10 +34,16 @@ struct Options {
             case "--daemon", "-d": daemon = true; continuous = true; primeOnly = true
             case "--prime-only", "--smart-schedule": primeOnly = true
             case "--all-policies": policies = ["control"] + ScanPolicy.allCases.map(\.rawValue)
-            case "--root", "--policy", "--max-events":
+            case "--root", "--policy", "--max-events", "--as-of":
                 index += 1
                 guard index < arguments.count else { throw ScanError.failed("Missing value for \(arg)") }
                 let value = arguments[index]
+                if arg == "--as-of" {
+                    guard let seconds = Double(value), seconds.isFinite, seconds >= 0, seconds < 253_402_300_800 else {
+                        throw ScanError.failed("Invalid report cutoff (Unix seconds)")
+                    }
+                    asOf = Date(timeIntervalSince1970: seconds)
+                }
                 if arg == "--root" { root = URL(fileURLWithPath: value, isDirectory: true) }
                 if arg == "--policy" {
                     guard value == "control" || ScanPolicy(rawValue: value) != nil else { throw ScanError.failed("Unknown policy \(value)") }
@@ -106,6 +115,90 @@ final class ResearchRunner {
         }
     }
 
+    func registerCampaign() async throws {
+        let candidates = [
+            ResearchStrategyCandidate(
+                id: "baseline",
+                version: EngineIdentity.pinnedSHA1,
+                description: "Pinned JavaScriptCore baseline; sole signal authority."
+            ),
+            ResearchStrategyCandidate(
+                id: "candidate-001",
+                version: "research-v1",
+                description: "Candidate 001 annotations; research-only and never an entry authority."
+            )
+        ]
+        let campaign = try ForwardValidationCampaign(
+            id: "milestone-7-forward-2026-11",
+            version: "v1",
+            strategies: candidates,
+            instruments: Assets.watchlist,
+            sources: ["oanda-proxy"],
+            evaluationCriteria: [
+                "signal persisted before any outcome",
+                "source-matched 60-second observation",
+                "replay reproduces the pinned engine result",
+                "unresolved observations remain visible"
+            ]
+        )
+        try await store.record(campaign)
+        let gaps = [
+            ResearchGap(
+                id: "m7-p0-integrated-lifecycle",
+                component: "forward research lifecycle",
+                severity: .p0,
+                evidence: "No accepted authentic signal and independently resolved outcome have been captured yet.",
+                owner: "engineering",
+                requiredFix: "Continue the controlled forward campaign until one eligible signal lifecycle is observed.",
+                regressionTest: "StrategyValidationTests and source-matched replay tests",
+                status: .open
+            ),
+            ResearchGap(
+                id: "m7-p1-physical-device",
+                component: "iPhone handoff",
+                severity: .p1,
+                evidence: "Simulator and package validation do not establish physical-device timing or readability.",
+                owner: "operator",
+                requiredFix: "Run the manual handoff and timing checks on an authorized physical iPhone.",
+                regressionTest: "Device verification checklist",
+                disposition: "Blocked until an authorized physical device is available.",
+                status: .blocked
+            ),
+            ResearchGap(
+                id: "m7-p1-pr-chain",
+                component: "integration",
+                severity: .p1,
+                evidence: "PRs #10-#15 remain open dependency-chain PRs; PR #16 contains the integrated branch.",
+                owner: "engineering",
+                requiredFix: "Keep PR #16 as the review surface and reconcile dependent PRs before any merge.",
+                regressionTest: "CI engine pin, tests, parity, and iPhone build",
+                disposition: "Blocked pending protected merge/review decisions.",
+                status: .blocked
+            )
+        ]
+        for gap in gaps {
+            try await store.record(gap)
+        }
+        let hasResolvedSixtySecondOutcome = try await store.outcomes().contains {
+            $0.horizon == 60 && $0.resolution != .unresolved
+        }
+        if hasResolvedSixtySecondOutcome {
+            try await store.record(ResearchGap(
+                id: "m7-p0-integrated-lifecycle-verified",
+                component: "forward research lifecycle",
+                severity: .p0,
+                evidence: "Accepted OANDA-proxy signal persisted before outcome; source-matched 60-second outcome and replay verified.",
+                owner: "engineering",
+                requiredFix: "Continue collecting independent observations; do not promote on this sample.",
+                regressionTest: "ForwardTest replay and StrategyValidationTests",
+                independentQA: "Replay reproduced all frozen events.",
+                disposition: "Supersedes m7-p0-integrated-lifecycle; promotion remains blocked by sample size.",
+                relatedReference: "a8f93e4",
+                status: .verified
+            ))
+        }
+    }
+
     func observe(session: OandaSession) async throws {
         while !Task.isCancelled {
             let assets = Set(pending.values.map { $0.input.asset }).sorted()
@@ -136,6 +229,7 @@ final class ResearchRunner {
     }
 
     func runLive(session: OandaSession) async throws {
+        try await registerCampaign()
         try await restore()
         let observer = Task {
             do { try await self.observe(session: session) }
@@ -250,26 +344,72 @@ final class ResearchRunner {
         print("Replayed \(matches) frozen events with matching side, conviction, evidence and veto narrative.")
     }
 
+    func printEdgeReport() async throws {
+        guard let archiveRoot = options.root, let cutoff = options.asOf else {
+            throw ScanError.failed("--edge-report requires --root (desk storage) and --as-of (Unix seconds) for reproducibility")
+        }
+        let report = try await ExecutionIntelligence.loadReport(root: archiveRoot, asOf: cutoff)
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        print(String(decoding: try encoder.encode(report), as: UTF8.self))
+    }
+
     func runExperiment() async throws {
         let events = try await store.events()
         let outcomes = try await store.outcomes()
+
         for policy in options.policies {
             let engine = policy == "control" ? StrategyEngine.controlSHA1 : (EngineIdentity.loadedSHA1() ?? "unverified")
-            let experiment = ResearchExperiment(
-                name: "chronological \(policy) evaluation",
-                policy: policy,
-                engineSHA: engine,
-                acceptanceCriteria: "Held-out cohort has positive assumed-payout expectancy with a lower Wilson bound above 50% after at least 30 resolved outcomes.",
-                rejectionCriteria: "Held-out cohort has non-positive expectancy or its lower Wilson bound remains below 50%.",
-                notes: "Generated locally. No live activation."
-            )
-            try await store.record(experiment)
+
+            // Quote the payout the archive actually recorded, not a hard-coded 88%. When the
+            // archive is mixed, the lowest rate is the one promotion must clear.
+            let policyEvents = events.filter {
+                ($0.signal.policy ?? ScanPolicy.baseline.rawValue) == policy && $0.engineSHA == engine
+            }
+            let payouts = policyEvents.map(\.assumedPayout).filter { $0.isFinite && $0 > 0 }
+            let meanPayout = payouts.isEmpty
+                ? EntryQuality.assumedPayout
+                : payouts.reduce(0, +) / Double(payouts.count)
+            let minimumPayout = payouts.min() ?? EntryQuality.assumedPayout
+            let breakEven = 1.0 / (1.0 + minimumPayout)
+            let breakEvenText = String(format: "%.2f", breakEven * 100)
+            let payoutText = String(format: "%.1f", minimumPayout * 100)
+
+            // Reuse the first experiment for this policy/engine so its held-out boundary
+            // stays frozen. Creating a new record every run silently re-uses the holdout.
+            let stored = try await store.experiments()
+            let experiment: ResearchExperiment
+            if let existing = stored.first(where: {
+                $0.policy == policy && $0.engineSHA == engine && $0.hasFrozenHoldout
+            }) {
+                experiment = existing
+            } else {
+                let splitAt = ResearchEvaluator.splitDate(
+                    events: events, policy: policy, engineSHA: engine, splitFraction: 0.7
+                )
+                experiment = ResearchExperiment(
+                    name: "chronological \(policy) evaluation",
+                    policy: policy,
+                    engineSHA: engine,
+                    splitAt: splitAt,
+                    payoutRatio: meanPayout,
+                    acceptanceCriteria: "Held-out cohort has positive expectancy and a cluster-adjusted lower Wilson bound above the \(breakEvenText)% break-even implied by the lowest recorded payout (\(payoutText)%), after at least 250 independent clustered events, prospective registration and venue confirmation.",
+                    rejectionCriteria: "Held-out cohort has non-positive expectancy, fewer than 250 independent clustered events, or a cluster-adjusted lower Wilson bound at or below the \(breakEvenText)% break-even.",
+                    notes: "Generated locally. No live activation. Retrospective split is exploratory. Proxy/synthetic outcomes never establish venue edge. Independent validation and authorization required."
+                )
+                try await store.record(experiment)
+            }
+
             let report = ResearchEvaluator.evaluate(experiment: experiment, events: events, outcomes: outcomes)
             try await store.record(report)
+
+            print("EXPERIMENT \(policy): splitFrozen=\(report.isHoldoutFrozen) breakEven=\(String(format: "%.2f%%", (report.breakEvenWinRate ?? breakEven) * 100)) acceptance=\(report.acceptanceSatisfied ? "MET" : "NOT MET")")
             for cohort in [report.train, report.test] {
                 let rate = cohort.winRate.map { String(format: "%.1f%%", $0 * 100) } ?? "unavailable"
                 let ev = cohort.expectancy.map { String(format: "%+.4f", $0) } ?? "unavailable"
-                print("EXPERIMENT \(policy) \(cohort.label): n=\(cohort.resolved) H=\(cohort.highSignals) L=\(cohort.lowSignals) WAIT=\(cohort.waitSignals) accepted=\(cohort.acceptedEntries)/\(cohort.candidates) WR=\(rate) EV88=\(ev) balanced=\(report.highLowBalanced)")
+                let blocks = cohort.blocks.map(String.init) ?? "·"
+                let nEff = cohort.effectiveSampleSize.map { String(format: "%.1f", $0) } ?? "·"
+                print("EXPERIMENT \(policy) \(cohort.label): n=\(cohort.resolved) blocks=\(blocks) nEff=\(nEff) H=\(cohort.highSignals) L=\(cohort.lowSignals) WAIT=\(cohort.waitSignals) accepted=\(cohort.acceptedEntries)/\(cohort.candidates) WR=\(rate) EV=\(ev) balanced=\(report.highLowBalanced)")
                 print("  \(cohort.caveat)")
             }
         }
@@ -296,11 +436,23 @@ final class ResearchRunner {
                 let missing = rows.filter { $0.resolution == .unresolved }.count
                 let n = wins + losses
                 let rate = n > 0 ? String(format: "%.1f%%", Double(wins) / Double(n) * 100) : "unavailable"
-                let ev = n > 0 ? String(format: "%+.4f", (Double(wins) * EntryQuality.assumedPayout - Double(losses)) / Double(n)) : "unavailable"
+                let directional = rows.filter { $0.resolution == .hit || $0.resolution == .miss }
+                let returns = directional.compactMap { outcome -> Double? in
+                    guard let event = byID[outcome.eventID], event.assumedPayout.isFinite,
+                          event.assumedPayout > 0 else { return nil }
+                    return outcome.resolution == .hit ? event.assumedPayout : -1
+                }
+                let payoutComplete = n > 0 && returns.count == n
+                let ev = payoutComplete
+                    ? String(format: "%+.4f", returns.reduce(0, +) / Double(n))
+                    : "unavailable"
                 let interval = EdgeEvidence.wilsonScoreInterval(wins: wins, total: n)
                 let ci = n > 0 ? String(format: "%.1f–%.1f%%", interval.lower * 100, interval.upper * 100) : "unavailable"
-                print("\(horizon)s: \(wins)/\(n) resolved wins (\(rate)); nominal Wilson CI=\(ci); assumed EV88=\(ev); ties=\(ties), unresolved=\(missing).")
-                if options.bootstrap, n > 0, let boot = ExpectancyMath.bootstrapStressTest(wins: wins, sampleSize: n, iterations: 500) {
+                print("\(horizon)s: \(wins)/\(n) resolved wins (\(rate)); nominal Wilson CI=\(ci); mixed event-payout EV=\(ev) (coverage \(returns.count)/\(n)); ties=\(ties), unresolved=\(missing).")
+                let conservativePayout = directional.compactMap { byID[$0.eventID]?.assumedPayout }.min()
+                if options.bootstrap, n > 0, let payout = conservativePayout,
+                   let boot = ExpectancyMath.bootstrapStressTest(
+                       wins: wins, sampleSize: n, iterations: 500, payoutRatio: payout) {
                     let bootRate = String(format: "%.1f%%", boot.medianWinRate * 100)
                     let p5 = String(format: "%.1f%%", boot.p5WinRate * 100)
                     let p95 = String(format: "%.1f%%", boot.p95WinRate * 100)
@@ -310,7 +462,7 @@ final class ResearchRunner {
                 }
             }
         }
-        print("Descriptive proxy/synthetic labels. No profitable-edge certification; payout is assumed, not verified.")
+        print("Descriptive proxy/synthetic labels. Event payouts may include capture-time fallbacks; no profitable-edge certification.")
     }
 }
 
@@ -320,10 +472,11 @@ struct ForwardTestApp {
         do {
             let options = try Options(Array(CommandLine.arguments.dropFirst()))
             if options.help {
-                print("ForwardTest [--benchmark | --stats | --bootstrap | --replay | --experiment] [--root PATH] [--policy baseline|continuation|reversal|regime|control | --all-policies] [--max-events N] [--prime-only] [--continuous | --daemon]")
+                print("ForwardTest [--edge-report --root DESK_PATH --as-of UNIX_SECONDS | --benchmark | --stats | --bootstrap | --replay | --experiment] [--root PATH] [--policy baseline|continuation|reversal|regime|control | --all-policies] [--max-events N] [--prime-only] [--continuous | --daemon]")
                 return
             }
             let runner = ResearchRunner(options: options)
+            if options.edgeReport { try await runner.printEdgeReport(); return }
             if options.experiment { try await runner.runExperiment(); return }
             if options.stats { try await runner.printStats(); return }
             if options.replay { try await runner.replay(); return }

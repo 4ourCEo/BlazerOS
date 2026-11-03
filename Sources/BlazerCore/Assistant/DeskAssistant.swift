@@ -182,6 +182,9 @@ public actor DeskAssistant {
         or invent values. Distinguish small samples from dependable evidence. Cite record IDs.
         The structured counts and gap groups are supplied by the app from the frozen records;
         do not reclassify gaps or invent IDs.
+        Do not narrate capitalPreservation or strategyValidation numbers. The app appends those
+        deterministic facts after generation. Do not recommend changing a stake, entry gate,
+        or stop based on research-only facts.
         """
         let compactContext = context.bounded(
             maxScans: 0, maxEntries: 4, maxGaps: 4, maxNotes: 0, maxText: 100
@@ -201,7 +204,7 @@ public actor DeskAssistant {
             contextNotes: context.selectionNotes(after: modelContext)
         ) { data in
             try Self.decodeSessionDebrief(
-                data, performance: context.performance, gaps: context.gaps
+                data, context: context
             )
         } validate: {
             AssistantValidation.validate($0, context: context)
@@ -285,7 +288,7 @@ public actor DeskAssistant {
     // MARK: - Schema decoding (runtime-gated)
 
     private static func decodeScanExplanation(_ data: Data, scanID: String) throws -> ScanExplanation {
-        #if canImport(FoundationModels)
+        #if canImport(FoundationModels) && !BLAZER_DISABLE_FOUNDATION_MODELS
         if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *) {
             let dto = try JSONDecoder().decode(GeneratedScanExplanation.self, from: data)
             return ScanExplanation(
@@ -301,7 +304,7 @@ public actor DeskAssistant {
     }
 
     private static func decodeCoachAnswer(_ data: Data) throws -> CoachAnswer {
-        #if canImport(FoundationModels)
+        #if canImport(FoundationModels) && !BLAZER_DISABLE_FOUNDATION_MODELS
         if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *) {
             let dto = try JSONDecoder().decode(GeneratedCoachAnswer.self, from: data)
             return CoachAnswer(answer: dto.answer, citations: dto.citations, limitations: dto.limitations)
@@ -311,7 +314,7 @@ public actor DeskAssistant {
     }
 
     private static func decodeJournalDraft(_ data: Data) throws -> JournalDraft {
-        #if canImport(FoundationModels)
+        #if canImport(FoundationModels) && !BLAZER_DISABLE_FOUNDATION_MODELS
         if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *) {
             let dto = try JSONDecoder().decode(GeneratedJournalDraft.self, from: data)
             return JournalDraft(
@@ -324,13 +327,21 @@ public actor DeskAssistant {
     }
 
     private static func decodeSessionDebrief(
-        _ data: Data, performance: PerformanceSummary, gaps: [ObservationGap]
+        _ data: Data, context: AssistantContext
     ) throws -> SessionDebrief {
-        #if canImport(FoundationModels)
+        #if canImport(FoundationModels) && !BLAZER_DISABLE_FOUNDATION_MODELS
         if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *) {
             let dto = try JSONDecoder().decode(GeneratedSessionDebrief.self, from: data)
+            let lower = dto.summary.lowercased()
+            let deterministicTerms = ["drawdown", "loss streak", "effective n", "capitalpreservation",
+                                      "strategyvalidation", "cooldown"]
+            guard !deterministicTerms.contains(where: lower.contains) else {
+                throw ScanError.failed("Model attempted to narrate deterministic research metrics")
+            }
+            let performance = context.performance
+            let gaps = context.gaps
             return SessionDebrief(
-                summary: dto.summary,
+                summary: dto.summary + SessionDebrief.deterministicResearchSuffix(context: context),
                 sampleSize: performance.sampleSize,
                 wins: performance.wins,
                 losses: performance.losses,
@@ -352,7 +363,7 @@ public actor DeskAssistant {
     private static func decodeComparison(
         _ data: Data, left: ScanRecordContext, right: ScanRecordContext
     ) throws -> ScanComparison {
-        #if canImport(FoundationModels)
+        #if canImport(FoundationModels) && !BLAZER_DISABLE_FOUNDATION_MODELS
         if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *) {
             let dto = try JSONDecoder().decode(GeneratedComparison.self, from: data)
             let deterministic = ScanComparisonEngine.deterministic(left, right)
@@ -368,7 +379,7 @@ public actor DeskAssistant {
     }
 
     private static func decodeResearchSuggestions(_ data: Data) throws -> [ResearchSuggestion] {
-        #if canImport(FoundationModels)
+        #if canImport(FoundationModels) && !BLAZER_DISABLE_FOUNDATION_MODELS
         if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *) {
             let dto = try JSONDecoder().decode(GeneratedResearchSuggestions.self, from: data)
             return dto.suggestions.prefix(3).map {

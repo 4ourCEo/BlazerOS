@@ -172,7 +172,7 @@ public struct PrimeScheduleSheet: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Text("Break-even: 53.2% (at 88% payout)")
+                    Text("Break-even depends on the recorded contract payout and costs")
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .foregroundStyle(DeskInk.slate)
                     Spacer()

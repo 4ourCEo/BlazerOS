@@ -103,6 +103,7 @@ public struct PerformanceSummary: Codable, Sendable, Equatable {
     public var unresolved: Int
     public var winRate: Double?
     public var breakEven: Double
+    public var payoutBasis: String?
     public var expectancy: Double?
     public var confirmedOnly: Bool
     public var caveat: String
@@ -110,7 +111,7 @@ public struct PerformanceSummary: Codable, Sendable, Equatable {
     public init(
         sampleSize: Int, wins: Int, losses: Int, ties: Int, unresolved: Int,
         winRate: Double?, breakEven: Double, expectancy: Double?,
-        confirmedOnly: Bool, caveat: String
+        payoutBasis: String? = nil, confirmedOnly: Bool, caveat: String
     ) {
         self.sampleSize = sampleSize
         self.wins = wins
@@ -119,6 +120,7 @@ public struct PerformanceSummary: Codable, Sendable, Equatable {
         self.unresolved = unresolved
         self.winRate = winRate
         self.breakEven = breakEven
+        self.payoutBasis = payoutBasis
         self.expectancy = expectancy
         self.confirmedOnly = confirmedOnly
         self.caveat = caveat
@@ -175,6 +177,11 @@ public struct AssistantContext: Codable, Sendable, Equatable {
     public var generatedAt: Date
     public var scans: [ScanRecordContext]
     public var confirmedEntries: [ConfirmedEntryContext]
+    public var research: ExecutionResearchSummary?
+    /// Deterministic confirmed-only drawdown facts. No field carries gate authority.
+    public var capitalPreservation: CapitalPreservationSummary?
+    /// Deterministic research-stage summaries. They never carry signal or promotion authority.
+    public var strategyValidation: [StrategyValidationSummary]?
     public var performance: PerformanceSummary
     public var gaps: [ObservationGap]
     public var notes: [JournalNoteContext]
@@ -184,12 +191,25 @@ public struct AssistantContext: Codable, Sendable, Equatable {
         scans: [ScanRecordContext] = [],
         confirmedEntries: [ConfirmedEntryContext] = [],
         performance: PerformanceSummary = .empty,
+        research: ExecutionResearchSummary? = nil,
+        capitalPreservation: CapitalPreservationSummary? = nil,
+        strategyValidation: [StrategyValidationSummary]? = nil,
         gaps: [ObservationGap] = [],
         notes: [JournalNoteContext] = []
     ) {
         self.generatedAt = generatedAt
         self.scans = scans
         self.confirmedEntries = confirmedEntries
+        self.research = research
+        self.capitalPreservation = capitalPreservation
+        if let strategyValidation {
+            var seen = Set<ValidationStage>()
+            self.strategyValidation = strategyValidation
+                .filter { seen.insert($0.stage).inserted }
+                .prefix(ValidationStage.allCases.count).map { $0 }
+        } else {
+            self.strategyValidation = nil
+        }
         self.performance = performance
         self.gaps = gaps
         self.notes = notes
@@ -226,6 +246,9 @@ public struct AssistantContext: Codable, Sendable, Equatable {
             return String(value.prefix(maxText)) + "…"
         }
         var copy = self
+        copy.strategyValidation = strategyValidation.map {
+            Array($0.prefix(ValidationStage.allCases.count))
+        }
         copy.scans = scans.prefix(maxScans).map { scan in
             var item = scan
             item.evidence = trim(item.evidence)
@@ -249,20 +272,20 @@ public struct AssistantContext: Codable, Sendable, Equatable {
 
     /// Describes what a bounded context omitted. Used in diagnostics, never as model facts.
     public func selectionNotes(after bounded: AssistantContext) -> [String] {
-        var notes: [String] = []
+        var selection: [String] = []
         if bounded.scans.count < scans.count {
-            notes.append("scans \(bounded.scans.count)/\(scans.count)")
+            selection.append("scans \(bounded.scans.count)/\(scans.count)")
         }
         if bounded.confirmedEntries.count < confirmedEntries.count {
-            notes.append("entries \(bounded.confirmedEntries.count)/\(confirmedEntries.count)")
+            selection.append("entries \(bounded.confirmedEntries.count)/\(confirmedEntries.count)")
         }
         if bounded.gaps.count < gaps.count {
-            notes.append("gaps \(bounded.gaps.count)/\(gaps.count)")
+            selection.append("gaps \(bounded.gaps.count)/\(gaps.count)")
         }
         if bounded.notes.count < notes.count {
-            notes.append("notes \(bounded.notes.count)/\(notes.count)")
+            selection.append("notes \(bounded.notes.count)/\(notes.count)")
         }
-        return notes
+        return selection
     }
 }
 
@@ -271,7 +294,10 @@ public enum AssistantContextBuilder {
     public static func make(
         journal: [JournalEntry],
         ledgerRows: [LedgerRow],
-        now: Date = Date()
+        observations: [ExecutionObservation] = [],
+        validationReports: [StrategyValidationReport] = [],
+        now: Date = Date(),
+        sessionTimeZoneIdentifier: String = TimeZone.current.identifier
     ) -> AssistantContext {
         let sortedJournal = journal.sorted { $0.scannedAt > $1.scannedAt }
         let scanTimeByID = Dictionary(
@@ -342,32 +368,24 @@ public enum AssistantContextBuilder {
                 )
             }
 
-        let wins = confirmedEntries.filter { $0.outcome == DeskOutcome.hit.rawValue }.count
-        let losses = confirmedEntries.filter { $0.outcome == DeskOutcome.miss.rawValue }.count
-        let resolved = wins + losses
-        let winRate = resolved > 0 ? Double(wins) / Double(resolved) : nil
-        let breakEven = 1.0 / (1.0 + EntryQuality.assumedPayout)
-        let expectancy = winRate.map { $0 * EntryQuality.assumedPayout - (1 - $0) }
-        let caveat: String
-        if resolved == 0 {
-            caveat = "No venue-confirmed outcomes are available. No performance claim can be made."
-        } else if resolved < 30 {
-            caveat = "Small confirmed sample (n=\(resolved)). Descriptive only; not evidence of a stable edge."
-        } else {
-            caveat = "Descriptive confirmed sample (n=\(resolved)) with assumed \(Int(EntryQuality.assumedPayout * 100))% payout. Independence and policy stability are unverified."
-        }
-        let performance = PerformanceSummary(
-            sampleSize: resolved,
-            wins: wins,
-            losses: losses,
-            ties: 0,
-            unresolved: ledgerRows.filter { $0.labelSource != "venue-confirmed" && ($0.outcome == "HIT" || $0.outcome == "MISS") }.count,
-            winRate: winRate,
-            breakEven: breakEven,
-            expectancy: expectancy,
-            confirmedOnly: true,
-            caveat: caveat
+        // Calculate from the complete archive before bounding records for the model.
+        let report = try? ExecutionIntelligence.report(rows: ledgerRows, journal: journal,
+            observations: observations, asOf: now)
+        let riskReport = try? CapitalPreservationReport.evaluate(
+            rows: ledgerRows, asOf: now, timeZoneIdentifier: sessionTimeZoneIdentifier
         )
+        let wins = report?.wins ?? 0
+        let resolved = report?.resolved ?? 0
+        let losses = resolved - wins
+        let winRate = resolved > 0 ? Double(wins) / Double(resolved) : nil
+        let performance = PerformanceSummary(
+            sampleSize: resolved, wins: wins, losses: losses, ties: 0,
+            unresolved: ledgerRows.filter { $0.outcome == "UNRESOLVED" || ($0.labelSource != "venue-confirmed" && ["HIT", "MISS"].contains($0.outcome)) }.count,
+            winRate: winRate, breakEven: report?.breakEvenAtMinimumPayout ?? ExpectancyMath.breakEvenWinRate(),
+            expectancy: report?.actualExpectancy,
+            payoutBasis: report?.breakEvenAtMinimumPayout != nil ? "minimum recorded payout" : "assumed 88% payout; coverage incomplete",
+            confirmedOnly: true,
+            caveat: "INSUFFICIENT EVIDENCE. Actual unit expectancy requires recorded winning payouts; a loss contributes its full risk unit. Record selection is bounded for explanation; calculations use the complete supplied archive. Independence, policy stability and prospective validation remain unverified.")
 
         var gaps: [ObservationGap] = []
         for row in ledgerRows where row.labelSource != "venue-confirmed" && (row.outcome == "HIT" || row.outcome == "MISS") {
@@ -419,6 +437,9 @@ public enum AssistantContextBuilder {
             scans: scans,
             confirmedEntries: Array(confirmedEntries),
             performance: performance,
+            research: report.map(ExecutionResearchSummary.init),
+            capitalPreservation: riskReport.map(CapitalPreservationSummary.init),
+            strategyValidation: validationReports.map(StrategyValidationSummary.init),
             gaps: Array(gaps.prefix(60)),
             notes: Array(notes)
         )

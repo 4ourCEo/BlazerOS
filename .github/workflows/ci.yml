@@ -40,6 +40,15 @@ jobs:
       - name: Parity tool
         run: swift run -c release Parity
 
+      - name: Numeric and research audit
+        run: swift run -c release CoreAudit
+
+      - name: Persistence and recovery
+        run: swift run -c release Persist
+
+      - name: Soak
+        run: swift run -c release Soak
+
   ios-app:
     name: iPhone app build
     runs-on: macos-26
@@ -62,6 +71,12 @@ jobs:
             -configuration Debug \
             CODE_SIGNING_ALLOWED=NO \
             build
+
+      - name: Release simulator build
+        run: |
+          xcodebuild -project iPhone/BlazerOS.xcodeproj -scheme BlazerOS \
+            -destination 'generic/platform=iOS Simulator' -configuration Release \
+            CODE_SIGNING_ALLOWED=NO build
 
       # BlazerTests covers the desk layout and the iPhone execution flow. It only
       # runs from the Xcode project, so it needs a concrete simulator. Ask

@@ -10,14 +10,39 @@ struct DeskScreen: View {
     @State private var pressingOutcome: DeskOutcome?
 
     var body: some View {
-        VStack(spacing: 0) {
-            topIntelligenceBar
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 0) {
+            deskMasthead
                 .padding(.horizontal, 20)
-                .padding(.top, 4)
+                .padding(.top, 2)
+
+            HStack(alignment: .bottom) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Scan")
+                        .font(.system(size: 29, weight: .bold, design: .rounded))
+                        .foregroundStyle(DeskInk.ink)
+                    Text("Live market intelligence.")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(DeskInk.slate)
+                }
+                Spacer()
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(DeskInk.slate)
+                    .frame(width: 32, height: 32)
+                    .background(DeskInk.surface, in: Circle())
+                    .overlay(Circle().strokeBorder(Color.white.opacity(0.08), lineWidth: 0.6))
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+
+            marketSelector
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
 
             hero
                 .padding(.horizontal, 20)
-                .padding(.top, 8)
+                .padding(.top, 12)
                 .offset(y: reduceMotion ? 0 : model.heroLift)
 
             if let receipt = model.settleReceipt {
@@ -30,7 +55,9 @@ struct DeskScreen: View {
                     ))
             }
 
-            Spacer(minLength: 10)
+            watchlistSection
+                .padding(.horizontal, 20)
+                .padding(.top, 14)
 
             ScanControl(
                 scanning: model.scanning,
@@ -40,17 +67,7 @@ struct DeskScreen: View {
                 Task { await model.scan() }
             }
             .padding(.horizontal, 20)
-            .padding(.bottom, 6)
-
-            Picker("Market", selection: $model.marketMode) {
-                Text("Crypto").tag(DeskMarket.crypto)
-                Text("FX").tag(DeskMarket.fx)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(maxWidth: 220)
-            .disabled(model.activeTrade != nil || model.awaitingOutcome || model.isSettlementInFlight)
-            .padding(.bottom, 8)
+            .padding(.top, 12)
 
             Button {
                 DeskHaptics.tabSwitch()
@@ -64,7 +81,8 @@ struct DeskScreen: View {
                 .foregroundStyle(DeskInk.electric)
             }
             .buttonStyle(.plain)
-            .padding(.bottom, 10)
+            .padding(.vertical, 12)
+            }
         }
         .animation(.easeOut(duration: 0.22), value: model.settleReceipt)
         .sheet(isPresented: $showingPrimeSchedule) {
@@ -79,6 +97,152 @@ struct DeskScreen: View {
         .onChange(of: model.marketMode) { _, _ in
             Task { await model.scan() }
         }
+    }
+
+    private var marketSelector: some View {
+        HStack(spacing: 3) {
+            marketOption(.fx, title: "FX")
+            marketOption(.crypto, title: "Crypto")
+        }
+        .padding(3)
+        .background(DeskInk.surface.opacity(0.82), in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.07), lineWidth: 0.6))
+        .disabled(model.activeTrade != nil || model.awaitingOutcome || model.isSettlementInFlight)
+    }
+
+    private func marketOption(_ market: DeskMarket, title: String) -> some View {
+        let selected = model.marketMode == market
+        return Button {
+            guard !selected else { return }
+            DeskHaptics.tabSwitch()
+            model.marketMode = market
+        } label: {
+            Text(title)
+                .font(.system(size: 12, weight: selected ? .semibold : .medium))
+                .foregroundStyle(selected ? DeskInk.ink : DeskInk.slate)
+                .frame(maxWidth: .infinity)
+                .frame(height: 32)
+                .background(
+                    Capsule()
+                        .fill(selected ? DeskInk.indigo.opacity(0.9) : .clear)
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private var watchlistSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Watchlist")
+                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                    .foregroundStyle(DeskInk.ink)
+                Text("\(model.pairs.count)")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundStyle(DeskInk.slate)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(DeskInk.surface, in: Capsule())
+                Spacer()
+                Text("See all")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(DeskInk.electric)
+            }
+
+            VStack(spacing: 0) {
+                ForEach(Array(model.pairs.prefix(6)), id: \.self) { pair in
+                    watchlistRow(pair)
+                    if pair != model.pairs.prefix(6).last {
+                        Divider()
+                            .overlay(Color.white.opacity(0.06))
+                            .padding(.leading, 44)
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .background(DeskInk.surface.opacity(0.72), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.07), lineWidth: 0.7)
+            )
+        }
+    }
+
+    private func watchlistRow(_ pair: String) -> some View {
+        let side = model.side(for: pair) ?? "WAIT"
+        let tint = bookInk(side)
+        return Button {
+            DeskHaptics.tabSwitch()
+            model.select(pair: pair)
+        } label: {
+            HStack(spacing: 10) {
+                Circle()
+                    .fill(tint.opacity(side == "HIGH" || side == "LOW" ? 0.95 : 0.35))
+                    .frame(width: 7, height: 7)
+                    .shadow(color: tint.opacity(0.7), radius: 4)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(pair)
+                            .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(DeskInk.ink)
+                        Text("M1")
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundStyle(DeskInk.slate)
+                    }
+                    Text(side == "HIGH" ? "CALL ↑" : side == "LOW" ? "PUT ↓" : "WAIT")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(tint)
+                }
+
+                Spacer()
+
+                MiniCandleChart(
+                    candles: model.candles(for: pair),
+                    pair: pair
+                )
+                .frame(width: 66, height: 28)
+                .allowsHitTesting(false)
+
+                if let score = model.score(for: pair) {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(model.strike(for: pair).map { PriceFormat.px($0) } ?? "—")
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(DeskInk.ink)
+                        Text("\(score)")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundStyle(tint)
+                    }
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(DeskInk.slate.opacity(0.55))
+                }
+            }
+            .padding(.vertical, 10)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(pair), \(side)")
+    }
+
+    private var deskMasthead: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "bolt.horizontal.circle.fill")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(DeskInk.electric)
+            Text("BLAZEROS")
+                .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                .tracking(1.8)
+                .foregroundStyle(DeskInk.ink)
+            Spacer()
+            Circle()
+                .fill(feedColor)
+                .frame(width: 6, height: 6)
+                .shadow(color: feedColor.opacity(0.75), radius: 4)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("BlazerOS, \(feedWord)")
     }
 
     private var topIntelligenceBar: some View {
@@ -205,24 +369,47 @@ struct DeskScreen: View {
     }
 
     private var hero: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 10) {
             pairRow
-            MiniCandleChart(
-                candles: model.candles,
-                strike: model.activeTrade?.strike ?? (isArmed ? model.frame?.strike : nil),
-                currentPrice: model.currentPrice,
-                side: model.activeTrade?.side ?? model.side(for: model.pair),
-                pair: model.pair
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Label("Market movement", systemImage: "chart.xyaxis.line")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(DeskInk.slate)
+                    Spacer()
+                    Text(feedWord)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(feedColor)
+                }
+
+                MiniCandleChart(
+                    candles: model.candles,
+                    strike: model.activeTrade?.strike ?? (isArmed ? model.frame?.strike : nil),
+                    currentPrice: model.currentPrice,
+                    side: model.activeTrade?.side ?? model.side(for: model.pair),
+                    pair: model.pair
+                )
+                .equatable()
+                .frame(height: 104)
+                .frame(maxWidth: .infinity)
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 8)
+            .padding(.bottom, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color.black.opacity(0.16))
             )
-            .equatable()
-            .frame(height: 160)
-            .frame(maxWidth: .infinity)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.07), lineWidth: 0.8)
+            )
             verdict
             if isArmed {
                 rail
             }
         }
-        .padding(20)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(heroSurface)
         .overlay(alignment: .bottom) {
@@ -288,6 +475,31 @@ struct DeskScreen: View {
                     }
                 }
         )
+    }
+
+    private func scanFreshnessBadge(asOf: Date?, now: Date) -> some View {
+        let age = asOf.map { max(0, now.timeIntervalSince($0)) }
+        let isOld = age.map { $0 > 60 } ?? true
+        let label: String
+        if let age {
+            if age < 1 {
+                label = "Updated now"
+            } else if age < 60 {
+                label = "Updated \(Int(age))s ago"
+            } else {
+                label = "Updated \(Int(age / 60))m ago"
+            }
+        } else {
+            label = "No scan recorded"
+        }
+        return HStack(spacing: 5) {
+            Image(systemName: isOld ? "clock.badge.exclamationmark" : "clock")
+                .font(.system(size: 9, weight: .semibold))
+            Text(label)
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+        }
+        .foregroundStyle(isOld ? DeskInk.coral : DeskInk.slate)
+        .accessibilityLabel(age.map { "Last scan \(Int($0)) seconds ago" } ?? "No scan recorded")
     }
 
     private var heroSurface: some View {
@@ -435,15 +647,16 @@ struct DeskScreen: View {
     }
 
     private var verdict: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let compact = model.activeTrade == nil && !isArmed
+        return VStack(alignment: .leading, spacing: compact ? 4 : 6) {
             // Header Row: Score + Live Strike
             HStack(alignment: .firstTextBaseline) {
                 Text(scoreText)
-                    .font(.system(size: 54, weight: .semibold))
+                    .font(.system(size: compact ? 38 : 54, weight: .semibold))
                     .foregroundStyle(DeskInk.ink)
                     .monospacedDigit()
                     .contentTransition(.numericText())
-                    .frame(minHeight: 56, alignment: .leading)
+                    .frame(minHeight: compact ? 38 : 56, alignment: .leading)
                     .animation(.spring(response: 0.45, dampingFraction: 0.72), value: scoreText)
 
                 Spacer()
@@ -532,11 +745,11 @@ struct DeskScreen: View {
                 .animation(.spring(response: 0.35, dampingFraction: 0.7), value: verbText)
 
                 Text(telemetry.telemetryDetail)
-                    .font(.system(size: 13, weight: .regular))
+                    .font(.system(size: compact ? 11 : 13, weight: .regular))
                     .foregroundStyle(DeskInk.slate)
-                    .lineLimit(2)
+                    .lineLimit(compact ? 1 : 2)
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, minHeight: 32, alignment: .topLeading)
+                    .frame(maxWidth: .infinity, minHeight: compact ? 20 : 32, alignment: .topLeading)
             }
 
             if model.activeTrade == nil && isArmed {

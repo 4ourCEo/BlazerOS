@@ -99,3 +99,24 @@ private func batch(bullish: Bool = true, last: ((CryptoCandle) -> CryptoCandle)?
         }
     }
 }
+
+@Test func cryptoRejectsNonFiniteCandleBeforeScoring() {
+    let invalid = batch { c in
+        CryptoCandle(time: c.time, open: c.open, high: .infinity, low: c.low,
+                     close: c.close, volume: c.volume, quoteVolume: c.quoteVolume,
+                     trades: c.trades)
+    }
+    let result = CryptoEngine.evaluate(batch: invalid)
+    #expect(result.side == "WAIT")
+    #expect(result.conviction == 0)
+    #expect(result.why == "Invalid market data")
+}
+
+@Test func cryptoRejectsNonFiniteQuotesBeforeScoring() {
+    let valid = batch()
+    let invalid = CryptoCandleBatch(candles: valid.candles, bid: .nan,
+                                    ask: valid.ask, asset: "BTC/USDT", source: "test")
+    let result = CryptoEngine.evaluate(batch: invalid)
+    #expect(result.side == "WAIT")
+    #expect(result.why == "Invalid market data")
+}

@@ -92,6 +92,21 @@ private func quote(_ input: StrategyEngine.MarketInput, time: Date = clock, mid:
     await #expect(throws: (any Error).self) { try await StrategyEngine.evaluate(input: input) }
 }
 
+@Test func scanKernelUsesMillisecondCandleTimesAndRemovesFormingM5BeforeEngine() async throws {
+    var input = trendInput()
+    let evaluation = try #require(input.evaluatedAtMs)
+    input.candles5m.append(.init(
+        time: evaluation, open: input.lastPrice, high: input.lastPrice + 0.0001,
+        low: input.lastPrice - 0.0001, close: input.lastPrice
+    ))
+    let asset = input.asset
+    let envelope = try await ScanKernel.evaluate(input: &input, asset: asset)
+    #expect(input.candles1m.count == 120)
+    #expect(input.candles5m.count == 120)
+    #expect(input.candles5m.allSatisfy { $0.time + 300_000 <= evaluation + 1 })
+    #expect(envelope.snapshotM5Bars?.count == 120)
+}
+
 @Test func challengersAreOptInAndStaleTriggersAreVetoed() async throws {
     var input = trendInput()
     let baseline = try await StrategyEngine.evaluate(input: input).signal

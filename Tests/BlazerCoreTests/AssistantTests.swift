@@ -91,7 +91,7 @@ private actor ConcurrencyProbeEngine: OnDeviceModelEngine {
     }
 }
 
-#if canImport(FoundationModels)
+#if canImport(FoundationModels) && !BLAZER_DISABLE_FOUNDATION_MODELS
 @available(macOS 26.0, iOS 26.0, *)
 private func scanExplanationData(
     decision: String = "CALL",
@@ -153,7 +153,7 @@ private func sampleDebriefContext(expectancy: Double? = 0.88) -> AssistantContex
 }
 
 @Test func availableEngineProducesModelOrigin() async throws {
-    #if canImport(FoundationModels)
+    #if canImport(FoundationModels) && !BLAZER_DISABLE_FOUNDATION_MODELS
     if #available(macOS 26.0, iOS 26.0, *) {
         let scan = sampleScan()
         let engine = FakeEngine(data: try scanExplanationData())
@@ -168,7 +168,7 @@ private func sampleDebriefContext(expectancy: Double? = 0.88) -> AssistantContex
 }
 
 @Test func contradictoryScoreIsRejectedAndFallsBack() async throws {
-    #if canImport(FoundationModels)
+    #if canImport(FoundationModels) && !BLAZER_DISABLE_FOUNDATION_MODELS
     if #available(macOS 26.0, iOS 26.0, *) {
         let scan = sampleScan()
         let engine = FakeEngine(data: try scanExplanationData(score: 99))
@@ -182,7 +182,7 @@ private func sampleDebriefContext(expectancy: Double? = 0.88) -> AssistantContex
 }
 
 @Test func fullRecordedEvidenceStringIsAccepted() async throws {
-    #if canImport(FoundationModels)
+    #if canImport(FoundationModels) && !BLAZER_DISABLE_FOUNDATION_MODELS
     if #available(macOS 26.0, iOS 26.0, *) {
         let scan = sampleScan()
         let engine = FakeEngine(
@@ -197,7 +197,7 @@ private func sampleDebriefContext(expectancy: Double? = 0.88) -> AssistantContex
 }
 
 @Test func inventedEvidenceIsStillRejected() async throws {
-    #if canImport(FoundationModels)
+    #if canImport(FoundationModels) && !BLAZER_DISABLE_FOUNDATION_MODELS
     if #available(macOS 26.0, iOS 26.0, *) {
         let scan = sampleScan()
         let engine = FakeEngine(
@@ -214,7 +214,7 @@ private func sampleDebriefContext(expectancy: Double? = 0.88) -> AssistantContex
 }
 
 @Test func debriefDerivesStructuredFieldsFromContext() async throws {
-    #if canImport(FoundationModels)
+    #if canImport(FoundationModels) && !BLAZER_DISABLE_FOUNDATION_MODELS
     if #available(macOS 26.0, iOS 26.0, *) {
         let context = sampleDebriefContext()
         let engine = FakeEngine(data: try debriefData(
@@ -246,7 +246,7 @@ private func sampleDebriefContext(expectancy: Double? = 0.88) -> AssistantContex
 }
 
 @Test func debriefRejectsUnknownCitation() async throws {
-    #if canImport(FoundationModels)
+    #if canImport(FoundationModels) && !BLAZER_DISABLE_FOUNDATION_MODELS
     if #available(macOS 26.0, iOS 26.0, *) {
         let context = sampleDebriefContext()
         let engine = FakeEngine(data: try debriefData(
@@ -257,6 +257,31 @@ private func sampleDebriefContext(expectancy: Double? = 0.88) -> AssistantContex
         let result = await assistant.debrief(context: context)
         #expect(result.origin == .deterministicFallback)
         #expect(result.diagnostic.validationIssues.contains { $0.contains("unknown citation") })
+    }
+    #endif
+}
+
+@Test func debriefRejectsModelNarratedRiskNumbersAndUsesDeterministicFacts() async throws {
+    #if canImport(FoundationModels) && !BLAZER_DISABLE_FOUNDATION_MODELS
+    if #available(macOS 26.0, iOS 26.0, *) {
+        var context = sampleDebriefContext()
+        let entered = Date(timeIntervalSince1970: 1_800_000_000)
+        let row = LedgerRow(
+            timestamp: entered.addingTimeInterval(60), pair: "EUR/USD", hash: "risk",
+            score: 70, side: "CALL", veto: false, drift: 0, outcome: "MISS",
+            outcomeEventID: "risk", payout: 0.88, stake: 10,
+            labelSource: "venue-confirmed", horizonSeconds: 60, enteredAt: entered)
+        let report = try CapitalPreservationReport.evaluate(
+            rows: [row], asOf: entered.addingTimeInterval(120), timeZoneIdentifier: "UTC")
+        context.capitalPreservation = CapitalPreservationSummary(report)
+        let engine = FakeEngine(data: try debriefData(
+            summary: "Maximum drawdown was 999.00 units and the loss streak was 12.",
+            citations: ["scan-1"]))
+        let assistant = DeskAssistant(engine: engine)
+        let result = await assistant.debrief(context: context)
+        #expect(result.origin == .deterministicFallback)
+        #expect(result.value.summary.contains("drawdown was 10.00"))
+        #expect(!result.value.summary.contains("999.00"))
     }
     #endif
 }
@@ -304,7 +329,7 @@ private func sampleDebriefContext(expectancy: Double? = 0.88) -> AssistantContex
 }
 
 @Test func unsupportedPercentageClaimIsRejected() async throws {
-    #if canImport(FoundationModels)
+    #if canImport(FoundationModels) && !BLAZER_DISABLE_FOUNDATION_MODELS
     if #available(macOS 26.0, iOS 26.0, *) {
         let scan = sampleScan()
         let engine = FakeEngine(data: try scanExplanationData(summary: "This setup has a 60% win rate."))
@@ -317,7 +342,7 @@ private func sampleDebriefContext(expectancy: Double? = 0.88) -> AssistantContex
 }
 
 @Test func concurrentRequestsAreSerialized() async throws {
-    #if canImport(FoundationModels)
+    #if canImport(FoundationModels) && !BLAZER_DISABLE_FOUNDATION_MODELS
     if #available(macOS 26.0, iOS 26.0, *) {
         let data = try scanExplanationData()
         let probe = ConcurrencyProbeEngine(data: data)
@@ -334,7 +359,7 @@ private func sampleDebriefContext(expectancy: Double? = 0.88) -> AssistantContex
 }
 
 @Test func comparisonAlwaysUsesDeterministicDifferences() async throws {
-    #if canImport(FoundationModels)
+    #if canImport(FoundationModels) && !BLAZER_DISABLE_FOUNDATION_MODELS
     if #available(macOS 26.0, iOS 26.0, *) {
         let left = sampleScan(id: "left")
         let right = sampleScan(id: "right", call: "PUT", score: 22, evidence: "Trend is down")
@@ -483,7 +508,7 @@ private struct BudgetEngine: OnDeviceModelEngine {
 }
 
 @Test func oversizedContextRetriesOnceWithCompactedContext() async throws {
-    #if canImport(FoundationModels)
+    #if canImport(FoundationModels) && !BLAZER_DISABLE_FOUNDATION_MODELS
     if #available(macOS 26.0, iOS 26.0, *) {
         let dto = GeneratedCoachAnswer(
             answer: "The latest saved scan is WAIT.", citations: ["scan-0"],
@@ -531,7 +556,7 @@ private struct BudgetEngine: OnDeviceModelEngine {
 }
 
 @Test func realEngineReportsExactTokenCountWhenAvailable() async {
-    #if canImport(FoundationModels)
+    #if canImport(FoundationModels) && !BLAZER_DISABLE_FOUNDATION_MODELS
     #if compiler(>=6.4)
     if #available(macOS 26.4, iOS 26.4, *) {
         let engine = SystemModelEngine()
@@ -546,16 +571,29 @@ private struct BudgetEngine: OnDeviceModelEngine {
         )
         print("FM_BUDGET \(String(describing: estimate))")
         #expect(estimate != nil)
-        #expect(estimate?.method == "exact")
-        #expect((estimate?.contextSize ?? 0) >= 4_096)
-        #expect(estimate?.fits == true)
+        if let estimate {
+            if estimate.method == "exact" {
+                #expect(estimate.contextSize > 0)
+                #expect(estimate.fits)
+            } else {
+                #expect(estimate.method == "estimated")
+                #expect(estimate.contextSize > 0)
+                #expect(estimate.fits == (estimate.required <= estimate.contextSize))
+            }
+        }
     }
     #endif
     #endif
 }
 
+@Test func zeroOrNegativeModelContextUsesBoundedFallbackCapacity() {
+    #expect(ModelBudgetPolicy.effectiveContextSize(reported: 0) == 4_096)
+    #expect(ModelBudgetPolicy.effectiveContextSize(reported: -1) == 4_096)
+    #expect(ModelBudgetPolicy.effectiveContextSize(reported: 8_192) == 8_192)
+}
+
 @Test func realModelCompactsAnOversizedContextOnce() async throws {
-    #if canImport(FoundationModels)
+    #if canImport(FoundationModels) && !BLAZER_DISABLE_FOUNDATION_MODELS
     if #available(macOS 26.4, iOS 26.4, *) {
         let assistant = DeskAssistant.appleOnDevice()
         guard await assistant.availability() == .ready else { return }
@@ -593,7 +631,7 @@ private struct BudgetEngine: OnDeviceModelEngine {
 }
 
 @Test func realAppleOnDeviceEngineGenerates() async throws {
-    #if canImport(FoundationModels)
+    #if canImport(FoundationModels) && !BLAZER_DISABLE_FOUNDATION_MODELS
     if #available(macOS 26.0, iOS 26.0, *) {
         let engine = SystemModelEngine()
         let availability = await engine.availability()
@@ -624,7 +662,7 @@ private struct BudgetEngine: OnDeviceModelEngine {
 }
 
 @Test func realAppleOnDeviceServiceIsSafeOnLiveOutput() async throws {
-    #if canImport(FoundationModels)
+    #if canImport(FoundationModels) && !BLAZER_DISABLE_FOUNDATION_MODELS
     if #available(macOS 26.0, iOS 26.0, *) {
         let assistant = DeskAssistant.appleOnDevice()
         let availability = await assistant.availability()
@@ -644,7 +682,7 @@ private struct BudgetEngine: OnDeviceModelEngine {
 }
 
 @Test func realAppleOnDeviceAcceptsAnActionableLowDecision() async throws {
-    #if canImport(FoundationModels)
+    #if canImport(FoundationModels) && !BLAZER_DISABLE_FOUNDATION_MODELS
     if #available(macOS 26.0, iOS 26.0, *) {
         let assistant = DeskAssistant.appleOnDevice()
         let availability = await assistant.availability()

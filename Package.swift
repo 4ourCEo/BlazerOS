@@ -15,6 +15,9 @@ let package = Package(
         .executable(name: "ForwardTest", targets: ["ForwardTest"]),
     ],
     targets: [
+        .executableTarget(name: "EdgeReport", dependencies: ["BlazerCore"]),
+        .executableTarget(name: "ScanBenchmark", dependencies: ["BlazerCore"]),
+        .executableTarget(name: "CoreAudit", dependencies: ["BlazerCore", "BlazerCrypto"]),
         .target(
             name: "BlazerCore",
             resources: [

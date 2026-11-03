@@ -57,6 +57,19 @@ public enum ExchangeClock {
         return ClockOffset(skewMs: skewMs, roundTripMs: rttMs, measuredAt: t3, source: source)
     }
 
+    /// NTP-style offset when an exchange reports Unix time in milliseconds.
+    public static func offset(
+        sentAt t0: Date,
+        serverTimeMilliseconds: Int64,
+        receivedAt t3: Date,
+        source: String
+    ) -> ClockOffset? {
+        guard serverTimeMilliseconds >= 0 else { return nil }
+        let serverTime = Date(timeIntervalSince1970: Double(serverTimeMilliseconds) / 1000)
+        guard serverTime.timeIntervalSince1970.isFinite else { return nil }
+        return offset(sentAt: t0, serverTime: serverTime, receivedAt: t3, source: source)
+    }
+
     /// Apply the measured skew to a local instant to obtain corrected server time.
     public static func correctedNow(localNow: Date, offset: ClockOffset) -> Date {
         localNow.addingTimeInterval(offset.skewMs / 1000)

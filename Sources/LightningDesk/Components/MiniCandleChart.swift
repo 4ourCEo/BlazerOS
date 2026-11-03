@@ -7,6 +7,7 @@ struct MiniCandleChart: View, Equatable {
     var currentPrice: Double? = nil
     var side: String? = nil
     var pair: String? = nil
+    var candidateAnnotations: [Candidate001Candidate] = []
 
     @State private var scrubbedIndex: Int? = nil
 
@@ -16,6 +17,7 @@ struct MiniCandleChart: View, Equatable {
             && lhs.currentPrice == rhs.currentPrice
             && lhs.side == rhs.side
             && lhs.pair == rhs.pair
+            && lhs.candidateAnnotations == rhs.candidateAnnotations
     }
 
     private var bars: [Candle] {
@@ -81,6 +83,7 @@ struct MiniCandleChart: View, Equatable {
                     currentPrice: currentPrice,
                     side: side,
                     pair: pair,
+                    candidateAnnotations: candidateAnnotations,
                     scrubbedIndex: scrubbedIndex
                 )
 
@@ -197,6 +200,7 @@ struct CandleCanvas: View {
     var currentPrice: Double? = nil
     var side: String? = nil
     var pair: String? = nil
+    var candidateAnnotations: [Candidate001Candidate] = []
     var scrubbedIndex: Int? = nil
 
     var body: some View {
@@ -244,6 +248,15 @@ struct CandleCanvas: View {
                         lineWidth: 0.75
                     )
                 }
+
+                drawCandidateAnnotations(
+                    context: &context,
+                    bars: bars,
+                    size: size,
+                    minP: minP,
+                    span: span,
+                    annotations: candidateAnnotations
+                )
             }
 
             // Reference close dashed line on last bar
@@ -335,6 +348,66 @@ struct CandleCanvas: View {
                 context.fill(Path(ellipseIn: dotRect), with: .color(tint))
                 context.stroke(Path(ellipseIn: dotRect), with: .color(Color.white), lineWidth: 1.0)
             }
+        }
+
+    }
+
+    private func drawCandidateAnnotations(
+            context: inout GraphicsContext,
+            bars: [Candle],
+            size: CGSize,
+            minP: Double,
+            span: Double,
+            annotations: [Candidate001Candidate]
+        ) {
+            guard !annotations.isEmpty else { return }
+            let spacing: CGFloat = 3.5
+            let count = bars.count
+            let totalSpacing = spacing * CGFloat(count - 1)
+            let candleWidth = max(2.5, min(8.0, (size.width - totalSpacing) / CGFloat(count)))
+            let effectiveWidth = (candleWidth + spacing) * CGFloat(count) - spacing
+            let xOffset = max(0, size.width - effectiveWidth)
+
+            func y(for price: Double) -> CGFloat {
+                size.height - CGFloat((price - minP) / span) * size.height
+            }
+            func x(for date: Date) -> CGFloat? {
+                guard let index = bars.firstIndex(where: {
+                    guard let time = $0.time else { return false }
+                    return abs(time / 1000 - date.timeIntervalSince1970) < 0.5
+                }) else { return nil }
+                return xOffset + CGFloat(index) * (candleWidth + spacing) + candleWidth / 2
+            }
+
+            for candidate in annotations {
+                let tint = candidate.direction == .bullish ? DeskInk.emerald : DeskInk.coral
+                let fvgY = y(for: candidate.fvg.midpoint)
+                var fvgLine = Path()
+                fvgLine.move(to: CGPoint(x: 0, y: fvgY))
+                fvgLine.addLine(to: CGPoint(x: size.width, y: fvgY))
+                context.stroke(fvgLine, with: .color(tint.opacity(0.35)),
+                               style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+
+                for level in [candidate.fibonacci.level50, candidate.fibonacci.level618] {
+                    var fibLine = Path()
+                    let levelY = y(for: level)
+                    fibLine.move(to: CGPoint(x: 0, y: levelY))
+                    fibLine.addLine(to: CGPoint(x: size.width, y: levelY))
+                    context.stroke(fibLine, with: .color(DeskInk.violet.opacity(0.28)),
+                                   style: StrokeStyle(lineWidth: 0.75, dash: [2, 4]))
+                }
+
+                guard let triggeredAt = candidate.triggeredAt,
+                      let markerX = x(for: triggeredAt) else { continue }
+                let markerY = y(for: candidate.fvg.midpoint)
+                var marker = Path()
+                marker.move(to: CGPoint(x: markerX, y: markerY - 5))
+                marker.addLine(to: CGPoint(x: markerX + 5, y: markerY))
+                marker.addLine(to: CGPoint(x: markerX, y: markerY + 5))
+                marker.addLine(to: CGPoint(x: markerX - 5, y: markerY))
+                marker.closeSubpath()
+                context.fill(marker, with: .color(tint))
+                context.stroke(marker, with: .color(Color.white.opacity(0.9)), lineWidth: 0.75)
         }
     }
 }

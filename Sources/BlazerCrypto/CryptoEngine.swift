@@ -22,7 +22,7 @@ import Foundation
 //   3. Wick absorption / rejection                     — up to 15 pts
 //   4. EMA(5) vs EMA(20) trend alignment               — up to 12 pts
 //   5. Bollinger Band position (squeeze / boundary)    — up to 10 pts
-//   6. Volume surge vs 14-period average               — up to 10 pts
+//   6. Volume surge vs 13 prior-bar average (legacy suffix(14).dropLast window)               — up to 10 pts
 //   7. Trade-count surge (institutional activity)      — up to 5 pts
 //   Total possible: 116 pts
 //
@@ -42,7 +42,7 @@ public enum CryptoEngine {
         public let highScore:   Int         // raw bullish score (for debugging)
         public let lowScore:    Int         // raw bearish score (for debugging)
         public let atrPips:     Double      // 14-period ATR in pips
-        public let volumeSurge: Double      // current vol / 14-period avg vol
+        public let volumeSurge: Double      // current vol / 13 prior-bar avg vol (legacy window)
     }
 
     // MARK: - Entry Point
@@ -52,6 +52,16 @@ public enum CryptoEngine {
         asset: String = "BTC/USDT"
     ) -> Signal {
         let candles = batch.candles
+        // Invalid provider data must fail closed before any floating-point to Int conversion.
+        guard candles.allSatisfy(\.isValidMarketInput),
+              CryptoCandle.isValidQuote(bid: batch.bid, ask: batch.ask),
+              zip(candles, candles.dropFirst()).allSatisfy({ $0.time < $1.time }),
+              CTAssets.pipScale(for: asset).isFinite,
+              CTAssets.pipScale(for: asset) > 0 else {
+            return Signal(side: "WAIT", conviction: 0,
+                          why: "Invalid market data", evidence: [],
+                          highScore: 0, lowScore: 0, atrPips: 0, volumeSurge: 0)
+        }
         guard candles.count >= 22 else {
             return waitSignal(why: "Insufficient candles (\(candles.count) < 22)", candles: candles, asset: asset)
         }
@@ -143,14 +153,14 @@ public enum CryptoEngine {
 
             // Bullish absorption (long lower wick)
             if last.lowerWick > 1.5 * last.bodySize && last.lowerWick > minWick {
-                let wickStrength = atr14 > 0 ? min(15, Int((last.lowerWick / atr14) * 20)) : 0
+                let wickStrength = atr14 > 0 ? Int(min(15.0, (last.lowerWick / atr14) * 20)) : 0
                 highScore += wickStrength
                 evidence.append("Bullish lower-wick absorption (\(String(format: "%.1f", last.lowerWick / pipScale))p wick)")
             }
 
             // Bearish rejection (long upper wick)
             if last.upperWick > 1.5 * last.bodySize && last.upperWick > minWick {
-                let wickStrength = atr14 > 0 ? min(15, Int((last.upperWick / atr14) * 20)) : 0
+                let wickStrength = atr14 > 0 ? Int(min(15.0, (last.upperWick / atr14) * 20)) : 0
                 lowScore += wickStrength
                 evidence.append("Bearish upper-wick rejection (\(String(format: "%.1f", last.upperWick / pipScale))p wick)")
             }
@@ -164,13 +174,13 @@ public enum CryptoEngine {
         if ema5 > ema20 {
             let separation = ema5 - ema20
             let sepPips    = separation / pipScale
-            let emaPts     = min(12, Int(sepPips * 2))
+            let emaPts     = Int(min(12.0, sepPips * 2))
             highScore += emaPts
             if emaPts >= 6 { evidence.append("EMA(5) above EMA(20) by \(String(format: "%.1f", sepPips))p") }
         } else if ema20 > ema5 {
             let separation = ema20 - ema5
             let sepPips    = separation / pipScale
-            let emaPts     = min(12, Int(sepPips * 2))
+            let emaPts     = Int(min(12.0, sepPips * 2))
             lowScore += emaPts
             if emaPts >= 6 { evidence.append("EMA(5) below EMA(20) by \(String(format: "%.1f", sepPips))p") }
         }
@@ -201,7 +211,7 @@ public enum CryptoEngine {
             // BB Squeeze: very tight bands = imminent breakout, direction unknown → reduce conviction
             let bandwidthPct = bb.bandwidth / bb.middle
             if bandwidthPct < 0.002 {
-                // Deduct 5 from dominant score — direction not yet determined during squeeze
+                // Deduct 5 from each score; preserve the legacy symmetric squeeze penalty
                 highScore = max(0, highScore - 5)
                 lowScore  = max(0, lowScore  - 5)
                 evidence.append("BB squeeze active — direction deduction applied")
@@ -209,7 +219,7 @@ public enum CryptoEngine {
         }
 
         // ──────────────────────────────────────────────────────────────
-        // 6. Volume surge vs 14-period average
+        // 6. Volume surge vs 13 prior-bar average (legacy suffix(14).dropLast window)
         //    High volume on the current candle confirms the move is institutional.
         //    Low volume = retail noise — deduct points.
         //    Points: +10 (surge), -5 (sub-average)
@@ -223,7 +233,7 @@ public enum CryptoEngine {
 
         if let last = candles.last {
             if volSurge >= 1.5 {
-                let volPts = min(10, Int((volSurge - 1.0) * 6))
+                let volPts = Int(min(10.0, (volSurge - 1.0) * 6))
                 if last.isBullish {
                     highScore += volPts
                 } else {
@@ -244,7 +254,7 @@ public enum CryptoEngine {
         if let lastTrades = candles.last?.trades, avgTrades > 0 {
             let tradeSurge = Double(lastTrades) / avgTrades
             if tradeSurge >= 1.5, let last = candles.last {
-                let tPts = min(5, Int((tradeSurge - 1.0) * 3))
+                let tPts = Int(min(5.0, (tradeSurge - 1.0) * 3))
                 if last.isBullish { highScore += tPts } else { lowScore += tPts }
             }
         }
@@ -365,7 +375,8 @@ public enum CryptoEngine {
             }
         }
 
-        // Cap conviction at 97 — never 100%, never 0% on a real signal
+        // Legacy display floor (55) and cap (97); raw scores remain available.
+        // Entry still requires CTAssets.minConviction (75); this is not a probability.
         let conviction = min(97, max(55, domScore))
         let primaryReason = directionalReason(
             for: dominant,
@@ -419,7 +430,7 @@ public enum CryptoEngine {
 
     /// 14-period Average True Range (price units, not pips)
     public static func computeATR(candles: [CryptoCandle]) -> Double {
-        guard candles.count >= 2 else { return 0 }
+        guard candles.count >= 2, candles.allSatisfy(\.isValidMarketInput) else { return 0 }
         var trs: [Double] = []
         var prev = candles[0]
         for bar in candles.dropFirst() {
@@ -437,11 +448,12 @@ public enum CryptoEngine {
 
     /// Exponential Moving Average over the last `period` candles
     static func computeEMA(candles: [CryptoCandle], period: Int) -> Double {
+        guard period > 0, !candles.isEmpty else { return 0 }
         guard candles.count >= period else {
             return candles.map(\.close).reduce(0, +) / Double(candles.count)
         }
         let k      = 2.0 / Double(period + 1)
-        let window = candles.suffix(period * 3)  // enough history for EMA to stabilise
+        let window = candles.suffix(period * 3)  // legacy seed: short histories receive fewer updates
         var ema    = window.prefix(period).map(\.close).reduce(0, +) / Double(period)
         for bar in window.dropFirst(period) {
             ema = bar.close * k + ema * (1 - k)
