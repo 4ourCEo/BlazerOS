@@ -53,6 +53,16 @@ Chunk 1 result: no PR was merged, closed, replayed, or force-pushed. Duplicate s
 - [x] OANDA proxy, Pocket Option research, synthetic data, and venue-confirmed outcomes remain provenance-separated.
 - [x] No LightningDeskModel refactor was introduced solely for line-count reduction.
 
+## Chunk 4 result — OTC integration decision
+
+- [x] PR #15 unique `OTCResearchEngine`, replay, signal store, OTC desk card, and associated tests were identified as a separate implementation family.
+- [x] PR #15 was not merged wholesale: it duplicates existing #13/#14 research boundaries and adds substantial divergent UI/desk state risk.
+- [x] Existing #14 provider has no order-placement API, requires explicit configuration, and defaults to `enabled: false`.
+- [x] Pocket Option credentials remain Keychain-scoped; the provider is only constructed for an explicit bounded research capture.
+- [x] OTC instruments, OANDA proxy data, synthetic fixtures, and venue-confirmed ledger outcomes remain identity/provenance separated.
+- [x] Existing OTC integration, replay, credential, disabled-provider, and research-only barrier tests passed in the 170-test Chunk 3 suite.
+- [ ] Provider authorization/suitability and real OTC observations remain unverified; direct Pocket Option research is release-quarantined, not a public production capability.
+
 ## Authorized milestones
 
 - [x] **A — Research infrastructure:** add a shadow-only signal-support contract without changing engine or entry eligibility.
