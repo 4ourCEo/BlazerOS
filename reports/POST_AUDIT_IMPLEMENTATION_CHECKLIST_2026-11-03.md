@@ -107,9 +107,13 @@ Chunk 1 result: no PR was merged, closed, replayed, or force-pushed. Duplicate s
 
 ## Chunk 9 result — physical iPhone acceptance
 
-- [ ] **BLOCKED:** no physical iPhone was available for final-build acceptance.
-- [x] Prior PR #16 device evidence remains historical evidence for its earlier STRIKE commit only.
-- [ ] Initial launch, notification/background behavior, weak-network behavior, force-quit recovery, and installed-icon verification on the final RC1 build remain unverified on hardware.
+- [x] Physical device connected and paired: iPhone 16, UDID `00008140-00112D143CC3401C`.
+- [x] Device build succeeded with Apple Development signing and the `com.blazer.os` development provisioning profile.
+- [x] App installed and launched successfully using `devicectl`.
+- [x] Physical screenshots captured at launch and after feed loading: STRIKE desk, live feed, loaded candles, score/strike, six-pair watchlist, refresh scan, and Desk/Radar/Intel/Coach/Journal navigation are visible.
+- [x] Device display reported as 1179×2556 with active backlight; the loaded screenshot shows a real chart and live state rather than a static mock.
+- [x] Prior PR #16 device evidence remains historical evidence for its earlier STRIKE commit only; this run is new evidence for the current working-tree build.
+- [ ] Notification delivery, manual entry/late entry, background/foreground, weak-network behavior, force-quit recovery, journal recovery, outcome confirmation, and installed-icon verification remain unverified through interactive hardware steps.
 - [ ] No TestFlight or signed distribution artifact was created or submitted.
 
 ## Chunk 10 result — independent RC1 decision
