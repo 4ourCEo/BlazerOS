@@ -63,6 +63,16 @@ Chunk 1 result: no PR was merged, closed, replayed, or force-pushed. Duplicate s
 - [x] Existing OTC integration, replay, credential, disabled-provider, and research-only barrier tests passed in the 170-test Chunk 3 suite.
 - [ ] Provider authorization/suitability and real OTC observations remain unverified; direct Pocket Option research is release-quarantined, not a public production capability.
 
+## Chunk 5 result — durable signal-quality evidence
+
+- [x] `ResearchEvent` now persists optional versioned `SignalQualityAssessment` data without changing event identity or entry authority.
+- [x] Existing chronological research cohorts now expose shadow counts for supported, conditional, rejected, and unavailable classifications.
+- [x] Older research archives remain decodable because the new fields are optional.
+- [x] Research experiment/campaign tests: **21/21 passed**.
+- [x] Local forward archive inspection: **1,750 events / 420 outcomes**; baseline and control each have 70 accepted 60-second events, 51 resolved (28 HIT / 23 MISS), and 19 explicit unresolved `No timely expiry observation` records.
+- [x] Missing forward observations remain unresolved and are not treated as losses or fabricated outcomes.
+- [ ] Filtered-versus-baseline performance remains unqualified until a frozen, source-matched, out-of-sample cohort with complete cost/latency evidence exists.
+
 ## Authorized milestones
 
 - [x] **A — Research infrastructure:** add a shadow-only signal-support contract without changing engine or entry eligibility.

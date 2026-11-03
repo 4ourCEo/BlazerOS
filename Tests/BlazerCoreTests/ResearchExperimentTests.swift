@@ -71,6 +71,8 @@ private func event(
     #expect(report.test.candidates == 3)
     #expect(report.train.highSignals > 0)
     #expect(report.train.lowSignals > 0)
+    #expect(report.train.qualityConditional == 6)
+    #expect(report.test.qualityConditional == 3)
     #expect(report.highLowBalanced)
     #expect(report.train.winRate == 1.0)
     #expect(report.test.winRate == 0.0)

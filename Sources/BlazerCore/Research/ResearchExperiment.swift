@@ -83,6 +83,11 @@ public struct ExperimentCohortReport: Codable, Sendable, Equatable {
     public var breakEvenWinRate: Double?
     public var coverage: Double
     public var caveat: String
+    /// Shadow-only counts; nil means this cohort predates quality classification persistence.
+    public var qualitySupported: Int?
+    public var qualityConditional: Int?
+    public var qualityRejected: Int?
+    public var qualityUnavailable: Int?
 
     public init(
         label: String, candidates: Int, acceptedEntries: Int,
@@ -93,7 +98,9 @@ public struct ExperimentCohortReport: Codable, Sendable, Equatable {
         blocks: Int? = nil, effectiveSampleSize: Double? = nil,
         expectancy: Double?, payoutRatio: Double? = nil,
         minimumPayoutRatio: Double? = nil, breakEvenWinRate: Double? = nil,
-        coverage: Double, caveat: String
+        coverage: Double, caveat: String,
+        qualitySupported: Int? = nil, qualityConditional: Int? = nil,
+        qualityRejected: Int? = nil, qualityUnavailable: Int? = nil
     ) {
         self.label = label
         self.candidates = candidates
@@ -119,6 +126,10 @@ public struct ExperimentCohortReport: Codable, Sendable, Equatable {
         self.breakEvenWinRate = breakEvenWinRate
         self.coverage = coverage
         self.caveat = caveat
+        self.qualitySupported = qualitySupported
+        self.qualityConditional = qualityConditional
+        self.qualityRejected = qualityRejected
+        self.qualityUnavailable = qualityUnavailable
     }
 }
 
@@ -252,6 +263,7 @@ public enum ResearchEvaluator {
             var resolvedPayouts: [Double] = []
             var netReturn = 0.0
             var observations: [ClusteredObservation] = []
+            let quality = cohort.compactMap(\.qualityAssessment)
             for event in accepted {
                 guard let outcome = outcomeMap["\(event.id)-\(experiment.evaluationHorizon)"] else {
                     unresolved += 1
@@ -338,7 +350,11 @@ public enum ResearchEvaluator {
                 minimumPayoutRatio: resolved > 0 ? minimumPayout : nil,
                 breakEvenWinRate: resolved > 0 ? breakEven : nil,
                 coverage: cohort.isEmpty ? 0 : Double(accepted.count) / Double(cohort.count),
-                caveat: caveat
+                caveat: caveat,
+                qualitySupported: quality.filter { $0.classification == .supported }.count,
+                qualityConditional: quality.filter { $0.classification == .conditional }.count,
+                qualityRejected: quality.filter { $0.classification == .rejected }.count,
+                qualityUnavailable: quality.filter { $0.classification == .unavailable }.count
             )
         }
 
