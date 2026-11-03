@@ -115,6 +115,72 @@ final class ResearchRunner {
         }
     }
 
+    func registerCampaign() async throws {
+        let candidates = [
+            ResearchStrategyCandidate(
+                id: "baseline",
+                version: EngineIdentity.pinnedSHA1,
+                description: "Pinned JavaScriptCore baseline; sole signal authority."
+            ),
+            ResearchStrategyCandidate(
+                id: "candidate-001",
+                version: "research-v1",
+                description: "Candidate 001 annotations; research-only and never an entry authority."
+            )
+        ]
+        let campaign = try ForwardValidationCampaign(
+            id: "milestone-7-forward-2026-11",
+            version: "v1",
+            strategies: candidates,
+            instruments: Assets.watchlist,
+            sources: ["oanda-proxy"],
+            evaluationCriteria: [
+                "signal persisted before any outcome",
+                "source-matched 60-second observation",
+                "replay reproduces the pinned engine result",
+                "unresolved observations remain visible"
+            ]
+        )
+        try await store.record(campaign)
+        let gaps = [
+            ResearchGap(
+                id: "m7-p0-integrated-lifecycle",
+                component: "forward research lifecycle",
+                severity: .p0,
+                evidence: "No accepted authentic signal and independently resolved outcome have been captured yet.",
+                owner: "engineering",
+                requiredFix: "Continue the controlled forward campaign until one eligible signal lifecycle is observed.",
+                regressionTest: "StrategyValidationTests and source-matched replay tests",
+                status: .open
+            ),
+            ResearchGap(
+                id: "m7-p1-physical-device",
+                component: "iPhone handoff",
+                severity: .p1,
+                evidence: "Simulator and package validation do not establish physical-device timing or readability.",
+                owner: "operator",
+                requiredFix: "Run the manual handoff and timing checks on an authorized physical iPhone.",
+                regressionTest: "Device verification checklist",
+                disposition: "Blocked until an authorized physical device is available.",
+                status: .blocked
+            ),
+            ResearchGap(
+                id: "m7-p1-pr-chain",
+                component: "integration",
+                severity: .p1,
+                evidence: "PRs #10-#15 remain open dependency-chain PRs; PR #16 contains the integrated branch.",
+                owner: "engineering",
+                requiredFix: "Keep PR #16 as the review surface and reconcile dependent PRs before any merge.",
+                regressionTest: "CI engine pin, tests, parity, and iPhone build",
+                disposition: "Blocked pending protected merge/review decisions.",
+                status: .blocked
+            )
+        ]
+        for gap in gaps {
+            try await store.record(gap)
+        }
+    }
+
     func observe(session: OandaSession) async throws {
         while !Task.isCancelled {
             let assets = Set(pending.values.map { $0.input.asset }).sorted()
@@ -145,6 +211,7 @@ final class ResearchRunner {
     }
 
     func runLive(session: OandaSession) async throws {
+        try await registerCampaign()
         try await restore()
         let observer = Task {
             do { try await self.observe(session: session) }

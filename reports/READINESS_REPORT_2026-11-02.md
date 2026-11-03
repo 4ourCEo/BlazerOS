@@ -124,6 +124,19 @@ Offshore fixed-expiry venues and unverified claims are excluded from live recomm
 - Continuous collection remains explicitly pending when the provider/session or iOS runtime
   cannot guarantee observations; missing observations are not synthesized.
 
+## Milestone 7 operating status
+
+- PR reconciliation: PR #16 is the integrated review surface and remains open; PRs #10-#15
+  remain open dependency-chain branches and were not merged or rewritten.
+- Deterministic lifecycle verification: source-matched replay, exact 60-second expiry,
+  timestamp integrity, future-candle rejection, and restart-safe webhook tests pass.
+- Authentic forward collection: the local OANDA-proxy campaign is running with a frozen v1
+  campaign record and all-policy comparison. The first observed batch contained 60 captured
+  candidates, all WAIT/vetoed; no accepted signal or outcome has been claimed.
+- Campaign safety: no OANDA-proxy observation is treated as Pocket Option OTC evidence, no
+  order placement is enabled, and no synthetic record is mixed into the authentic archive.
+- Physical iPhone validation remains blocked until an authorized device workflow is available.
+
 ## Highest-priority next action
 
 Run the bounded forward paper-trading cohort with the journal enabled; do not allocate live capital
