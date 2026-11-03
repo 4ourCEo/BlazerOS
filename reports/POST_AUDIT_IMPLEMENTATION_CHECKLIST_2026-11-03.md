@@ -125,6 +125,15 @@ Chunk 1 result: no PR was merged, closed, replayed, or force-pushed. Duplicate s
 - [x] **RC1 decision: CONDITIONAL GO for internal research/paper-trading evaluation only.** Distribution, public suitability claims, and live capital remain blocked by the device/distribution gate, exact-commit CI gap, provider suitability gap, and insufficient independent forward evidence.
 - [x] Highest-priority next action: test a clean, explicitly committed RC1 snapshot on a physical iPhone, then obtain CI evidence for that exact commit before distribution.
 
+## STRIKE Scan usability follow-up
+
+- [x] Moved the primary Scan Now action beside the selected pair above the signal area; bottom navigation remains reserved for the five main tabs.
+- [x] Scan action exposes scanning progress and the last successful scan timestamp.
+- [x] Enlarged the default signal chart and reduced the initial visible candle count for readability.
+- [x] Added optional Chart Focus presentation with larger candles, pinch zoom, horizontal browsing, and a full-screen-style sheet.
+- [x] Preserved STRIKE styling, signal/entry logic, eight-second eligibility, and research/live-capital boundaries.
+- [x] Focused iPhone simulator verification: **18/18 passed**.
+
 ## Authorized milestones
 
 - [x] **A — Research infrastructure:** add a shadow-only signal-support contract without changing engine or entry eligibility.
