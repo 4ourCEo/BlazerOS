@@ -26,7 +26,7 @@ public struct SpotFXReplayConfiguration: Codable, Sendable, Equatable {
 
     fileprivate var validationError: String? {
         guard entryDelaySeconds.isFinite, entryDelaySeconds >= 0,
-              horizonSeconds > 0,
+              [60, 180, 300].contains(horizonSeconds),
               observationToleranceSeconds.isFinite, observationToleranceSeconds >= 0,
               maximumExitDelaySeconds.isFinite, maximumExitDelaySeconds >= 0,
               units.isFinite, units > 0,
@@ -90,6 +90,9 @@ public enum SpotFXHistoricalReplay {
         configuration: SpotFXReplayConfiguration = .init(),
         evaluator: @escaping Evaluator = { try await StrategyEngine.evaluate(input: $0).signal }
     ) async throws -> [SpotFXReplayRecord] {
+        guard let policy = ScanPolicy(rawValue: strategyID) else {
+            throw ScanError.failed("Unsupported spot-FX replay strategy: \(strategyID)")
+        }
         if let error = configuration.validationError { throw ScanError.failed(error) }
         return try await withThrowingTaskGroup(of: (Int, SpotFXReplayRecord).self,
                                                returning: [SpotFXReplayRecord].self) { group in
@@ -97,7 +100,10 @@ public enum SpotFXHistoricalReplay {
                 group.addTask {
                     try Task.checkCancellation()
                     var input = item.input
-                    input.policy = ScanPolicy(rawValue: strategyID)
+                    input.policy = policy
+                    // The evaluated signal and outcome must use the same
+                    // supported holding horizon.
+                    input.expirySeconds = configuration.horizonSeconds
                     let signal: EngineSignal
                     do {
                         signal = try await evaluator(input)
