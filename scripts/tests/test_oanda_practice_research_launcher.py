@@ -51,6 +51,12 @@ class PracticeLauncherTests(unittest.TestCase):
             MODULE.read_credentials(wrong)
         self.assertEqual(environment.exception.code, "WRONG_ENVIRONMENT")
 
+    def test_credential_file_must_contain_json_object(self):
+        path = self.credential_file(["not", "an", "object"])
+        with self.assertRaises(MODULE.PreflightError) as error:
+            MODULE.read_credentials(path)
+        self.assertEqual(error.exception.code, "CREDENTIAL_FILE_INVALID")
+
     def test_preflight_checks_account_membership_and_m1_candle_access(self):
         credentials = {"OANDA_API_TOKEN": "never-printed", "OANDA_ACCOUNT_ID": "selected", "OANDA_ENV": "practice"}
         with patch.object(MODULE, "request_json", side_effect=[
@@ -84,6 +90,12 @@ class PracticeLauncherTests(unittest.TestCase):
         self.assertNotIn("UNRELATED_SECRET", env)
         self.assertNotIn("ambient-value", env.values())
 
+    def test_build_environment_is_allowlisted(self):
+        with patch.dict(os.environ, {"PATH": "/bin", "HOME": "/home/test", "CLEARSTREET_API_KEY": "secret",
+                                     "OANDA_API_TOKEN": "token", "UNRELATED_SECRET": "secret"}, clear=True):
+            env = MODULE.clean_build_environment()
+        self.assertEqual(env, {"PATH": "/bin", "HOME": "/home/test"})
+
     def test_api_auth_and_http_errors_are_classified_without_response_body(self):
         credentials = {"OANDA_API_TOKEN": "never-printed"}
         for status, expected in ((401, "INVALID_TOKEN"), (403, "INACCESSIBLE_ACCOUNT"),
@@ -101,14 +113,31 @@ class PracticeLauncherTests(unittest.TestCase):
             path.write_text(json.dumps({
                 "transport": {"ok": {}}, "instrument": "EUR_USD", "granularity": "M1",
                 "requestedFrom": 100, "requestedTo": 200,
-                "candles": [{"complete": True, "sourceTime": 100,
-                             "instrument": "EUR_USD", "granularity": "M1"}],
+                 "candles": [{"complete": True, "sourceTime": 100,
+                              "instrument": "EUR_USD", "granularity": "M1",
+                              "bidOpen": 1.0, "bidHigh": 1.1, "bidLow": 0.9, "bidClose": 1.05,
+                              "askOpen": 1.01, "askHigh": 1.11, "askLow": 0.91, "askClose": 1.06}],
             }), encoding="utf-8")
             name, digest, count, granularity = MODULE.verify_archive(path, "EUR/USD")
         self.assertEqual(name, "batch.json")
         self.assertEqual(len(digest), 64)
         self.assertEqual(count, 1)
         self.assertEqual(granularity, "M1")
+
+    def test_archive_verification_rejects_false_transport_and_incomplete_quotes(self):
+        candle = {"complete": True, "sourceTime": 100, "instrument": "EUR_USD", "granularity": "M1",
+                  "bidOpen": 1.0, "bidHigh": 1.1, "bidLow": 0.9, "bidClose": 1.05,
+                  "askOpen": 1.01, "askHigh": 1.11, "askLow": 0.91, "askClose": 1.06}
+        for transport, complete in (({"ok": False}, True), ({"ok": {}}, False)):
+            with tempfile.TemporaryDirectory() as temp:
+                path = Path(temp) / "batch.json"
+                row = dict(candle, complete=complete)
+                path.write_text(json.dumps({"transport": transport, "instrument": "EUR_USD", "granularity": "M1",
+                                            "requestedFrom": 100, "requestedTo": 200, "candles": [row]}),
+                                encoding="utf-8")
+                with self.assertRaises(MODULE.PreflightError) as error:
+                    MODULE.verify_archive(path, "EUR/USD")
+                self.assertEqual(error.exception.code, "PROVENANCE_VERIFICATION_FAILED")
 
     def test_connection_failure_is_distinct(self):
         with patch.object(MODULE.urllib.request, "urlopen", side_effect=OSError("offline")):

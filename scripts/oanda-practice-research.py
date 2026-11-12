@@ -9,6 +9,8 @@ import os
 import stat
 import subprocess
 import sys
+import tempfile
+import math
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -41,6 +43,8 @@ def read_credentials(path=CREDENTIAL_PATH):
         config = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError):
         raise PreflightError("CREDENTIAL_FILE_INVALID", "Credential file is unreadable or invalid JSON")
+    if not isinstance(config, dict):
+        raise PreflightError("CREDENTIAL_FILE_INVALID", "Credential file must contain a JSON object")
     token, account, environment = (config.get(k) for k in ("OANDA_API_TOKEN", "OANDA_ACCOUNT_ID", "OANDA_ENV"))
     if not isinstance(token, str) or not token.strip() or not isinstance(account, str) or not account.strip():
         raise PreflightError("CREDENTIALS_MISSING", "Practice token or account ID is missing")
@@ -103,33 +107,40 @@ def preflight(credentials, asset):
     print(f"OANDA_PREFLIGHT state=READY environment=practice account_match=true instrument={instrument} granularity=M1 candle_count={len(rows)}")
 
 
-def collector_binary(repo):
-    return repo / ".build/out/Products/Release/ForwardTest"
-
-
 def research_child_environment(credentials):
     env = {k: os.environ[k] for k in ("PATH", "HOME", "TMPDIR") if k in os.environ}
     env.update(credentials)
     return env
 
 
-def build_without_credentials(repo, binary):
-    if binary.is_file() and os.access(binary, os.X_OK):
-        return
-    env = {k: v for k, v in os.environ.items() if not k.startswith("OANDA_")}
-    completed = subprocess.run(["swift", "build", "-c", "release", "--target", "ForwardTest"],
-                               cwd=repo, env=env, check=False)
-    if completed.returncode != 0 or not (binary.is_file() and os.access(binary, os.X_OK)):
-        raise PreflightError("COLLECTOR_UNAVAILABLE", "ForwardTest release binary could not be built")
+def clean_build_environment():
+    allowed = ("PATH", "HOME", "TMPDIR", "DEVELOPER_DIR", "SDKROOT", "TOOLCHAINS")
+    return {key: os.environ[key] for key in allowed if key in os.environ}
 
 
-def collect(repo, credentials, asset, hours, offset, archive_root):
+def build_isolated(repo, build_root):
+    env = clean_build_environment()
+    built = subprocess.run(["swift", "build", "-c", "release", "--target", "ForwardTest",
+                            "--build-path", str(build_root)], cwd=repo, env=env,
+                           check=False, stdout=subprocess.DEVNULL)
+    if built.returncode:
+        raise PreflightError("COLLECTOR_UNAVAILABLE", "Isolated ForwardTest release build failed")
+    location = subprocess.run(["swift", "build", "-c", "release", "--show-bin-path",
+                               "--build-path", str(build_root)], cwd=repo, env=env,
+                              check=False, capture_output=True, text=True)
+    if location.returncode:
+        raise PreflightError("COLLECTOR_UNAVAILABLE", "Could not locate isolated ForwardTest binary")
+    binary = Path(location.stdout.strip()) / "ForwardTest"
+    if binary.is_symlink() or not binary.is_file() or not os.access(binary, os.X_OK):
+        raise PreflightError("COLLECTOR_UNAVAILABLE", "Isolated ForwardTest binary is missing or unsafe")
+    return binary
+
+
+def collect(repo, binary, credentials, asset, hours, offset, archive_root):
     if asset not in INSTRUMENTS:
         raise PreflightError("UNSUPPORTED_DATA_REQUEST", "Instrument is not supported by the Practice collector")
     if not 1 <= hours <= 24 or not 0 <= offset <= 720:
         raise PreflightError("UNSUPPORTED_DATA_REQUEST", "Collection bound must be 1–24 hours and offset 0–720 hours")
-    binary = collector_binary(repo)
-    build_without_credentials(repo, binary)
     archive_root.mkdir(parents=True, exist_ok=True)
     before = set(archive_root.glob("oanda-practice-*.json"))
     child_env = research_child_environment(credentials)
@@ -153,15 +164,27 @@ def verify_archive(path, asset):
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
         transport = payload.get("transport")
-        transport_ok = transport == "ok" or (isinstance(transport, dict) and "ok" in transport)
+        transport_ok = transport == "ok" or transport == {"ok": {}}
         candles = payload.get("candles")
-        if (not transport_ok or not payload.get("candles")
+        fields = ("bidOpen", "bidHigh", "bidLow", "bidClose", "askOpen", "askHigh", "askLow", "askClose")
+        requested_from, requested_to = payload.get("requestedFrom"), payload.get("requestedTo")
+        if (not transport_ok or not isinstance(candles, list) or not candles
                 or payload.get("instrument") != INSTRUMENTS[asset]
                 or payload.get("granularity") not in ("M1", "M5")
-                or payload.get("requestedFrom") is None or payload.get("requestedTo") is None
+                or not isinstance(requested_from, (int, float)) or not math.isfinite(requested_from)
+                or not isinstance(requested_to, (int, float)) or not math.isfinite(requested_to)
+                or requested_from >= requested_to
                 or not all(isinstance(candle, dict) and candle.get("sourceTime") is not None
+                           and isinstance(candle.get("sourceTime"), (int, float))
+                           and math.isfinite(candle["sourceTime"])
+                           and candle.get("complete") is True
                            and candle.get("instrument") == INSTRUMENTS[asset]
                            and candle.get("granularity") == payload.get("granularity")
+                           and all(isinstance(candle.get(field), (int, float))
+                                   and math.isfinite(candle[field]) and candle[field] > 0 for field in fields)
+                           and all(candle[bid] < candle[ask] for bid, ask in zip(
+                               ("bidOpen", "bidHigh", "bidLow", "bidClose"),
+                               ("askOpen", "askHigh", "askLow", "askClose")))
                            for candle in candles)):
             raise ValueError
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -186,7 +209,6 @@ def verify_existing(archive_root, asset):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("preflight", "collect", "verify"))
-    parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--asset", default="EUR/USD")
     parser.add_argument("--hours", type=int, default=1)
     parser.add_argument("--offset-hours", type=int, default=0)
@@ -197,11 +219,19 @@ def main(argv=None):
         if args.command == "verify":
             verify_existing(args.archive_root.expanduser().resolve(), args.asset)
             return 0
+        repo = Path(__file__).resolve().parents[1]
+        archive_root = args.archive_root.expanduser().resolve()
+        if args.command == "collect":
+            if not 1 <= args.hours <= 24 or not 0 <= args.offset_hours <= 720:
+                raise PreflightError("UNSUPPORTED_DATA_REQUEST", "Collection bound must be 1–24 hours and offset 0–720 hours")
+            with tempfile.TemporaryDirectory(prefix="blazeros-forwardtest-build-") as temp_build:
+                binary = build_isolated(repo, Path(temp_build) / "build")
+                credentials = read_credentials()
+                preflight(credentials, args.asset)
+                collect(repo, binary, credentials, args.asset, args.hours, args.offset_hours, archive_root)
+            return 0
         credentials = read_credentials()
         preflight(credentials, args.asset)
-        if args.command == "collect":
-            collect(args.repo.resolve(), credentials, args.asset, args.hours, args.offset_hours,
-                    args.archive_root.expanduser().resolve())
     except PreflightError as exc:
         print(f"OANDA_AUTH_ERROR code={exc.code} message={exc}", file=sys.stderr)
         return 2
