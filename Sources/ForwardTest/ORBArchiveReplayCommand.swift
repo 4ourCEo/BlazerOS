@@ -197,6 +197,8 @@ enum ORBArchiveReplayCommand {
             limitations: [
                 "Repeated candidate decisions are deduplicated by generated plan ID; they are not independent trades.",
                 "A source-matched entry quote within plan maxSpread is only a quote-feasibility observation; it is not an order, position, or fill.",
+                "Per-plan entryQuoteCandleStart/End, entryBidClose, entryAskClose, entrySpread, and entryIndicativeSideClose are archived candle-close quote evidence only; the side reference is ask close for long and bid close for short, not an order, live quote, fill, or guaranteed executable price.",
+                "The archive cannot establish quote receive timestamp or quote age. No freshness is inferred and no quote-age threshold is applied; no fallback candle is used when the exact entry candle is unavailable or invalid.",
                 "Every source batch must pass transport, HTTP, Practice filename, identity, requested-range, complete-candle, and candle-validation checks before replay.",
                 "Identical overlaps are deduplicated and counted; conflicting candles at the same instrument/granularity/time reject the run.",
                 "Opening-range eligibility requires the exact contiguous configured opening bars. A no-plan session additionally requires uninterrupted M1 coverage from 09:30 through configured setup expiry (default 11:35 New York); censored windows are reported separately.",
