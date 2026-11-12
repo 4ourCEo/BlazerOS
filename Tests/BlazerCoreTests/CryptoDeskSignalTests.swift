@@ -64,7 +64,7 @@ private func cryptoBatch(
     weak.confidence = 60
     #expect(CryptoDeskSignal.veto(asset: "BTC/USDT", batch: batch, signal: weak)?.contains("below") == true)
 
-    var wide = cryptoBatch(spread: 40)
+    let wide = cryptoBatch(spread: 40)
     #expect(CryptoDeskSignal.veto(asset: "BTC/USDT", batch: wide, signal: normal)?.contains("Spread") == true)
 
     var volatile = features

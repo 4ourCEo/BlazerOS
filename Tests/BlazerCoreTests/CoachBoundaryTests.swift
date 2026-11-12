@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import BlazerCore
+@testable import BlazerCore
 
 @Test func coachRejectsPerformanceAndProbabilityClaims() {
     let brief = CoachBrief(pair: "EUR/USD", score: 76, evidence: "Sweep", hash: "ABCD1234")
@@ -49,4 +49,15 @@ import BlazerCore
     #expect(answer.contains("No supporting evidence"))
     #expect(!answer.localizedCaseInsensitiveContains("trend alignment"))
     #expect(!answer.localizedCaseInsensitiveContains("wick rejection"))
+}
+
+@Test func sealedReplayWithoutOriginalScanIsHistoricalAndNonActionable() {
+    let seal = ParitySeal(
+        engineSHA1: EngineIdentity.pinnedSHA1, fingerprint: "missing-scan",
+        score: 76, side: "HIGH", strike: 1.1, candleCount: 60)
+    let scan = FoundationCoachService.scanContext(
+        for: seal, evidence: "recorded", context: AssistantContext())
+    #expect(!scan.isActionable)
+    #expect(scan.evaluationTime == Date(timeIntervalSince1970: 0))
+    #expect(scan.blockingReason?.contains("historical") == true)
 }

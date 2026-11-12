@@ -19,6 +19,10 @@ private let binanceLog = Logger(subsystem: "com.blazer.ct", category: "BinanceCl
 
 public enum BinanceClient {
 
+    private struct ServerTimeResponse: Decodable {
+        let serverTime: Int64
+    }
+
     public static let symbolMap: [String: String] = [
         "BTC/USDT": "BTCUSDT",
         "ETH/USDT": "ETHUSDT",
@@ -70,6 +74,36 @@ public enum BinanceClient {
         cacheBase(nil)
     }
 
+    /// Measures local-to-exchange skew using Binance's lightweight server-time endpoint.
+    /// Binance can be restricted by geography, so the clock sample falls back to Kraken.
+    public static func fetchClockOffset() async throws -> ClockOffset {
+        let sentAt = Date()
+        let base = await resolvedBase()
+        guard let url = URL(string: "\(base)/api/v3/time") else {
+            return try await KrakenClient.fetchClockOffset()
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard code == 200,
+                  let payload = try? JSONDecoder().decode(ServerTimeResponse.self, from: data),
+                  let offset = ExchangeClock.offset(
+                      sentAt: sentAt,
+                      serverTimeMilliseconds: payload.serverTime,
+                      receivedAt: Date(),
+                      source: "binance"
+                  )
+            else {
+                if code == 451 { invalidateBase() }
+                return try await KrakenClient.fetchClockOffset()
+            }
+            return offset
+        } catch {
+            return try await KrakenClient.fetchClockOffset()
+        }
+    }
+
     // Fetches up to `limit` completed 1m candles for walk-forward benchmarking.
     // Separate from fetchCryptoBundle (limit=65) to keep live polling fast.
     // Binance allows up to 1000 candles per request with no API key.
@@ -86,7 +120,7 @@ public enum BinanceClient {
 
         let base = await resolvedBase()
         let url = URL(string:
-            "\(base)/api/v3/klines?symbol=\(symbol)&interval=1m&limit=\(min(limit + 1, 1000))"
+            "\(base)/api/v3/klines?symbol=\(symbol)&interval=1m&limit=\(min(max(1, limit), 999) + 1)"
         )!
 
         let (data, response) = try await URLSession.shared.data(from: url)
@@ -98,7 +132,11 @@ public enum BinanceClient {
         }
 
         // Drop last — always the in-progress candle
-        let candles = rawOuter.dropLast(1).compactMap { CryptoCandle.from(row: $0) }
+        let completed = rawOuter.dropLast(1)
+        let candles = completed.compactMap { CryptoCandle.from(row: $0) }
+        guard candles.count == completed.count else {
+            throw CTFeedError.decodingError("Invalid completed benchmark candle")
+        }
         binanceLog.info("Benchmark fetch: \(candles.count) candles for \(asset)")
         return candles
     }
@@ -159,6 +197,9 @@ public enum BinanceClient {
             CryptoCandle.from(row: row)
         }
 
+        guard candles.count == completedRaw.count else {
+            throw CTFeedError.decodingError("Invalid completed candle")
+        }
         guard candles.count >= 60 else {
             throw CTFeedError.insufficientBars(candles.count, required: 60)
         }
@@ -172,7 +213,7 @@ public enum BinanceClient {
               let ticker = try? JSONDecoder().decode(BinanceTicker.self, from: tickerData),
               let bid = Double(ticker.bidPrice),
               let ask = Double(ticker.askPrice),
-              ask > bid
+              CryptoCandle.isValidQuote(bid: bid, ask: ask)
         else {
             if fallbackToKraken {
                 return try await KrakenClient.fetchCryptoBundle(asset: asset)
@@ -202,7 +243,7 @@ public enum BinanceClient {
            let ticker = try? JSONDecoder().decode(BinanceTicker.self, from: data),
            let bid = Double(ticker.bidPrice),
            let ask = Double(ticker.askPrice),
-           ask > bid {
+           CryptoCandle.isValidQuote(bid: bid, ask: ask) {
             return LiveQuote(
                 asset:  asset,
                 bid:    bid,

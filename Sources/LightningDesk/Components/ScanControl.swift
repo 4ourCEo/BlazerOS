@@ -20,7 +20,7 @@ struct ScanControl: View {
         Button(action: action) {
             ZStack {
                 // Background Gradient
-                RoundedRectangle(cornerRadius: 27, style: .continuous)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(
                         LinearGradient(
                             colors: scanning
@@ -60,12 +60,12 @@ struct ScanControl: View {
                                 .offset(x: -geo.size.width * 0.28 + phase * (geo.size.width * 1.28))
                         }
                     }
-                    .clipShape(RoundedRectangle(cornerRadius: 27, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     .allowsHitTesting(false)
                 }
 
                 // Inner border highlight
-                RoundedRectangle(cornerRadius: 27, style: .continuous)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .strokeBorder(
                         LinearGradient(
                             colors: [Color.white.opacity(0.28), Color.white.opacity(0.04)],
@@ -87,15 +87,15 @@ struct ScanControl: View {
                             .foregroundStyle(Color.white.opacity(0.9))
                     }
 
-                    Text(scanning ? title : "Scan Watchlist")
-                        .font(.system(size: 16, weight: .semibold))
+                    Text(scanning ? title : "Refresh scan")
+                        .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(Color.white)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                 }
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 54)
+            .frame(height: 46)
             .shadow(
                 color: (scanning ? DeskInk.electric : DeskInk.indigo).opacity(scanning ? 0.45 : 0.25),
                 radius: scanning ? 16 : 8,

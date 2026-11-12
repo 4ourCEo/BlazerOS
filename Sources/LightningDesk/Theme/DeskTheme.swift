@@ -10,15 +10,16 @@ import UIKit
 // MARK: - Color Palette
 
 enum DeskInk {
-    static let background = Color(red: 11.0 / 255, green: 15.0 / 255, blue: 23.0 / 255)
-    static let surface = Color(red: 21.0 / 255, green: 29.0 / 255, blue: 42.0 / 255)
-    static let indigo = Color(red: 79.0 / 255, green: 70.0 / 255, blue: 229.0 / 255)
-    static let electric = Color(red: 47.0 / 255, green: 128.0 / 255, blue: 255.0 / 255)
-    static let emerald = Color(red: 16.0 / 255, green: 185.0 / 255, blue: 129.0 / 255)
-    static let coral = Color(red: 240.0 / 255, green: 113.0 / 255, blue: 103.0 / 255)
+    static let background = Color(red: 7.0 / 255, green: 16.0 / 255, blue: 21.0 / 255)
+    static let surface = Color(red: 13.0 / 255, green: 27.0 / 255, blue: 36.0 / 255)
+    static let card = Color(red: 16.0 / 255, green: 35.0 / 255, blue: 45.0 / 255)
+    static let indigo = Color(red: 9.0 / 255, green: 184.0 / 255, blue: 171.0 / 255)
+    static let electric = Color(red: 41.0 / 255, green: 230.0 / 255, blue: 189.0 / 255)
+    static let emerald = Color(red: 41.0 / 255, green: 230.0 / 255, blue: 189.0 / 255)
+    static let coral = Color(red: 255.0 / 255, green: 102.0 / 255, blue: 126.0 / 255)
     static let violet = Color(red: 139.0 / 255, green: 124.0 / 255, blue: 255.0 / 255)
-    static let ink = Color.white
-    static let slate = Color(red: 148.0 / 255, green: 163.0 / 255, blue: 184.0 / 255)
+    static let ink = Color(red: 242.0 / 255, green: 247.0 / 255, blue: 250.0 / 255)
+    static let slate = Color(red: 139.0 / 255, green: 164.0 / 255, blue: 180.0 / 255)
 }
 
 // MARK: - Haptics

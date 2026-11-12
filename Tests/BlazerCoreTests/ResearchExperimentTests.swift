@@ -67,10 +67,12 @@ private func event(
         splitFraction: 0.7, acceptanceCriteria: "a", rejectionCriteria: "r"
     )
     let report = ResearchEvaluator.evaluate(experiment: experiment, events: events, outcomes: outcomes)
-    #expect(report.train.candidates == 7)
+    #expect(report.train.candidates == 6)
     #expect(report.test.candidates == 3)
     #expect(report.train.highSignals > 0)
     #expect(report.train.lowSignals > 0)
+    #expect(report.train.qualityConditional == 6)
+    #expect(report.test.qualityConditional == 3)
     #expect(report.highLowBalanced)
     #expect(report.train.winRate == 1.0)
     #expect(report.test.winRate == 0.0)

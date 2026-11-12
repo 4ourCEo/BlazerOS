@@ -40,6 +40,28 @@ import Testing
     #expect(abs(corrected.timeIntervalSince(t0) - 0.5) < 0.01)
 }
 
+@Test func millisecondServerSampleProducesOffset() {
+    let t0 = Date(timeIntervalSince1970: 4_000)
+    let t3 = t0.addingTimeInterval(0.1)
+    let offset = ExchangeClock.offset(
+        sentAt: t0,
+        serverTimeMilliseconds: 4_000_070,
+        receivedAt: t3,
+        source: "exchange"
+    )
+    #expect(offset != nil)
+    #expect(abs((offset?.skewMs ?? 0) - 20) < 0.01)
+}
+
+@Test func invalidServerTimeSampleIsRejected() {
+    #expect(ExchangeClock.offset(
+        sentAt: Date(timeIntervalSince1970: 4_000),
+        serverTimeMilliseconds: -1,
+        receivedAt: Date(timeIntervalSince1970: 4_000.1),
+        source: "exchange"
+    ) == nil)
+}
+
 @Test func driftClassifiesSkew() {
     let now = Date()
     #expect(ExchangeClock.drift(of: ClockOffset(skewMs: 100, roundTripMs: 20, measuredAt: now, source: "ntp")) == .ok)

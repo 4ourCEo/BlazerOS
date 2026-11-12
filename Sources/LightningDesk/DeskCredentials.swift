@@ -14,11 +14,42 @@ public enum CredentialGate: Sendable {
 public enum DeskCredentials {
     private static let phoneService = "com.blazer.os.oanda"
     private static let macService = "com.blazer.mac.oanda"
+    private static let cacheLock = NSLock()
+    nonisolated(unsafe) private static var cachedSession: OandaSession?
+
+    /// Non-interactive CLI source. This deliberately does not touch Keychain:
+    /// macOS Security may block a command-line process while decrypting an
+    /// access-controlled item, and that synchronous API cannot be cancelled.
+    /// The desktop app continues to use `session(allowPrompt:)` below.
+    public static func environmentSession() -> OandaSession? {
+        guard let token = ProcessInfo.processInfo.environment["OANDA_API_TOKEN"],
+              let accountId = ProcessInfo.processInfo.environment["OANDA_ACCOUNT_ID"],
+              !token.isEmpty, !accountId.isEmpty else { return nil }
+        let env = ProcessInfo.processInfo.environment["OANDA_ENV"]?.lowercased()
+        return OandaSession(token: token, accountId: accountId,
+                            environment: env == "live" ? .live : .practice)
+    }
 
     /// `allowPrompt` false returns immediately when macOS would otherwise wait on an Allow dialog.
     public static func session(allowPrompt: Bool) -> CredentialGate {
-        switch read(service: phoneService, allowPrompt: allowPrompt) {
+        if let cached = cached() {
+            return .ready(cached)
+        }
+        // An explicitly injected secure context is the only non-Keychain path.
+        // Resolve it first so a CLI never probes an access-controlled item before
+        // honoring its approved credential provider.
+        if let environment = environmentSession() {
+            #if os(iOS)
+            _ = store(token: environment.token, accountId: environment.accountId, environment: environment.environment)
+            #endif
+            cache(environment)
+            return .ready(environment)
+        }
+        let context = LAContext()
+        context.interactionNotAllowed = !allowPrompt
+        switch read(service: phoneService, context: context) {
         case .ready(let session):
+            cache(session)
             return .ready(session)
         case .locked:
             return .locked
@@ -26,8 +57,9 @@ public enum DeskCredentials {
             break
         }
         #if os(macOS)
-        switch read(service: macService, allowPrompt: allowPrompt) {
+        switch read(service: macService, context: context) {
         case .ready(let session):
+            cache(session)
             return .ready(session)
         case .locked:
             return .locked
@@ -35,20 +67,19 @@ public enum DeskCredentials {
             break
         }
         #endif
-        #if DEBUG || os(macOS)
-        if let token = ProcessInfo.processInfo.environment["OANDA_API_TOKEN"],
-            let accountId = ProcessInfo.processInfo.environment["OANDA_ACCOUNT_ID"],
-            !token.isEmpty, !accountId.isEmpty
-        {
-            let env = ProcessInfo.processInfo.environment["OANDA_ENV"]?.lowercased()
-            let environment: OandaEnvironment = env == "live" ? .live : .practice
-            #if os(iOS)
-            _ = store(token: token, accountId: accountId, environment: environment)
-            #endif
-            return .ready(OandaSession(token: token, accountId: accountId, environment: environment))
-        }
-        #endif
         return .missing
+    }
+
+    private static func cache(_ session: OandaSession) {
+        cacheLock.lock()
+        cachedSession = session
+        cacheLock.unlock()
+    }
+
+    private static func cached() -> OandaSession? {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        return cachedSession
     }
 
     /// Loads Clear Street session from environment or Keychain.
@@ -62,12 +93,12 @@ public enum DeskCredentials {
         return nil
     }
 
-    private static func read(service: String, allowPrompt: Bool) -> CredentialGate {
-        let token = item(service: service, account: "token", allowPrompt: allowPrompt)
-        let accountId = item(service: service, account: "accountId", allowPrompt: allowPrompt)
+    private static func read(service: String, context: LAContext) -> CredentialGate {
+        let token = item(service: service, account: "token", context: context)
+        let accountId = item(service: service, account: "accountId", context: context)
         switch (token, accountId) {
         case (.value(let token), .value(let accountId)) where !token.isEmpty && !accountId.isEmpty:
-            let env = item(service: service, account: "env", allowPrompt: allowPrompt)
+            let env = item(service: service, account: "env", context: context)
             let name: String?
             if case .value(let raw) = env {
                 name = raw.lowercased()
@@ -89,7 +120,7 @@ public enum DeskCredentials {
         case locked
     }
 
-    private static func item(service: String, account: String, allowPrompt: Bool) -> ItemRead {
+    private static func item(service: String, account: String, context: LAContext) -> ItemRead {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -97,8 +128,6 @@ public enum DeskCredentials {
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
-        let context = LAContext()
-        context.interactionNotAllowed = !allowPrompt
         query[kSecUseAuthenticationContext as String] = context
         #if os(iOS)
         query[kSecUseDataProtectionKeychain as String] = true

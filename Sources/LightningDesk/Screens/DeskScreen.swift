@@ -5,20 +5,59 @@ struct DeskScreen: View {
     @ObservedObject var model: LightningDeskModel
     var reduceMotion: Bool
     @State private var showingPrimeSchedule = false
-    @State private var showingStrikeSheet = false
     @State private var showingEntryDetails = false
+    @State private var showingLateEntry = false
+    @State private var showingChartFocus = false
+    @State private var showingExplanation = false
     @State private var pressingOutcome: DeskOutcome?
 
     var body: some View {
-        VStack(spacing: 0) {
-            topIntelligenceBar
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 0) {
+            deskMasthead
                 .padding(.horizontal, 20)
-                .padding(.top, 4)
+                .padding(.top, 2)
+
+            HStack(alignment: .bottom) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Scan")
+                        .font(.system(size: 29, weight: .bold, design: .rounded))
+                        .foregroundStyle(DeskInk.ink)
+                    Text("Live market intelligence.")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(DeskInk.slate)
+                }
+                Spacer()
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(DeskInk.slate)
+                    .frame(width: 32, height: 32)
+                    .background(DeskInk.surface, in: Circle())
+                    .overlay(Circle().strokeBorder(Color.white.opacity(0.08), lineWidth: 0.6))
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+
+            marketSelector
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+
+            scanActionBar
+                .padding(.horizontal, 20)
+                .padding(.top, 10)
 
             hero
                 .padding(.horizontal, 20)
-                .padding(.top, 8)
+                .padding(.top, 12)
                 .offset(y: reduceMotion ? 0 : model.heroLift)
+
+            adaptiveResearchCard
+                .padding(.horizontal, 20)
+                .padding(.top, 10)
+
+            orbPlanCard
+                .padding(.horizontal, 20)
+                .padding(.top, 10)
 
             if let receipt = model.settleReceipt {
                 settleReceiptCard(receipt)
@@ -30,55 +69,316 @@ struct DeskScreen: View {
                     ))
             }
 
-            Spacer(minLength: 10)
+            watchlistSection
+                .padding(.horizontal, 20)
+                .padding(.top, 14)
 
-            ScanControl(
-                scanning: model.scanning,
-                pair: model.pair,
-                title: model.scanStep ?? "Scan"
-            ) {
-                Task { await model.scan() }
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 6)
-
-            Picker("Market", selection: $model.marketMode) {
-                Text("Crypto").tag(DeskMarket.crypto)
-                Text("FX").tag(DeskMarket.fx)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(maxWidth: 220)
-            .disabled(model.activeTrade != nil || model.awaitingOutcome || model.isSettlementInFlight)
-            .padding(.bottom, 8)
-
-            Button {
-                DeskHaptics.tabSwitch()
-                showingStrikeSheet = true
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "target")
-                    Text("Track Strike Contract")
-                }
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(DeskInk.electric)
-            }
-            .buttonStyle(.plain)
-            .padding(.bottom, 10)
         }
         .animation(.easeOut(duration: 0.22), value: model.settleReceipt)
         .sheet(isPresented: $showingPrimeSchedule) {
             PrimeScheduleSheet()
         }
-        .sheet(isPresented: $showingStrikeSheet) {
-            StrikeTradeSheet(model: model)
-        }
         .sheet(isPresented: $showingEntryDetails) {
             ManualEntryDetailsSheet(model: model)
+        }
+        .sheet(isPresented: $showingLateEntry) {
+            LateEntrySheet(model: model)
+        }
+        .sheet(isPresented: $showingChartFocus) {
+            chartFocusSheet
         }
         .onChange(of: model.marketMode) { _, _ in
             Task { await model.scan() }
         }
+    }
+
+    private var marketSelector: some View {
+        Text("FX · OANDA")
+            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+            .foregroundStyle(DeskInk.ink)
+            .frame(maxWidth: .infinity)
+            .frame(height: 38)
+            .background(DeskInk.indigo.opacity(0.9), in: Capsule())
+            .padding(3)
+        .background(DeskInk.surface.opacity(0.82), in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.07), lineWidth: 0.6))
+        .accessibilityLabel("FX market using OANDA")
+    }
+
+    private var orbPlanCard: some View {
+        let decision = model.orbDecision(for: model.pair)
+        let plan = model.orbPlan(for: model.pair)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("ORB BREAK · RETEST")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .tracking(0.7)
+                    .foregroundStyle(DeskInk.electric)
+                Spacer()
+                Text(decision?.stage.rawValue.replacingOccurrences(of: "_", with: " ") ?? "UNAVAILABLE")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundStyle(decision == nil ? DeskInk.slate : DeskInk.ink)
+            }
+            if let decision {
+                HStack(spacing: 12) {
+                    orbLevel("RANGE HIGH", decision.rangeHigh)
+                    orbLevel("RANGE LOW", decision.rangeLow)
+                }
+                if let plan {
+                    HStack(spacing: 12) {
+                        orbLevel("ENTRY", plan.entryPrice)
+                        orbLevel("STOP", plan.stopPrice)
+                        orbLevel("TARGET", plan.targetPrice)
+                    }
+                    Text("\(plan.strategyVersion) · \(plan.units, specifier: "%.0f") units · R:R \(plan.rewardRisk ?? 0, specifier: "%.1f") · research plan")
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundStyle(DeskInk.slate)
+                } else {
+                    Text(orbExplanation(decision))
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(DeskInk.slate)
+                }
+            } else {
+                Text("Scan with completed OANDA M1 evidence to establish the opening range.")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(DeskInk.slate)
+            }
+        }
+        .padding(13)
+        .background(DeskInk.surface.opacity(0.84), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous)
+            .strokeBorder(DeskInk.electric.opacity(0.18), lineWidth: 0.7))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("ORB plan for \(model.pair): \(decision?.stage.rawValue ?? "UNAVAILABLE")")
+    }
+
+    private var adaptiveResearchCard: some View {
+        let projection = model.adaptiveResearchProjection
+        let state = projection?.decisionState.rawValue.replacingOccurrences(of: "_", with: " ") ?? "UNAVAILABLE"
+        let tint: Color = switch projection?.decisionState {
+        case .actionableOpportunity: DeskInk.electric
+        case .opportunityForming: .orange
+        case .noOpportunity, .unavailable, nil: DeskInk.slate
+        }
+        return VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Text("ADAPTIVE RESEARCH")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .tracking(0.7)
+                    .foregroundStyle(tint)
+                Spacer()
+                Text(state)
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundStyle(tint)
+            }
+            if let projection {
+                HStack(spacing: 12) {
+                    adaptiveValue("MARKET", projection.instrument)
+                    adaptiveValue("DIRECTION", projection.direction?.rawValue ?? "WAIT")
+                    adaptiveValue("HORIZON", projection.horizonSeconds.map(formatHorizon) ?? "UNVALIDATED")
+                }
+                Text(adaptiveExplanation(projection))
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(DeskInk.slate)
+            } else {
+                Text("No persisted adaptive decision is available. Connect OANDA Practice to evaluate research candidates.")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(DeskInk.slate)
+            }
+        }
+        .padding(13)
+        .background(DeskInk.surface.opacity(0.84), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous)
+            .strokeBorder(tint.opacity(0.22), lineWidth: 0.7))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Adaptive research: \(state). Research-only, manual execution remains required.")
+    }
+
+    private func adaptiveValue(_ title: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundStyle(DeskInk.slate)
+            Text(value).font(.system(size: 11, weight: .bold, design: .monospaced)).foregroundStyle(DeskInk.ink)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func formatHorizon(_ seconds: Int) -> String {
+        seconds >= 60 && seconds % 60 == 0 ? "\(seconds / 60)m" : "\(seconds)s"
+    }
+
+    private func adaptiveExplanation(_ projection: AdaptiveResearchProjection) -> String {
+        if let reason = projection.invalidationReason { return "\(reason) · research-only" }
+        switch projection.decisionState {
+        case .actionableOpportunity: return "Evidence-qualified research candidate; revalidate before any manual action."
+        case .opportunityForming: return "Candidate is developing; entry confirmation is incomplete."
+        case .noOpportunity: return "No qualifying candidate; no trade."
+        case .unavailable: return "Provider or required observation unavailable."
+        }
+    }
+
+    private func orbLevel(_ title: String, _ value: Double?) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundStyle(DeskInk.slate)
+            Text(value.map(PriceFormat.px) ?? "—")
+                .font(.system(size: 12, weight: .bold, design: .monospaced)).foregroundStyle(DeskInk.ink)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func orbExplanation(_ decision: ORBDecision) -> String {
+        switch decision.stage {
+        case .rangeForming: return "Opening range is forming; no plan is eligible yet."
+        case .rangeSealed: return "Opening range sealed; waiting for a completed-candle breakout."
+        case .boundaryApproaching: return "Boundary approaching; wait for a confirmed break."
+        case .breakoutConfirmed, .retestPending: return "Breakout observed; waiting for a retest."
+        case .retestInProgress: return "Retest observed; confirmation remains pending."
+        case .invalidated: return "Retest invalidated; no entry is available."
+        case .expired: return "Setup expired without a complete plan."
+        default: return decision.reason
+        }
+    }
+
+    private var scanActionBar: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.pair)
+                        .font(.system(size: 15, weight: .bold, design: .monospaced))
+                        .foregroundStyle(DeskInk.ink)
+                    Text(model.scanning ? (model.scanStep ?? "Scanning") : "Signal-first scan")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(model.scanning ? DeskInk.electric : DeskInk.slate)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                ScanControl(
+                    scanning: model.scanning,
+                    pair: model.pair,
+                    title: model.scanStep ?? "Scanning"
+                ) {
+                    Task { await model.scan() }
+                }
+                .frame(width: 176)
+            }
+            scanFreshnessBadge(asOf: model.lastScanAt, now: Date())
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Scan now for \(model.pair). \(model.scanning ? (model.scanStep ?? "Scanning") : "Ready")")
+    }
+
+    private var watchlistSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Watchlist")
+                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                    .foregroundStyle(DeskInk.ink)
+                Text("\(model.pairs.count)")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundStyle(DeskInk.slate)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(DeskInk.surface, in: Capsule())
+                Spacer()
+                Text("See all")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(DeskInk.electric)
+            }
+
+            VStack(spacing: 0) {
+                ForEach(Array(model.pairs.prefix(6)), id: \.self) { pair in
+                    watchlistRow(pair)
+                    if pair != model.pairs.prefix(6).last {
+                        Divider()
+                            .overlay(Color.white.opacity(0.06))
+                            .padding(.leading, 44)
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .background(DeskInk.surface.opacity(0.72), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.07), lineWidth: 0.7)
+            )
+        }
+    }
+
+    private func watchlistRow(_ pair: String) -> some View {
+        let side = model.side(for: pair) ?? "WAIT"
+        let tint = bookInk(side)
+        return Button {
+            DeskHaptics.tabSwitch()
+            model.select(pair: pair)
+        } label: {
+            HStack(spacing: 10) {
+                Circle()
+                    .fill(tint.opacity(side == "HIGH" || side == "LOW" ? 0.95 : 0.35))
+                    .frame(width: 7, height: 7)
+                    .shadow(color: tint.opacity(0.7), radius: 4)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(pair)
+                            .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(DeskInk.ink)
+                        Text("M1")
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundStyle(DeskInk.slate)
+                    }
+                    Text(side == "HIGH" ? "CALL ↑" : side == "LOW" ? "PUT ↓" : "WAIT")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(tint)
+                }
+
+                Spacer()
+
+                MiniCandleChart(
+                    candles: model.candles(for: pair),
+                    pair: pair
+                )
+                .frame(width: 66, height: 28)
+                .allowsHitTesting(false)
+
+                if let score = model.score(for: pair) {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("CONF")
+                            .font(.system(size: 8, weight: .bold, design: .monospaced))
+                            .foregroundStyle(DeskInk.ink)
+                        Text("\(score)/100")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundStyle(tint)
+                    }
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(DeskInk.slate.opacity(0.55))
+                }
+            }
+            .padding(.vertical, 7)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(pair), \(side)")
+    }
+
+    private var deskMasthead: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "bolt.horizontal.circle.fill")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(DeskInk.electric)
+            Text("BLAZEROS")
+                .font(.system(size: 10, weight: .heavy, design: .monospaced))
+                .tracking(1.8)
+                .foregroundStyle(DeskInk.ink)
+            Spacer()
+            Circle()
+                .fill(feedColor)
+                .frame(width: 6, height: 6)
+                .shadow(color: feedColor.opacity(0.75), radius: 4)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("BlazerOS, \(feedWord)")
     }
 
     private var topIntelligenceBar: some View {
@@ -90,7 +390,7 @@ struct DeskScreen: View {
             // Left: Session / Prime Intel (Tappable to jump to Intel tab)
             Button {
                 DeskHaptics.tabSwitch()
-                model.activeTab = .intel
+                model.activeTab = .review
             } label: {
                 let cryptoMode = model.marketMode == .crypto
                 let sessionColor: Color = cryptoMode
@@ -169,7 +469,7 @@ struct DeskScreen: View {
             } else {
                 Button {
                     DeskHaptics.tabSwitch()
-                    model.activeTab = .intel
+                    model.activeTab = .review
                 } label: {
                     HStack(spacing: 4) {
                         Text(edgeWindow.detailText)
@@ -205,24 +505,67 @@ struct DeskScreen: View {
     }
 
     private var hero: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 10) {
             pairRow
-            MiniCandleChart(
-                candles: model.candles,
-                strike: model.activeTrade?.strike ?? (isArmed ? model.frame?.strike : nil),
-                currentPrice: model.currentPrice,
-                side: model.activeTrade?.side ?? model.side(for: model.pair),
-                pair: model.pair
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Label("\(model.pair) · M1", systemImage: "chart.xyaxis.line")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(DeskInk.slate)
+                    Spacer()
+                    Text(feedWord)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(feedColor)
+                    Button {
+                        showingChartFocus = true
+                    } label: {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(DeskInk.electric)
+                            .frame(width: 28, height: 28)
+                            .background(DeskInk.surface, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Open full-screen chart")
+                }
+                HStack(spacing: 8) {
+                    Text("Market observation")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(DeskInk.slate)
+                    marketFreshnessBadge
+                    Spacer()
+                }
+
+                MiniCandleChart(
+                    candles: model.candles,
+                    strike: model.activeTrade?.strike ?? (isArmed ? model.frame?.strike : nil),
+                    currentPrice: model.currentPrice,
+                    side: model.activeTrade?.side ?? model.side(for: model.pair),
+                    pair: model.pair,
+                    visibleBars: 18,
+                    allowsZoom: true
+                )
+                .equatable()
+                .frame(height: 270)
+                .frame(maxWidth: .infinity)
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 8)
+            .padding(.bottom, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color.black.opacity(0.16))
             )
-            .equatable()
-            .frame(height: 160)
-            .frame(maxWidth: .infinity)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.07), lineWidth: 0.8)
+            )
             verdict
             if isArmed {
                 rail
             }
         }
-        .padding(20)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(heroSurface)
         .overlay(alignment: .bottom) {
@@ -290,6 +633,31 @@ struct DeskScreen: View {
         )
     }
 
+    private func scanFreshnessBadge(asOf: Date?, now: Date) -> some View {
+        let age = asOf.map { max(0, now.timeIntervalSince($0)) }
+        let isOld = age.map { $0 > 60 } ?? true
+        let label: String
+        if let age {
+            if age < 1 {
+                label = "Updated now"
+            } else if age < 60 {
+                label = "Updated \(Int(age))s ago"
+            } else {
+                label = "Updated \(Int(age / 60))m ago"
+            }
+        } else {
+            label = "No scan recorded"
+        }
+        return HStack(spacing: 5) {
+            Image(systemName: isOld ? "clock.badge.exclamationmark" : "clock")
+                .font(.system(size: 9, weight: .semibold))
+            Text(label)
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+        }
+        .foregroundStyle(isOld ? DeskInk.coral : DeskInk.slate)
+        .accessibilityLabel(age.map { "Last scan \(Int($0)) seconds ago" } ?? "No scan recorded")
+    }
+
     private var heroSurface: some View {
         RoundedRectangle(cornerRadius: 24, style: .continuous)
             .fill(DeskInk.surface)
@@ -325,6 +693,60 @@ struct DeskScreen: View {
                 y: isArmed ? 6 : 2
             )
             .animation(.easeInOut(duration: 0.35), value: isArmed)
+    }
+
+    private var chartFocusSheet: some View {
+        NavigationStack {
+            ZStack {
+                DeskInk.background.ignoresSafeArea()
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(model.pair)
+                                .font(.system(size: 24, weight: .bold, design: .monospaced))
+                                .foregroundStyle(DeskInk.ink)
+                            Text("Chart Focus · M1")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(DeskInk.slate)
+                        }
+                        Spacer()
+                        Text(model.side(for: model.pair) == "HIGH" ? "CALL" : model.side(for: model.pair) == "LOW" ? "PUT" : "WAIT")
+                            .font(.system(size: 13, weight: .bold, design: .monospaced))
+                            .foregroundStyle(bookInk(model.side(for: model.pair) ?? "WAIT"))
+                    }
+                    MiniCandleChart(
+                        candles: model.candles,
+                        strike: model.activeTrade?.strike ?? (isArmed ? model.frame?.strike : nil),
+                        currentPrice: model.currentPrice,
+                        side: model.activeTrade?.side ?? model.side(for: model.pair),
+                        pair: model.pair,
+                        visibleBars: 14,
+                        allowsZoom: true
+                    )
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 360)
+                    .padding(12)
+                    .background(DeskInk.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    Text("Pinch to zoom · drag horizontally to browse candles")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(DeskInk.slate)
+                    Spacer()
+                }
+                .padding(20)
+            }
+            .navigationTitle("Chart Focus")
+#if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+#endif
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { showingChartFocus = false }
+                        .foregroundStyle(DeskInk.electric)
+                }
+            }
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
     }
 
     private var ambientColors: [Color] {
@@ -435,23 +857,28 @@ struct DeskScreen: View {
     }
 
     private var verdict: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // Header Row: Score + Live Strike
+        let compact = model.activeTrade == nil && !isArmed
+        return VStack(alignment: .leading, spacing: compact ? 4 : 6) {
             HStack(alignment: .firstTextBaseline) {
-                Text(scoreText)
-                    .font(.system(size: 54, weight: .semibold))
-                    .foregroundStyle(DeskInk.ink)
-                    .monospacedDigit()
+                Text(decisionText)
+                    .font(.system(size: compact ? 34 : 42, weight: .bold, design: .rounded))
+                    .foregroundStyle(verbColor)
                     .contentTransition(.numericText())
-                    .frame(minHeight: 56, alignment: .leading)
-                    .animation(.spring(response: 0.45, dampingFraction: 0.72), value: scoreText)
-
                 Spacer()
-
                 Text(strikeText)
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundStyle(DeskInk.slate.opacity(0.85))
                     .monospacedDigit()
+            }
+
+            HStack(spacing: 8) {
+                Text("Confidence: \(scoreText)/100")
+                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .foregroundStyle(DeskInk.ink)
+                Text(telemetryLabel)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(DeskInk.slate)
+                Spacer()
             }
 
             if let trade = model.activeTrade {
@@ -481,62 +908,20 @@ struct DeskScreen: View {
                 }
                 .frame(minHeight: 24, alignment: .leading)
 
-                Text(whyText)
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundStyle(DeskInk.slate)
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, minHeight: 32, alignment: .topLeading)
-            } else {
+                explanationText
+            }
+            else {
                 let telemetry = model.stalkingTelemetry
-                HStack(spacing: 8) {
-                    if isArmed {
-                        Circle()
-                            .fill(verbColor)
-                            .frame(width: 8, height: 8)
-                            .shadow(color: verbColor.opacity(0.9), radius: 4)
-                        Text(verbText)
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundStyle(verbColor)
-
-                        Text(telemetry.badgeLabel)
-                            .font(.system(size: 9, weight: .heavy))
-                            .foregroundStyle(telemetryBadgeColor(telemetry.tier))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2.5)
-                            .background(telemetryBadgeColor(telemetry.tier).opacity(0.16), in: Capsule())
-                    } else {
-                        HStack(spacing: 5) {
-                            Image(systemName: telemetryIcon(telemetry.tier))
-                                .font(.system(size: 9, weight: .bold))
-                            Text(telemetry.badgeLabel)
-                                .font(.system(size: 10, weight: .heavy))
-                        }
-                        .foregroundStyle(telemetryBadgeColor(telemetry.tier))
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(telemetryBadgeColor(telemetry.tier).opacity(0.14), in: Capsule())
-                        .overlay(Capsule().strokeBorder(telemetryBadgeColor(telemetry.tier).opacity(0.35), lineWidth: 0.8))
+                explanationText
+                if !isArmed {
+                    HStack(spacing: 6) {
+                        Image(systemName: telemetryIcon(telemetry.tier))
+                        Text(telemetry.badgeLabel == "CAPITAL SHIELD" ? "Capital Shield active" : telemetry.badgeLabel)
                     }
-
-                    Spacer()
-
-                    HStack(spacing: 4) {
-                        Image(systemName: "shield.lefthalf.filled")
-                            .font(.system(size: 8, weight: .bold))
-                        Text(telemetry.stakeGuidance)
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    }
-                    .foregroundStyle(telemetryBadgeColor(telemetry.tier).opacity(0.85))
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(telemetryBadgeColor(telemetry.tier))
+                    .padding(.top, 2)
                 }
-                .frame(minHeight: 24, alignment: .leading)
-                .animation(.spring(response: 0.35, dampingFraction: 0.7), value: verbText)
-
-                Text(telemetry.telemetryDetail)
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundStyle(DeskInk.slate)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, minHeight: 32, alignment: .topLeading)
             }
 
             if model.activeTrade == nil && isArmed {
@@ -545,6 +930,7 @@ struct DeskScreen: View {
                     horizonPill(seconds: 60, title: "60s")
                     horizonPill(seconds: 180, title: "3m")
                     horizonPill(seconds: 300, title: "5m")
+                    horizonPill(seconds: 600, title: "10m")
                 }
                 .padding(.top, 2)
 
@@ -597,7 +983,7 @@ struct DeskScreen: View {
                 .padding(.top, 4)
             } else if model.canLogLateEntry {
                 Button {
-                    Task { await model.lockInTrade(late: true) }
+                    showingLateEntry = true
                 } label: {
                     HStack(spacing: 10) {
                         Image(systemName: "clock.arrow.circlepath")
@@ -642,7 +1028,7 @@ struct DeskScreen: View {
                     Spacer(minLength: 0)
                     if model.canLogLateEntry {
                         Button("Log anyway") {
-                            Task { await model.lockInTrade(late: true) }
+                            showingLateEntry = true
                         }
                         .font(.system(size: 10, weight: .heavy))
                         .foregroundStyle(DeskInk.electric)
@@ -1137,6 +1523,52 @@ struct DeskScreen: View {
     private var scoreText: String {
         guard let frame = model.frame else { return "—" }
         return "\(frame.score)"
+    }
+
+    private var decisionText: String {
+        if model.activeTrade != nil { return verbText }
+        if isArmed { return verbText }
+        return model.frame == nil ? "SCAN" : (verbText == "EXPIRED" ? "EXPIRED" : "WAIT")
+    }
+
+    private var telemetryLabel: String {
+        if let veto = model.frame?.veto, !veto.isEmpty { return "Capital Shield" }
+        return isArmed ? "Eligible" : "No qualifying setup"
+    }
+
+    private var explanationText: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(whyText)
+                .font(.system(size: 13, weight: .regular))
+                .foregroundStyle(DeskInk.slate)
+                .lineLimit(showingExplanation ? nil : 2)
+                .fixedSize(horizontal: false, vertical: true)
+            if whyText.count > 90 {
+                Button(showingExplanation ? "Show less" : "Show full explanation") {
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        showingExplanation.toggle()
+                    }
+                }
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(DeskInk.electric)
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 28, alignment: .topLeading)
+    }
+
+    private var marketFreshnessBadge: some View {
+        let age = model.lastMarketObservationAt.map { max(0, Date().timeIntervalSince($0)) }
+        let stale = age.map { $0 > Timing.quoteStaleMs / 1000 } ?? true
+        return HStack(spacing: 4) {
+            Circle()
+                .fill(stale ? DeskInk.coral : DeskInk.emerald)
+                .frame(width: 5, height: 5)
+            Text(age.map { $0 < 1 ? "Updated now" : "Updated \(Int($0))s ago" } ?? "No update")
+                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+        }
+        .foregroundStyle(stale ? DeskInk.coral : DeskInk.slate)
+        .accessibilityLabel(age.map { "Market observation \(Int($0)) seconds ago" } ?? "No market observation")
     }
 
     private var verbText: String { model.frame?.verb ?? "SCAN" }

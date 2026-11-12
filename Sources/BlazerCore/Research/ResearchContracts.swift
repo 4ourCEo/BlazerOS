@@ -163,10 +163,15 @@ public struct ResearchEvent: Codable, Sendable, Identifiable {
     public let entryVeto: String?
     public let entryObservation: LiveQuote?
     public let assumedPayout: Double
+    /// Shadow-only support classification. Optional for backward-compatible archives.
+    public let qualityAssessment: SignalQualityAssessment?
 
     public init(input: StrategyEngine.MarketInput, signal: EngineSignal, sourceKind: String,
-                capturedAt: Date, entryQuote: LiveQuote? = nil,
-                engineSHA: String = EngineIdentity.loadedSHA1() ?? "unverified") throws {
+                 capturedAt: Date, entryQuote: LiveQuote? = nil,
+                 assumedPayout: Double = EntryQuality.assumedPayout,
+                 qualityEvidence: SignalQualityEvidence = .init(),
+                 qualityAssessment: SignalQualityAssessment? = nil,
+                 engineSHA: String = EngineIdentity.loadedSHA1() ?? "unverified") throws {
         id = UUID().uuidString
         inputDigest = try Self.digest(of: input)
         self.engineSHA = engineSHA
@@ -180,7 +185,12 @@ public struct ResearchEvent: Codable, Sendable, Identifiable {
         entryObservation = entryQuote
         entryTime = veto == nil ? capturedAt : nil
         entryPrice = veto == nil ? entryQuote?.mid : nil
-        assumedPayout = EntryQuality.assumedPayout
+        // Record the venue payout in force when the event was captured. Scoring every
+        // experiment at an assumed 88% hides a book that only pays 80%.
+        self.assumedPayout = assumedPayout.isFinite && assumedPayout > 0
+            ? assumedPayout : EntryQuality.assumedPayout
+        self.qualityAssessment = qualityAssessment ?? SignalQualityEvaluator.assess(
+            signal: signal, quote: entryQuote, evidence: qualityEvidence, at: capturedAt)
     }
 
     public static func digest(of input: StrategyEngine.MarketInput) throws -> String {

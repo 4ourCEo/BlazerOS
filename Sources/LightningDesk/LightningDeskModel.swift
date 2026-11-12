@@ -3,61 +3,64 @@ import Foundation
 import BlazerCore
 import BlazerCrypto
 
-/// Desk market mode. `.crypto` uses the shared BlazerCrypto engine; `.fx` uses OANDA.
-public enum DeskMarket: String, Sendable, CaseIterable {
-    case crypto
-    case fx
-}
-
-/// Post-settlement receipt. Presentation only: the ledger row is already written.
-public struct SettleReceipt: Identifiable, Equatable, Sendable {
-    public let id: UUID
-    public let outcome: DeskOutcome
-    public let pair: String
-    public let pips: Double?
-    public let payout: Double
-    public let labelSource: String
-
-    public init(
-        id: UUID = UUID(),
-        outcome: DeskOutcome,
-        pair: String,
-        pips: Double?,
-        payout: Double,
-        labelSource: String
-    ) {
-        self.id = id
-        self.outcome = outcome
-        self.pair = pair
-        self.pips = pips
-        self.payout = payout
-        self.labelSource = labelSource
-    }
-}
-
 /// One-screen desk state. The frame is derived from the frozen commit. Quotes never rescore it.
 @MainActor
 public final class LightningDeskModel: ObservableObject {
-    public init(storageRoot: URL? = nil) {
+    public convenience init(storageRoot: URL? = nil) {
+        self.init(storageRoot: storageRoot, marketData: LiveDeskMarketDataService())
+    }
+
+    init(
+        storageRoot: URL?,
+        marketData: any DeskMarketDataServing,
+        candleCache: CandleCache = CandleCache(),
+        otcArchive: (any DeskOTCResearchServing)? = nil,
+        otcResearchServiceFactory: (@Sendable (String) -> any DeskOTCResearchServing)? = nil,
+        pocketOptionResearchServiceFactory: (@Sendable (String) -> any DeskOTCResearchServing)? = nil
+    ) {
         if storageRoot == nil {
             FileLocations.migrateLegacyGroupStorageIfNeeded()
         }
         let root = storageRoot ?? FileLocations.applicationSupport()
+        self.marketData = marketData
+        self.candleCache = candleCache
+        let otcRoot = root.appendingPathComponent("Research", isDirectory: true)
+            .appendingPathComponent("otc-validation", isDirectory: true)
+        self.otcArchive = otcArchive ?? LiveOTCResearchService(root: otcRoot)
+        self.otcResearchServiceFactory = otcResearchServiceFactory
+            ?? LiveOTCResearchService.streamingFactory(root: otcRoot)
+        self.pocketOptionResearchServiceFactory = pocketOptionResearchServiceFactory
+            ?? LiveOTCResearchService.pocketOptionStreamingFactory(root: otcRoot)
         persistence = PersistenceCoordinator(root: root)
         referenceStore = ReferenceOutcomeStore(
             root: root.appendingPathComponent("Research", isDirectory: true)
                 .appendingPathComponent("oanda-proxy", isDirectory: true)
         )
+        executionObservationStore = ExecutionObservationStore(
+            root: root.appendingPathComponent("Research", isDirectory: true)
+                .appendingPathComponent("execution-quality", isDirectory: true))
         strikeStore = StrikeStore(url: root.appendingPathComponent("strike_positions.json"))
         let diagnosticsURL = root.appendingPathComponent("model_diagnostics.jsonl")
         assistant = AssistantSession(diagnosticsURL: diagnosticsURL)
         assistant.contextProvider = { [weak self] in
             guard let self else { return .empty }
-            return AssistantContextBuilder.make(journal: self.storedJournal, ledgerRows: self.ledgerRows)
+            return AssistantContextBuilder.make(journal: self.storedJournal, ledgerRows: self.ledgerRows, observations: self.executionObservations)
         }
+        #if os(iOS)
+        scanCoordinator.onIdle = { [weak self] in
+            guard let self, self.backgroundedAt == nil else { return }
+            // Pending Siri ingress runs only after the coordinator relinquishes ownership,
+            // detached so the consuming scan never awaits the worker that just exited.
+            Task { @MainActor [weak self] in
+                await self?.consumePendingScanIfReady()
+            }
+        }
+        #endif
     }
     @Published public var pair: String = "EUR/USD"
     @Published var feed: FeedStatus = .connecting
+    @Published public private(set) var exchangeClockOffset: ClockOffset?
+    @Published public private(set) var exchangeClockDrift: ClockDrift?
     @Published var candles: [Candle] = []
     @Published var scanning = false
     /// Walk label, for example "GBP/USD 2/6". Nil when idle.
@@ -68,6 +71,13 @@ public final class LightningDeskModel: ObservableObject {
     /// Visible reason the last entry tap was refused. Cleared on the next attempt or scan.
     @Published public private(set) var entryIssue: String?
     @Published public private(set) var frame: DeskFrame?
+    /// Latest deterministic ORB state per FX instrument. This is research state and
+    /// never replaces the pinned V1 signal or authorizes an entry.
+    @Published public private(set) var orbDecisions: [String: ORBDecision] = [:]
+    @Published public private(set) var orbPlans: [String: V3TradePlan] = [:]
+    /// Latest adaptive research decision projected for native presentation.
+    /// This is intentionally separate from the executable desk frame.
+    @Published public private(set) var adaptiveResearchProjection: AdaptiveResearchProjection?
     /// Active 60-second binary trade execution. Nil when not in an active position.
     @Published public private(set) var activeTrade: ActiveTrade?
     /// Predicted outcome based on live price at trade expiry.
@@ -81,6 +91,11 @@ public final class LightningDeskModel: ObservableObject {
         if let quote, quote.asset == pair { return quote.mid }
         return nil
     }
+    public func orbDecision(for asset: String) -> ORBDecision? { orbDecisions[asset] }
+    public func orbPlan(for asset: String) -> V3TradePlan? { orbPlans[asset] }
+    public var lastScanAt: Date? { commit?.scannedAt }
+    /// Last successful market observation for the selected desk feed. Display-only.
+    public var lastMarketObservationAt: Date? { lastFreshPollAt }
     /// Brand cover. Dismisses on a real LIVE feed, otherwise after a short beat. Never invents LIVE.
     @Published public var showingLaunch = true
     @Published var launchMarkLit = false
@@ -233,6 +248,19 @@ public final class LightningDeskModel: ObservableObject {
 
     public func handleAppBackgrounded(now: Date = Date()) {
         backgroundedAt = now
+        invalidateScanRequests()
+        // A research stream does not survive suspension; stop it explicitly instead of
+        // reconnecting invisibly when the app resumes.
+        if otcCaptureActive { stopOTCResearchCapture() }
+        // Switching to the venue app suspends live refresh. An actionable beam must not
+        // become actionable again after the phone resumes without a new frozen scan.
+        if armedAt != nil, activeTrade == nil {
+            self.now = now
+            armedAt = nil
+            expired = true
+            feed = .stale
+            publishFrame()
+        }
     }
 
     /// Resume after the user returns (e.g., from the Crypto.com app). Never blocks.
@@ -241,7 +269,9 @@ public final class LightningDeskModel: ObservableObject {
         let decision = ForegroundResume.decide(
             suspendedForMs: suspendedMs,
             lastPollAgeMs: lastFreshPollAt.map { max(0, now.timeIntervalSince($0) * 1000) },
-            clockSampleAgeMs: nil
+            clockSampleAgeMs: exchangeClockOffset.map {
+                max(0, now.timeIntervalSince($0.measuredAt) * 1000)
+            }
         )
         backgroundedAt = nil
         foregroundResumeCount += 1
@@ -249,12 +279,27 @@ public final class LightningDeskModel: ObservableObject {
             feed = .connecting
         }
         refreshTrackedStrikePositions()
+        if marketMode == .crypto, decision.needsClockRemeasure {
+            Task { await remeasureExchangeClock() }
+        }
         Task {
             await refreshActiveTradeQuote()
             await refreshQuote()
             // A Siri request can arrive while a session is already loaded. Consume it here
             // instead of waiting for the next Keychain read.
             await consumePendingScanIfReady()
+        }
+    }
+
+    private func remeasureExchangeClock() async {
+        do {
+            let offset = try await BinanceClient.fetchClockOffset()
+            exchangeClockOffset = offset
+            exchangeClockDrift = ExchangeClock.drift(of: offset)
+            diagLog("EXCHANGE_CLOCK source=\(offset.source) skewMs=\(Int(offset.skewMs)) rttMs=\(Int(offset.roundTripMs))")
+        } catch {
+            exchangeClockDrift = nil
+            diagLog("EXCHANGE_CLOCK_FAILED \(error)")
         }
     }
 
@@ -387,6 +432,424 @@ public final class LightningDeskModel: ObservableObject {
     }
 
     private let persistence: PersistenceCoordinator
+    private let executionObservationStore: ExecutionObservationStore
+    @Published public private(set) var executionObservations: [ExecutionObservation] = []
+    @Published public private(set) var executionObservationIssue: String?
+    @Published public private(set) var edgeVerificationReport: EdgeVerificationReport?
+    private func refreshExecutionIntelligence() {
+        do {
+            edgeVerificationReport = try ExecutionIntelligence.report(rows: ledgerRows, journal: storedJournal,
+                observations: executionObservations, references: referenceOutcomes, asOf: Date())
+        } catch { executionObservationIssue = "Evidence report unavailable: \(error.localizedDescription)" }
+    }
+    private func saveExecutionObservation(_ observation: ExecutionObservation) async {
+        do {
+            try await executionObservationStore.record(observation)
+            executionObservations = try await executionObservationStore.load()
+            refreshExecutionIntelligence()
+        } catch { executionObservationIssue = "Execution-quality archive unavailable: \(error.localizedDescription)" }
+    }
+
+    // MARK: - Personal OTC research (never an execution input)
+
+    /// OTC networking, streaming and validation live behind this research-only service.
+    private let otcArchive: any DeskOTCResearchServing
+    /// Creates a credential-scoped streaming service. Injectable for tests.
+    private let otcResearchServiceFactory: @Sendable (String) -> any DeskOTCResearchServing
+    private let pocketOptionResearchServiceFactory: @Sendable (String) -> any DeskOTCResearchServing
+    private var otcActiveService: (any DeskOTCResearchServing)?
+    private var otcActiveStream: OTCResearchStream?
+    public var otcCredentialVault: KeychainVault = SystemKeychainVault(service: "com.blazer.os.otc-research")
+    @Published public private(set) var otcAPIKeyConfigured = false
+    @Published public private(set) var pocketOptionSessionConfigured = false
+    @Published public private(set) var otcConnectionState: ShadowConnectionState = .disabled
+    @Published public private(set) var manualBrokerObservations: [ManualBrokerChartObservation] = []
+    @Published public private(set) var otcResearchIssue: String?
+    /// Research capture session state. Never consulted by the entry gate.
+    @Published public private(set) var otcCaptureActive = false
+    /// Persisted, rate-limited research samples (at most one per second).
+    @Published public private(set) var otcCapturedObservations = 0
+    /// Raw ticks observed in this session, refreshed at 1 Hz to avoid per-tick UI churn.
+    @Published public private(set) var otcObservedTicks = 0
+    @Published public private(set) var otcObservedTickRate: Double?
+    /// Local receipt minus normalized provider time. A large value indicates a clock-model drift.
+    @Published public private(set) var otcClockSkewSeconds: Double?
+    @Published public private(set) var otcConnectionInterruptions = 0
+    @Published public private(set) var otcValidationReport: OTCValidationReport?
+    private var otcCaptureTask: Task<Void, Never>?
+    private var otcCaptureWatchdog: Task<Void, Never>?
+    private var otcCaptureRunID: UUID?
+    private var otcTicksThisCapture = 0
+    private var otcFirstTickAt: Date?
+    private var otcLastTickPublishAt: Date?
+    private var otcLastPersistAt: Date?
+
+    public func refreshOTCCredentialState() {
+        do {
+            otcAPIKeyConfigured = try otcCredentialVault.get(KeychainKey.otchartsAPIKey)?.isEmpty == false
+            pocketOptionSessionConfigured = try otcCredentialVault
+                .get(KeychainKey.pocketOptionReadOnlySession)?.isEmpty == false
+            // A scan-triggered reload must not erase a live capture failure message.
+            if !otcCaptureActive { otcResearchIssue = nil }
+        } catch {
+            otcAPIKeyConfigured = false
+            pocketOptionSessionConfigured = false
+            otcResearchIssue = "OTC provider credential is unavailable"
+        }
+        // Configuration presence never enables a network connection automatically, and a
+        // credential re-read must not overwrite the state of a running capture.
+        if !otcCaptureActive { otcConnectionState = .disabled }
+    }
+
+    public func saveOTChartsAPIKey(_ candidate: String) {
+        let key = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else {
+            otcResearchIssue = "Enter an OTCharts API key"
+            return
+        }
+        do {
+            try otcCredentialVault.set(key, for: KeychainKey.otchartsAPIKey)
+            otcAPIKeyConfigured = true
+            if !otcCaptureActive { otcConnectionState = .disabled }
+            otcResearchIssue = nil
+        } catch {
+            otcResearchIssue = "OTC provider key could not be saved"
+        }
+    }
+
+    public func savePocketOptionReadOnlySession(_ candidate: String) {
+        let frame = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard PocketOptionReadOnlyProvider.isValidAuthFrame(frame) else {
+            otcResearchIssue = "Enter a complete Pocket Option demo auth frame"
+            return
+        }
+        do {
+            try otcCredentialVault.set(frame, for: KeychainKey.pocketOptionReadOnlySession)
+            pocketOptionSessionConfigured = true
+            if !otcCaptureActive { otcConnectionState = .disabled }
+            otcResearchIssue = nil
+        } catch {
+            otcResearchIssue = "Pocket Option session could not be saved"
+        }
+    }
+
+    public func disconnectAndRemoveOTChartsAPIKey() {
+        // Stop the session before touching Keychain so the UI cannot claim connectivity while
+        // the credential is being removed.
+        stopOTCResearchCapture()
+        do {
+            try otcCredentialVault.remove(KeychainKey.otchartsAPIKey)
+            otcAPIKeyConfigured = false
+            otcResearchIssue = nil
+        } catch {
+            otcAPIKeyConfigured = false
+            otcResearchIssue = "OTC provider key removal could not be confirmed"
+        }
+    }
+
+    public func disconnectAndRemovePocketOptionSession() {
+        stopOTCResearchCapture()
+        do {
+            try otcCredentialVault.remove(KeychainKey.pocketOptionReadOnlySession)
+            pocketOptionSessionConfigured = false
+            otcResearchIssue = nil
+        } catch {
+            // Deletion was not confirmed, so the unrestricted session may still be present.
+            pocketOptionSessionConfigured = true
+            otcResearchIssue = "Pocket Option session removal could not be confirmed"
+        }
+    }
+
+    /// Starts one explicitly requested, time-bounded, read-only research capture. It never runs
+    /// automatically and it never feeds a scan, an entry, or a settlement.
+    public func startOTCResearchCapture(duration: TimeInterval = 300) {
+        guard !otcCaptureActive else { return }
+        guard duration > 0, duration <= 3_600 else {
+            otcResearchIssue = "Research capture duration must be between 1 second and 1 hour"
+            return
+        }
+        let credential: String
+        let serviceFactory: @Sendable (String) -> any DeskOTCResearchServing
+        do {
+            if let session = try otcCredentialVault.get(KeychainKey.pocketOptionReadOnlySession),
+               !session.isEmpty {
+                credential = session
+                serviceFactory = pocketOptionResearchServiceFactory
+            } else if let key = try otcCredentialVault.get(KeychainKey.otchartsAPIKey),
+                      !key.isEmpty {
+                credential = key
+                serviceFactory = otcResearchServiceFactory
+            } else {
+                otcResearchIssue = "Add a Pocket Option read-only session before starting a research capture"
+                return
+            }
+        } catch {
+            otcResearchIssue = "OTC provider credential is unavailable"
+            return
+        }
+
+        let service = serviceFactory(credential)
+        let runID = UUID()
+        otcActiveService = service
+        otcCaptureRunID = runID
+        otcCaptureActive = true
+        otcCapturedObservations = 0
+        otcObservedTicks = 0
+        otcObservedTickRate = nil
+        otcClockSkewSeconds = nil
+        otcConnectionInterruptions = 0
+        otcTicksThisCapture = 0
+        otcFirstTickAt = nil
+        otcLastTickPublishAt = nil
+        otcLastPersistAt = nil
+        otcConnectionState = .connecting
+        otcResearchIssue = nil
+
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.runOTCCapture(service: service, runID: runID)
+        }
+        otcCaptureTask = task
+        // Enforce both the declared bound and broker-tick liveness.
+        let startedAt = Date()
+        otcCaptureWatchdog = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard let self, self.otcCaptureRunID == runID else { return }
+                let now = Date()
+                if now.timeIntervalSince(self.otcLastTickPublishAt ?? startedAt) > 10 {
+                    self.otcConnectionState = .degraded
+                    self.otcConnectionInterruptions += 1
+                    self.otcResearchIssue = "No fresh OTC provider tick arrived for 10 seconds; capture stopped"
+                    task.cancel()
+                    return
+                }
+                if now.timeIntervalSince(startedAt) >= duration {
+                    task.cancel()
+                    return
+                }
+            }
+        }
+    }
+
+    /// Immediate stop. Already-persisted research samples stay on disk.
+    public func stopOTCResearchCapture() {
+        otcCaptureTask?.cancel()
+        otcCaptureWatchdog?.cancel()
+        otcCaptureTask = nil
+        otcCaptureWatchdog = nil
+        otcCaptureRunID = nil
+        otcActiveService = nil
+        otcActiveStream?.cancel()
+        otcActiveStream = nil
+        otcCaptureActive = false
+        otcConnectionState = .disabled
+    }
+
+    private func runOTCCapture(service: any DeskOTCResearchServing, runID: UUID) async {
+        defer { finishOTCCapture(runID: runID) }
+        guard !Task.isCancelled, otcCaptureRunID == runID else { return }
+        do {
+            let identity = service.researchIdentity
+            let instruments = try await service.instruments()
+            guard !Task.isCancelled, otcCaptureRunID == runID else { return }
+            guard let availability = instruments.first(where: {
+                $0.identity == identity
+            }) else {
+                otcResearchIssue = "The provider did not list EUR/USD OTC; capture stopped"
+                otcConnectionState = .degraded
+                return
+            }
+            guard availability.isOpen != false else {
+                otcResearchIssue = "EUR/USD OTC is closed according to the provider; capture stopped"
+                otcConnectionState = .degraded
+                return
+            }
+            let stream = try await service.updates(for: identity)
+            guard !Task.isCancelled, otcCaptureRunID == runID else {
+                stream.cancel()
+                return
+            }
+            otcActiveStream = stream
+            for try await update in stream.events {
+                if Task.isCancelled { break }
+                switch update {
+                case .connection(let state, _):
+                    if otcConnectionState != state {
+                        if state == .disconnected || state == .degraded {
+                            otcConnectionInterruptions += 1
+                        }
+                        otcConnectionState = state
+                    }
+                case .observation(let observation):
+                    if otcConnectionState != .live { otcConnectionState = .live }
+                    await recordOTCResearchObservation(
+                        observation, runID: runID, service: service)
+                }
+            }
+            // A clean end before the declared bound is an incomplete session, not a success.
+            if !Task.isCancelled, otcCaptureRunID == runID {
+                otcResearchIssue = "Provider stream ended before the capture bound; session incomplete"
+            }
+        } catch {
+            // A user stop or the watchdog is not a provider fault. Never surface raw remote text.
+            if !Task.isCancelled {
+                diagLog("OTC_CAPTURE_FAILED")
+                otcResearchIssue = otcFailureMessage(error)
+                otcConnectionState = .degraded
+            }
+        }
+    }
+
+    /// A provider refusal is not a closed market. Keep the two states separate so the desk
+    /// never tells the operator Pocket Option is closed when only the data plan is unavailable.
+    private func otcFailureMessage(_ error: Error) -> String {
+        if let failure = error as? PocketOptionReadOnlyError {
+            switch failure {
+            case .disabled, .invalidCredential, .authenticationRejected:
+                return "The Pocket Option demo session is missing, expired, or rejected. Replace it in Keychain."
+            case .wrongInstrument:
+                return "Pocket Option returned the wrong instrument; capture was stopped."
+            case .staleOrOutOfOrder:
+                return "Pocket Option returned a stale, future, or out-of-order tick; capture was stopped."
+            case .connectionClosed:
+                return "The Pocket Option read-only stream disconnected before the capture completed."
+            default:
+                return "Pocket Option read-only capture ended; no data became actionable."
+            }
+        }
+        guard let failure = error as? OTChartsError else {
+            return "OTC research capture ended (provider or network failure); the market state is unknown"
+        }
+        switch failure {
+        case .httpStatus(402):
+            return "OTCharts free API tier is paused; a paid data plan is required. Pocket Option is not reported as closed."
+        case .httpStatus(403):
+            return "The OTCharts plan does not open this book or instrument."
+        case .httpStatus(429):
+            return "OTCharts request or stream limit reached; retry later."
+        case .throttled:
+            return "OTCharts throttled the request; retry later."
+        case .disabled, .invalidCredential:
+            return "The OTCharts key is missing or no longer valid."
+        case .providerClosed(let reason):
+            return "Provider closed the stream: \(reason)"
+        default:
+            return "OTC research capture ended (provider or network failure); the market state is unknown"
+        }
+    }
+
+    private func finishOTCCapture(runID: UUID) {
+        guard otcCaptureRunID == runID else { return }
+        otcCaptureTask = nil
+        otcCaptureWatchdog?.cancel()
+        otcCaptureWatchdog = nil
+        otcCaptureRunID = nil
+        otcActiveService = nil
+        otcActiveStream?.cancel()
+        otcActiveStream = nil
+        otcCaptureActive = false
+        otcConnectionState = .disabled
+        Task { await refreshOTCValidationReport() }
+    }
+
+    private func recordOTCResearchObservation(_ observation: ShadowMarketObservation,
+                                              runID: UUID,
+                                              service: any DeskOTCResearchServing) async {
+        guard otcCaptureRunID == runID else { return }
+        guard observation.identity == service.researchIdentity else {
+            otcResearchIssue = "Provider returned an observation for a different instrument"
+            return
+        }
+        guard observation.isValid, observation.verification != .syntheticTestFixture else {
+            otcResearchIssue = "Provider returned an invalid research observation"
+            return
+        }
+        let now = Date()
+        otcTicksThisCapture += 1
+        if otcFirstTickAt == nil { otcFirstTickAt = now }
+        // Refresh tick and clock telemetry at most once per second, never per tick.
+        if otcLastTickPublishAt.map({ now.timeIntervalSince($0) >= 1 }) ?? true {
+            otcObservedTicks = otcTicksThisCapture
+            if let first = otcFirstTickAt {
+                let elapsed = now.timeIntervalSince(first)
+                otcObservedTickRate = elapsed > 0
+                    ? Double(max(0, otcTicksThisCapture - 1)) / elapsed : nil
+            }
+            // A systematic offset means the documented UTC+2 correction may not match the
+            // provider's current epoch (for example a DST shift). Surface it, never hide it.
+            let clockSkew = now.timeIntervalSince(observation.providerTimestamp.normalized)
+            otcClockSkewSeconds = clockSkew
+            if abs(clockSkew) > 120, otcResearchIssue == nil {
+                otcResearchIssue = "Provider clock offset is \(Int(clockSkew))s from the documented normalization"
+            }
+            otcLastTickPublishAt = now
+        }
+        // Persist at most one sample per second so a dense stream cannot flood the archive or
+        // the main actor. The 60-second bucket report does not need every tick.
+        if let last = otcLastPersistAt, now.timeIntervalSince(last) < 1 { return }
+        let reference: ShadowMarketObservation?
+        if marketMode == .fx, FxSession.isOpen(now), let quote {
+            reference = service.standardReference(from: quote, at: now)
+        } else {
+            reference = nil
+        }
+        do {
+            try await service.record(otc: observation, standard: reference, capturedAt: now)
+            guard otcCaptureRunID == runID else { return }
+            otcCapturedObservations += 1
+            otcLastPersistAt = now
+        } catch {
+            guard otcCaptureRunID == runID else { return }
+            otcResearchIssue = "OTC research sample could not be saved"
+        }
+    }
+
+    public func refreshOTCValidationReport() async {
+        do {
+            otcValidationReport = try await otcArchive.report()
+        } catch {
+            otcResearchIssue = "OTC validation archive unavailable: \(error.localizedDescription)"
+        }
+    }
+
+    public func recordManualOTCObservation(
+        brokerPrice: String,
+        providerPrice: String,
+        payoutPercent: String,
+        screenshotReference: String,
+        candleTimestamp: Date? = nil,
+        agreement: ManualAgreement,
+        confidence: ManualVerificationConfidence
+    ) async {
+        guard let broker = Double(brokerPrice), broker.isFinite, broker > 0 else {
+            otcResearchIssue = "Broker price must be a positive number"
+            return
+        }
+        let provider = providerPrice.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? nil : Double(providerPrice)
+        let payout = payoutPercent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? nil : Double(payoutPercent)
+        let screenshot = screenshotReference.trimmingCharacters(in: .whitespacesAndNewlines)
+        let observation = ManualBrokerChartObservation(
+            identity: otcArchive.researchIdentity,
+            observedAt: Date(), brokerDisplayedPrice: broker, providerPrice: provider,
+            candleTimestamp: candleTimestamp, payoutPercent: payout,
+            screenshotReference: screenshot.isEmpty ? nil : screenshot,
+            agreement: agreement, confidence: confidence)
+        guard observation.isValid else {
+            otcResearchIssue = "Manual observation contains an invalid optional value"
+            return
+        }
+        do {
+            try await otcArchive.recordManual(observation)
+            manualBrokerObservations = try await otcArchive.manualObservations()
+            otcResearchIssue = nil
+        } catch {
+            otcResearchIssue = "Manual OTC observation could not be saved"
+        }
+    }
+
     private let referenceStore: ReferenceOutcomeStore
     private var session: OandaSession?
     private var armID: String?
@@ -411,15 +874,11 @@ public final class LightningDeskModel: ObservableObject {
     private var pendingOutcome: DeskOutcome?
     /// True when the desk is showing a cached scan. A cached scan is history; it never re-arms.
     private var historical = false
-    /// Bumped on every press so a new walk replaces the one in flight.
-    private var scanGeneration = 0
-
-    /// Per-asset cache of completed candles so switching pairs never shows a blank chart.
-    private var candlesByAsset: [String: [Candle]] = [:]
-    /// Timestamp when candles were last fetched per asset.
-    private var candlesFetchedAt: [String: Date] = [:]
-    /// In-flight candle fetch tasks per asset to deduplicate concurrent requests.
-    private var inFlightCandleTasks: [String: Task<[Candle], Never>] = [:]
+    /// Networking, normalization, freshness and caching stay outside the SwiftUI facade.
+    private let marketData: any DeskMarketDataServing
+    private let candleCache: CandleCache
+    /// One bounded worker serializes scan ingress; only its latest pending request is retained.
+    private let scanCoordinator = ScanOperationCoordinator()
     /// Per-asset cache of the last committed scan for that pair.
     private var commitsByAsset: [String: ScanCommit] = [:]
     /// Per-asset cache of the cabinet side for that pair.
@@ -436,12 +895,15 @@ public final class LightningDeskModel: ObservableObject {
             return
         }
         guard next != pair else { return }
+        invalidateScanRequests()
         pair = next
 
         // Restore cached bars immediately so chart is never blank
-        if let cached = candlesByAsset[next], !cached.isEmpty {
+        let cacheKey = CandleCache.Key(market: marketMode, asset: next)
+        let cached = candleCache.cached(cacheKey)
+        if !cached.isEmpty {
             candles = cached
-            if let fetchedAt = candlesFetchedAt[next], Date().timeIntervalSince(fetchedAt) >= 45 {
+            if !candleCache.isFresh(cacheKey) {
                 Task { await loadCandles(for: next, force: true) }
             }
         } else {
@@ -477,15 +939,37 @@ public final class LightningDeskModel: ObservableObject {
         activeTab = .desk
     }
 
+    /// Notification taps are navigation hints only. The current desk must revalidate
+    /// quote freshness and setup state before any plan can be considered actionable.
+    public func handleORBDeepLink(_ link: String) {
+        guard let components = URLComponents(string: link), components.scheme == "blazer",
+              components.host == "trade",
+              components.queryItems?.first(where: { $0.name == "strategy" })?.value == "ORB_BREAK_RETEST_V1",
+              let instrument = components.queryItems?.first(where: { $0.name == "instrument" })?.value,
+              pairs.contains(instrument) else { return }
+        selectAndNavigate(pair: instrument)
+        notice = "ORB alert opened. Revalidate current OANDA evidence before recording any practice entry."
+    }
+
     /// Populates the desk with sample market candles from the golden fixture for offline testing.
     public func loadDemoDesk() {
         guard activeTrade == nil, !awaitingOutcome, !settlementInFlight else { return }
+        invalidateScanRequests()
+        selectedSignal = nil
+        armedAt = nil
+        armID = nil
+        pendingTrade = nil
+        pendingExpiry = nil
+        pendingOutcome = nil
+        expired = false
+        historical = true
         isDemoDesk = true
         let fixture = GoldenFixture.market()
         let bars = GoldenFixture.frozenBars(from: fixture)
         candles = bars
-        candlesByAsset[pair] = bars
-        candlesFetchedAt[pair] = Date()
+        // Demo bars are display fixtures, never a fresh transport observation.
+        candleCache.store(bars, for: CandleCache.Key(market: marketMode, asset: pair),
+                          fetchedAt: .distantPast)
         let signal = EngineSignal(
             asset: pair,
             cabinetSide: "WAIT",
@@ -504,7 +988,13 @@ public final class LightningDeskModel: ObservableObject {
     }
 
     public func side(for asset: String) -> String? {
-        book.first(where: { $0.asset == asset })?.side ?? cabinetSideByAsset[asset]
+        guard let bookSide = book.first(where: { $0.asset == asset })?.side,
+              bookSide != "—",
+              !bookSide.isEmpty
+        else {
+            return cabinetSideByAsset[asset]
+        }
+        return bookSide
     }
 
     /// True while a settlement write is in progress. Used to freeze navigation.
@@ -515,44 +1005,44 @@ public final class LightningDeskModel: ObservableObject {
     }
 
     public func candles(for asset: String) -> [Candle] {
-        candlesByAsset[asset] ?? []
+        candleCache.cached(CandleCache.Key(market: marketMode, asset: asset))
     }
 
     public func strike(for asset: String) -> Double? {
         commitsByAsset[asset]?.strike
     }
 
-    /// Fetches recent completed M1 candles from OANDA with in-flight deduplication and TTL caching.
+    /// Restores only the latest persisted adaptive research decision. This is
+    /// display state and never feeds the executable desk frame or entry gate.
+    public func restoreAdaptiveResearchProjection(now: Date = Date()) async {
+        let store = ResearchStore(root: ResearchStore.defaultRoot())
+        guard let records = try? await store.adaptiveRehearsals(),
+              let latest = records.max(by: { $0.receivedAt < $1.receivedAt }) else {
+            adaptiveResearchProjection = nil
+            return
+        }
+        adaptiveResearchProjection = AdaptiveResearchProjection(record: latest, now: now)
+    }
+
+    /// Loads normalized completed candles through the service cache. Broker networking and cache
+    /// policy are intentionally absent from the SwiftUI facade.
     public func loadCandles(for asset: String, force: Bool = false) async {
-        if !force, let cached = candlesByAsset[asset], !cached.isEmpty,
-           let fetchedAt = candlesFetchedAt[asset], Date().timeIntervalSince(fetchedAt) < 45 {
-            if pair == asset {
-                candles = cached
-            }
-            return
+        let market = marketMode
+        let key = CandleCache.Key(market: market, asset: asset)
+        let bars = await candleCache.load(key, force: force) { @MainActor [weak self] in
+            guard let self else { return [] }
+            let session = market == .fx
+                ? await self.loadSession(allowPrompt: false)
+                : nil
+            return await self.marketData.candles(
+                market: market,
+                asset: asset,
+                session: session,
+                count: 80
+            )
         }
-
-        if let existing = inFlightCandleTasks[asset] {
-            let bars = await existing.value
-            if !bars.isEmpty && pair == asset {
-                candles = bars
-            }
-            return
-        }
-
-        let task = Task<[Candle], Never> { @MainActor [weak self] in
-            guard let self, let session = await self.loadSession(allowPrompt: false) else { return [] }
-            return await OandaClient.fetchCandles(asset: asset, session: session, granularity: "M1", count: 80)
-        }
-        inFlightCandleTasks[asset] = task
-
-        let bars = await task.value
-        inFlightCandleTasks.removeValue(forKey: asset)
-
         guard !bars.isEmpty else { return }
-        candlesByAsset[asset] = bars
-        candlesFetchedAt[asset] = Date()
-        if pair == asset {
+        if marketMode == market, pair == asset {
             candles = bars
         }
     }
@@ -591,6 +1081,8 @@ public final class LightningDeskModel: ObservableObject {
             diagLog("ENGINE_BOOT_OK \(StrategyEngine.engineHealth.sha?.prefix(12) ?? "?")")
         }
         await reloadFromDisk()
+        await restoreAdaptiveResearchProjection()
+        await refreshOTCValidationReport()
         Task { await assistant.refreshAvailability() }
         // Finish any settlement that was interrupted by a crash or a failed write.
         if pendingSaveCount > 0 {
@@ -614,12 +1106,15 @@ public final class LightningDeskModel: ObservableObject {
                 Task { await self.loadCandles(for: self.pair) }
             }
         }
+        if marketMode == .crypto {
+            await remeasureExchangeClock()
+        }
         #if DEBUG
         if ProcessInfo.processInfo.environment["BLAZER_START_TAB"] == "coach" {
-            activeTab = .coach
+            activeTab = .review
         }
         if ProcessInfo.processInfo.environment["BLAZER_ASSISTANT_DEMO"] == "1" {
-            activeTab = .coach
+            activeTab = .review
             await assistant.explainLatestScan()
             await assistant.ask("Why did this scan return WAIT?")
             await assistant.requestDebrief()
@@ -636,20 +1131,61 @@ public final class LightningDeskModel: ObservableObject {
     public func scan() async {
         entryIssue = nil
         isDemoDesk = false
-        switch marketMode {
-        case .fx: await scanFx()
-        case .crypto: await scanCrypto()
-        }
+        let market = marketMode
+        let cryptoAsset = CTAssets.watchlist.contains(pair) ? pair : (CTAssets.watchlist.first ?? "BTC/USDT")
+        await enqueueScan(
+            market: market,
+            asset: market == .crypto ? cryptoAsset : nil,
+            assets: market == .crypto ? [cryptoAsset] : pairs
+        )
     }
 
     /// Crypto scan via the shared BlazerCrypto engine. No OANDA credential, no FX session gate.
     public func scanCrypto(asset: String = "BTC/USDT") async {
+        await enqueueScan(market: .crypto, asset: asset, assets: [asset])
+    }
+
+    private func enqueueScan(market: DeskMarket, asset: String?, assets: [String]) async {
         guard activeTrade == nil, !awaitingOutcome, !settlementInFlight else {
             notice = "Resolve the current outcome before scanning"
             return
         }
-        scanGeneration += 1
-        let generation = scanGeneration
+        guard !entryInFlight else {
+            notice = "Entry is being saved; scan again after it completes"
+            return
+        }
+        await scanCoordinator.submit(market: market, asset: asset, assets: assets) { [weak self] request in
+            guard let self else { return }
+            switch request.market {
+            case .fx: await self.performFXScan(request)
+            case .crypto: await self.performCryptoScan(request)
+            }
+        }
+    }
+
+    private func isCurrentScan(_ request: ScanRequestScheduler.Request) -> Bool {
+        scanCoordinator.isCurrent(request) && marketMode == request.market
+    }
+
+    private func invalidateScanRequests() {
+        scanCoordinator.invalidate()
+        scanning = false
+        scanStep = nil
+    }
+
+    private func performCryptoScan(_ request: ScanRequestScheduler.Request) async {
+        guard isCurrentScan(request) else { return }
+        defer {
+            if isCurrentScan(request) {
+                scanning = false
+                scanStep = nil
+            }
+        }
+        guard request.market == .crypto, let asset = request.asset else { return }
+        guard activeTrade == nil, !awaitingOutcome, !settlementInFlight, !entryInFlight else {
+            notice = "Resolve the current outcome before scanning"
+            return
+        }
         scanning = true
         commit = nil
         cabinetSide = "WAIT"
@@ -667,16 +1203,11 @@ public final class LightningDeskModel: ObservableObject {
         book = CTAssets.watchlist.map { BookRow(asset: $0, side: "—") }
         publishFrame()
         scanStep = asset
-        defer {
-            if generation == scanGeneration {
-                scanning = false
-                scanStep = nil
-            }
-        }
 
-        let batch = try? await BinanceClient.fetchCryptoBundle(asset: asset)
-        guard generation == scanGeneration else { return }
-        guard let batch, !batch.candles.isEmpty else {
+        let started = Date()
+        let snapshot = try? await marketData.scan(market: .crypto, asset: asset, session: nil)
+        guard isCurrentScan(request) else { return }
+        guard let snapshot, !snapshot.candles.isEmpty else {
             diagLog("CRYPTO_SCAN failed: feed unavailable")
             feed = .disconnected
             notice = "Crypto feed unavailable"
@@ -684,24 +1215,23 @@ public final class LightningDeskModel: ObservableObject {
             return
         }
 
-        let cryptoSignal = CryptoDeskSignal.make(asset: asset, batch: batch)
-        diagLog("CRYPTO_SCAN \(asset) side=\(cryptoSignal.cabinetSide) conv=\(cryptoSignal.confidence ?? 0) candles=\(batch.candles.count) mid=\(batch.mid) source=\(batch.source)")
-        let bars = batch.candles.map { c in
-            Candle(time: c.time, open: c.open, high: c.high, low: c.low, close: c.close)
-        }
-        let started = Date()
+        let cryptoSignal = snapshot.signal
+        let bars = snapshot.candles
+        let mid = (snapshot.bid.flatMap { bid in snapshot.ask.map { (bid + $0) / 2 } }) ?? cryptoSignal.price
+        diagLog("CRYPTO_SCAN \(asset) side=\(cryptoSignal.cabinetSide) conv=\(cryptoSignal.confidence ?? 0) candles=\(bars.count) mid=\(mid) source=\(snapshot.source)")
         var next = ScanKernel.commit(
             from: cryptoSignal,
             bars: bars,
-            bid: batch.bid,
-            ask: batch.ask,
-            spread: batch.spread,
-            expirySeconds: 60,
-            engineSHA: CryptoDeskSignal.engineIdentity,
-            policy: CryptoDeskSignal.policy,
+            m5Bars: snapshot.m5Candles,
+            bid: snapshot.bid,
+            ask: snapshot.ask,
+            spread: snapshot.spread,
+            expirySeconds: snapshot.expirySeconds,
+            engineSHA: snapshot.engineSHA,
+            policy: snapshot.policy,
             scannedAt: started
         )
-        next.veto = CryptoDeskSignal.veto(asset: asset, batch: batch, signal: cryptoSignal)
+        next.veto = snapshot.veto
         if let veto = next.veto {
             diagLog("CRYPTO_VETO \(asset): \(veto)")
         }
@@ -710,12 +1240,11 @@ public final class LightningDeskModel: ObservableObject {
         cabinetSide = cryptoSignal.cabinetSide
         selectedSignal = cryptoSignal
         candles = bars
-        candlesByAsset[asset] = bars
-        candlesFetchedAt[asset] = Date()
+        candleCache.store(bars, for: CandleCache.Key(market: .crypto, asset: asset))
         commitsByAsset[asset] = next
         cabinetSideByAsset[asset] = cryptoSignal.cabinetSide
         book = [BookRow(asset: asset, side: cryptoSignal.cabinetSide)]
-        if batch.source == "kraken-synthetic-spread" {
+        if snapshot.source == "kraken-synthetic-spread" {
             feed = .stale
         } else {
             feed = .live
@@ -730,7 +1259,9 @@ public final class LightningDeskModel: ObservableObject {
         publishFrame()
         liftHero()
         if let frame {
-            if !(await remember(next, verb: frame.verb)) {
+            let saved = await remember(next, verb: frame.verb, request: request)
+            guard isCurrentScan(request) else { return }
+            if !saved {
                 commit?.veto = "Scan was not saved"
                 armedAt = nil
                 armID = nil
@@ -740,13 +1271,40 @@ public final class LightningDeskModel: ObservableObject {
         }
     }
 
-    private func scanFx() async {
-        guard activeTrade == nil, !awaitingOutcome, !settlementInFlight else {
+    private func evaluateORB(asset: String, bars: [Candle], asOf: Date) -> ORBDecision {
+        let orbBars = bars.compactMap { candle -> ORBBar? in
+            guard let milliseconds = candle.time,
+                  let open = candle.open, let high = candle.high, let low = candle.low else { return nil }
+            let start = Date(timeIntervalSince1970: milliseconds / 1_000)
+            return ORBBar(id: "\(asset)-\(milliseconds)", instrument: asset,
+                          sourceTime: start, endTime: start.addingTimeInterval(60),
+                          open: open, high: high, low: low, close: candle.close)
+        }
+        guard !orbBars.isEmpty else {
+            return ORBDecision(stage: .noData, setupState: .noData, sessionStart: nil,
+                               reason: "no_completed_oanda_m1_bars")
+        }
+        return ORBBreakRetestV1.evaluate(instrument: asset, bars: orbBars, asOf: asOf)
+    }
+
+    private func performFXScan(_ request: ScanRequestScheduler.Request) async {
+        guard isCurrentScan(request) else { return }
+        defer {
+            if isCurrentScan(request) {
+                scanning = false
+                scanStep = nil
+            }
+        }
+        guard request.market == .fx else { return }
+        guard activeTrade == nil, !awaitingOutcome, !settlementInFlight, !entryInFlight else {
             notice = "Resolve the current outcome before scanning"
             return
         }
-        scanGeneration += 1
-        let generation = scanGeneration
+        let scanAssets = request.assets
+        guard !scanAssets.isEmpty else {
+            notice = "No markets are available to scan"
+            return
+        }
         let clock = Date()
         if !FxSession.isOpen(clock) {
             feed = .disconnected
@@ -767,56 +1325,68 @@ public final class LightningDeskModel: ObservableObject {
         armID = nil
         candles = []
         notice = nil
-        book = pairs.map { BookRow(asset: $0, side: "—") }
+        book = scanAssets.map { BookRow(asset: $0, side: "—") }
         publishFrame()
-        scanStep = "\(pairs[0]) 1/\(pairs.count)"
-        defer {
-            if generation == scanGeneration {
-                scanning = false
-                scanStep = nil
-            }
-        }
-        guard let session = await loadSession(allowPrompt: true) else {
+        scanStep = "\(scanAssets[0]) 1/\(scanAssets.count)"
+        guard let session = await loadSession(allowPrompt: true, consumePendingScan: false) else {
+            guard isCurrentScan(request) else { return }
             feed = .error
             notice = "OANDA token missing"
             return
         }
-        guard generation == scanGeneration else { return }
+        guard isCurrentScan(request) else { return }
         var bag: [EngineSignal] = []
         var barsByAsset: [String: [Candle]] = [:]
         var rows = book
-        for (index, asset) in pairs.enumerated() {
-            guard generation == scanGeneration else { return }
-            scanStep = "\(asset) \(index + 1)/\(pairs.count)"
+        for (index, asset) in scanAssets.enumerated() {
+            guard isCurrentScan(request) else { return }
+            scanStep = "\(asset) \(index + 1)/\(scanAssets.count)"
             let started = Date()
             do {
-                let envelope = try await ScanKernel.fetch(asset: asset, session: session)
-                if let signal = envelope.signal {
-                    bag.append(signal)
-                    let bars = envelope.snapshotBars ?? envelope.candles ?? []
-                    barsByAsset[asset] = bars
-                    candlesByAsset[asset] = bars
-                    candlesFetchedAt[asset] = Date()
-                    cabinetSideByAsset[asset] = signal.cabinetSide
-                    let assetCommit = ScanKernel.commit(
-                        from: signal,
-                        bars: bars,
-                        m5Bars: envelope.snapshotM5Bars ?? [],
-                        bid: envelope.bid,
-                        ask: envelope.ask,
-                        spread: envelope.spread,
-                        expirySeconds: envelope.expirySeconds ?? Timing.expirySec,
-                        engineSHA: envelope.engineSHA ?? EngineIdentity.loadedSHA1() ?? "unverified",
-                        scannedAt: Self.evaluationDate(signal.asOfMs, fallback: started)
-                    )
-                    commitsByAsset[asset] = assetCommit
-                    rows[index] = BookRow(asset: asset, side: signal.cabinetSide)
-                    if signal.cabinetSide == "WAIT" {
-                        trapsAvoidedCount += 1
-                    }
+                let snapshot = try await marketData.scan(market: .fx, asset: asset, session: session)
+                guard isCurrentScan(request) else { return }
+                let signal = snapshot.signal
+                bag.append(signal)
+                let bars = snapshot.candles
+                barsByAsset[asset] = bars
+                await evaluateAdaptiveSnapshot(snapshot, asset: asset, signal: signal, request: request)
+                let orb = evaluateORB(asset: asset, bars: bars,
+                                      asOf: Self.evaluationDate(signal.asOfMs, fallback: Date()))
+                orbDecisions[asset] = orb
+                if let plan = orb.candidate?.plan {
+                    orbPlans[asset] = plan
                 }
+                candleCache.store(bars, for: CandleCache.Key(market: .fx, asset: asset))
+                cabinetSideByAsset[asset] = signal.cabinetSide
+                var assetCommit = ScanKernel.commit(
+                    from: signal,
+                    bars: bars,
+                    m5Bars: snapshot.m5Candles,
+                    bid: snapshot.bid,
+                    ask: snapshot.ask,
+                    spread: snapshot.spread,
+                    expirySeconds: snapshot.expirySeconds,
+                    engineSHA: snapshot.engineSHA,
+                    policy: snapshot.policy,
+                    scannedAt: Self.evaluationDate(signal.asOfMs, fallback: started)
+                )
+                assetCommit.veto = snapshot.veto
+                commitsByAsset[asset] = assetCommit
+                rows[index] = BookRow(asset: asset, side: signal.cabinetSide)
+                if signal.cabinetSide == "WAIT" {
+                    trapsAvoidedCount += 1
+                }
+            } catch let failure as DeskMarketDataError {
+                guard isCurrentScan(request) else { return }
+                if case .missingSession = failure {
+                    notice = failure.localizedDescription
+                    book = rows
+                    return
+                }
+                // `.unavailable` is a per-asset miss; the walk continues with the remaining pairs.
             } catch {
                 let message = error.localizedDescription
+                guard isCurrentScan(request) else { return }
                 if message == "OANDA token missing" || message == "SCAN ENGINE OFFLINE" {
                     notice = message
                     book = rows
@@ -827,15 +1397,16 @@ public final class LightningDeskModel: ObservableObject {
             let hold = 1.1 - Date().timeIntervalSince(started)
             if hold > 0 {
                 try? await Task.sleep(nanoseconds: UInt64(hold * 1_000_000_000))
+                guard isCurrentScan(request) else { return }
             }
         }
-        guard generation == scanGeneration else { return }
+        guard isCurrentScan(request) else { return }
         guard !bag.isEmpty else {
             notice = "Scan missed the book"
             return
         }
         let picked = await pickedSignal(from: bag)
-        guard generation == scanGeneration else { return }
+        guard isCurrentScan(request) else { return }
         let bars = barsByAsset[picked.asset] ?? []
         var next: ScanCommit
         if picked.why == DeskPickPolicy.unavailableWhy {
@@ -859,8 +1430,9 @@ public final class LightningDeskModel: ObservableObject {
             next.veto = "Engine pin"
         }
         if (side == "HIGH" || side == "LOW"), next.veto == nil {
-            let batch = await OandaClient.fetchQuoteBatch(assets: [picked.asset], session: session)
-            let fresh = batch.transport == .ok ? batch.quotes.first(where: { $0.asset == picked.asset }) : nil
+            let batch = await marketData.quotes(market: .fx, assets: [picked.asset], session: session)
+            guard isCurrentScan(request) else { return }
+            let fresh = batch.status == .ok ? batch.quotes.first(where: { $0.asset == picked.asset }) : nil
             next.veto = EntryQuality.veto(signal: picked, quote: fresh)
             if let fresh {
                 quote = fresh
@@ -873,8 +1445,7 @@ public final class LightningDeskModel: ObservableObject {
         commit = next
         cabinetSide = side
         candles = bars
-        candlesByAsset[picked.asset] = bars
-        candlesFetchedAt[picked.asset] = Date()
+        candleCache.store(bars, for: CandleCache.Key(market: .fx, asset: picked.asset))
         commitsByAsset[picked.asset] = next
         cabinetSideByAsset[picked.asset] = side
         expired = false
@@ -887,13 +1458,63 @@ public final class LightningDeskModel: ObservableObject {
         publishFrame()
         liftHero()
         if let frame {
-            if !(await remember(next, verb: frame.verb)) {
+            let saved = await remember(next, verb: frame.verb, request: request)
+            guard isCurrentScan(request) else { return }
+            if !saved {
                 commit?.veto = "Scan was not saved"
                 armedAt = nil
                 armID = nil
                 notice = "Scan was not saved; scan again"
                 publishFrame()
             }
+        }
+    }
+
+    /// Feeds the exact FX observation already returned by the desk scan into
+    /// adaptive research. This is presentation/evidence work only: it does not
+    /// replace `ScanKernel`, mutate entry gates, or authorize manual execution.
+    private func evaluateAdaptiveSnapshot(_ snapshot: MarketScanSnapshot,
+                                          asset: String,
+                                          signal: EngineSignal,
+                                          request: ScanRequestScheduler.Request) async {
+        guard let bid = snapshot.bid, let ask = snapshot.ask,
+              let spread = snapshot.spread,
+              bid.isFinite, ask.isFinite, spread.isFinite,
+              !snapshot.candles.isEmpty else { return }
+        let payloads = snapshot.candles.compactMap { candle -> StrategyEngine.CandlePayload? in
+            guard let time = candle.time, let open = candle.open,
+                  let high = candle.high, let low = candle.low else { return nil }
+            return StrategyEngine.CandlePayload(time: time,
+                open: open, high: high, low: low, close: candle.close)
+        }
+        guard payloads.count >= 20 else { return }
+        let m5Payloads = snapshot.m5Candles.compactMap { candle -> StrategyEngine.CandlePayload? in
+            guard let time = candle.time, let open = candle.open,
+                  let high = candle.high, let low = candle.low else { return nil }
+            return StrategyEngine.CandlePayload(time: time,
+                open: open, high: high, low: low, close: candle.close)
+        }
+        let receivedAt = Date()
+        let input = StrategyEngine.MarketInput(asset: asset, source: snapshot.source,
+            candles1m: payloads, candles5m: m5Payloads,
+            lastPrice: (bid + ask) / 2, bid: bid, ask: ask, spread: spread,
+            expirySeconds: snapshot.expirySeconds, quoteAsOfMs: signal.asOfMs,
+            evaluatedAtMs: receivedAt.timeIntervalSince1970 * 1_000,
+            policy: ScanPolicy(rawValue: snapshot.policy))
+        let store = ResearchStore(root: ResearchStore.defaultRoot())
+        guard let result = try? await AdaptiveMarketRehearsal.evaluateSnapshot(
+            input, observedAt: Self.evaluationDate(signal.asOfMs, fallback: receivedAt),
+            receivedAt: receivedAt, store: store) else { return }
+        guard isCurrentScan(request) else { return }
+        adaptiveResearchProjection = AdaptiveResearchProjection(record: result.record, now: receivedAt)
+        if let candidate = result.record.decision.selectedCandidateID.flatMap({ id in
+            result.record.candidates.first { $0.id == id }
+        }), let notification = AdaptiveNotificationPlanner.plan(
+            state: result.record.decisionState, selectedCandidate: candidate,
+            instrument: result.record.instrument, sourceTime: result.record.observedAt,
+            now: receivedAt) {
+            _ = await MarketNotificationService.shared.scheduleAdaptiveNotification(notification,
+                                                                                       now: receivedAt)
         }
     }
 
@@ -906,7 +1527,10 @@ public final class LightningDeskModel: ObservableObject {
     ) async {
         guard !settlementInFlight,
               let settleCommit = commit,
-              let settleArmID = armID
+              let settleArmID = armID,
+              activeTrade == nil,
+              let expiry = pendingExpiry,
+              Date() >= expiry.targetExpiry
         else { return }
         settlementInFlight = true
         defer { settlementInFlight = false }
@@ -917,13 +1541,12 @@ public final class LightningDeskModel: ObservableObject {
         // Capture a fully self-contained settlement record before any await. Nothing below
         // reads mutable desk state that a later task could change.
         let trade = pendingTrade
-        let expiry = pendingExpiry
         let windowName = MarketEdgeWindow.current(at: trade?.enteredAt ?? settleCommit.scannedAt).badgeTitle
-        let resolvedEntryQuote = entryQuote ?? trade?.brokerEntryPrice ?? trade?.strike ?? settleCommit.strike
-        let resolvedExpiryPrice = expiryPrice ?? expiry?.exitPrice
+        let resolvedEntryQuote = entryQuote ?? trade?.brokerEntryPrice
+        let resolvedExpiryPrice = expiryPrice ?? expiry.exitPrice
         let horizonSeconds = trade.map { Int($0.durationSec) }
         let enteredAt = trade?.enteredAt
-        let expiryObservedMs = expiry?.quoteTimeMs
+        let expiryObservedMs = expiry.quoteTimeMs
         let evaluationAgeMs = trade?.evaluationAgeMs
         let recordingDelayMs = trade?.recordingDelayMs
         let remainingBeamMs = trade?.remainingBeamMs
@@ -1058,11 +1681,11 @@ public final class LightningDeskModel: ObservableObject {
     /// Retries a settlement that failed to save. Never invents or changes the outcome.
     public func retryPendingSettlement() async {
         guard !settlementInFlight else { return }
-        if let pendingOutcome, let commit {
+        if let pendingOutcome {
             await settle(
                 pendingOutcome,
                 expiryPrice: pendingExpiry?.exitPrice,
-                entryQuote: pendingTrade?.strike ?? commit.strike,
+                entryQuote: pendingTrade?.brokerEntryPrice,
                 labelSource: pendingLabelSource
             )
             return
@@ -1184,7 +1807,7 @@ public final class LightningDeskModel: ObservableObject {
     private var credentialLookup: CredentialGate?
 
     /// One keychain pass. A prompt happens only when Scan asks for it, on the main actor.
-    private func loadSession(allowPrompt: Bool) async -> OandaSession? {
+    private func loadSession(allowPrompt: Bool, consumePendingScan: Bool = true) async -> OandaSession? {
         if let session { return session }
         if credentialLookup == nil {
             credentialLookup = await Task.detached(priority: .userInitiated) {
@@ -1195,7 +1818,7 @@ public final class LightningDeskModel: ObservableObject {
         case .ready(let ready):
             session = ready
             keychainState = .ready
-            await consumePendingScanIfReady()
+            if consumePendingScan { await consumePendingScanIfReady() }
             return ready
         case .locked where allowPrompt:
             let prompted = DeskCredentials.session(allowPrompt: true)
@@ -1203,7 +1826,7 @@ public final class LightningDeskModel: ObservableObject {
             if case .ready(let ready) = prompted {
                 session = ready
                 keychainState = .ready
-                await consumePendingScanIfReady()
+                if consumePendingScan { await consumePendingScanIfReady() }
                 return ready
             }
             noteKeychain(prompted)
@@ -1252,7 +1875,9 @@ public final class LightningDeskModel: ObservableObject {
     @discardableResult
     private func consumePendingScanIfReady() async -> Bool {
         #if os(iOS)
-        guard !scanning, activeTrade == nil, !awaitingOutcome, !settlementInFlight else { return false }
+        guard backgroundedAt == nil, !scanning, activeTrade == nil,
+              !awaitingOutcome, !settlementInFlight,
+              scanCoordinator.isIdle else { return false }
         guard takePendingScanRequest() else { return false }
         await scan()
         return true
@@ -1341,18 +1966,27 @@ public final class LightningDeskModel: ObservableObject {
         }
         let fresh: LiveQuote?
         if CTAssets.watchlist.contains(trade.pair) {
-            fresh = await BinanceClient.fetchQuote(asset: trade.pair)
+            let batch = await marketData.quotes(market: .crypto, assets: [trade.pair], session: nil)
+            fresh = batch.status == .ok
+                ? batch.quotes.first(where: { $0.asset == trade.pair })
+                : nil
         } else if let session = await loadSession(allowPrompt: false) {
-            let batch = await OandaClient.fetchQuoteBatch(assets: [trade.pair], session: session)
-            fresh = batch.transport == .ok
+            let batch = await marketData.quotes(market: .fx, assets: [trade.pair], session: session)
+            fresh = batch.status == .ok
                 ? batch.quotes.first(where: { $0.asset == trade.pair })
                 : nil
         } else {
             fresh = nil
         }
-        guard let fresh, fresh.asset == trade.pair, fresh.bid.isFinite, fresh.ask.isFinite else {
+        guard let fresh, fresh.asset == trade.pair,
+              fresh.bid.isFinite, fresh.ask.isFinite, fresh.mid.isFinite,
+              fresh.bid > 0, fresh.ask > fresh.bid else {
             return
         }
+        guard let current = activeTrade,
+              current.id == trade.id, current.pair == trade.pair else { return }
+        if let existing = activeTradeQuote, existing.asset == fresh.asset,
+           existing.asOfMs > fresh.asOfMs { return }
         activeTradeQuote = fresh
         activeTrade?.currentPrice = fresh.mid
     }
@@ -1360,7 +1994,9 @@ public final class LightningDeskModel: ObservableObject {
     private func refreshCryptoQuote() async {
         guard marketMode == .crypto, CTAssets.watchlist.contains(pair) else { return }
         let clock = Date()
-        guard let fresh = await BinanceClient.fetchQuote(asset: pair) else {
+        let batch = await marketData.quotes(market: .crypto, assets: [pair], session: nil)
+        guard batch.status == .ok,
+              let fresh = batch.quotes.first(where: { $0.asset == pair }) else {
             // A failed poll must never leave a stale LIVE badge on screen.
             let state = CryptoFeedHealth.state(
                 connected: false,
@@ -1408,7 +2044,11 @@ public final class LightningDeskModel: ObservableObject {
     /// The recovery copy is written before the desk treats the entry as tracked.
     /// Records a manual entry. `late` skips the actionable-beam check for data capture after
     /// the eight-second action window; the delay is still recorded so research can flag it.
-    public func lockInTrade(duration: Double? = nil, late: Bool = false) async {
+    public func lockInTrade(
+        duration: Double? = nil,
+        late: Bool = false,
+        actualEntryTime: Date? = nil
+    ) async {
         guard !entryInFlight else { return }
 
         if late {
@@ -1435,11 +2075,15 @@ public final class LightningDeskModel: ObservableObject {
             if let failure = DeskEntryGate.veto(context) {
                 entryIssue = Self.message(for: failure)
                 DeskHaptics.veto()
+                if let commit, let armID {
+                    await saveExecutionObservation(ExecutionObservation(armID: armID, commit: commit,
+                        quote: quote, kind: "rejected", reason: Self.message(for: failure), regime: selectedSignal?.features?.regime))
+                }
                 return
             }
         }
 
-        guard let commit, let selectedSignal else {
+        guard let commit, let selectedSignal, selectedSignal.asset == commit.asset else {
             entryIssue = "Nothing to log. Scan again before recording."
             DeskHaptics.veto()
             return
@@ -1447,8 +2091,9 @@ public final class LightningDeskModel: ObservableObject {
         let liveQuote = quote.flatMap { $0.asset == commit.asset ? $0 : nil }
         let liveStrike: Double
         if late {
-            // A dead feed must not block data capture; fall back to the frozen strike.
-            liveStrike = liveQuote?.mid ?? commit.strike
+            // A current quote is not the historical broker fill. Keep the frozen reference
+            // separate; brokerEntryPrice remains nil unless the user supplies it.
+            liveStrike = commit.strike
         } else {
             guard let liveQuote else {
                 entryIssue = Self.message(for: .staleFeed)
@@ -1464,7 +2109,7 @@ public final class LightningDeskModel: ObservableObject {
             return
         }
         let durationSec = duration ?? selectedHorizonSec
-        guard [60.0, 180.0, 300.0].contains(durationSec) else {
+        guard [60.0, 180.0, 300.0, 600.0].contains(durationSec) else {
             entryIssue = "Unsupported expiry"
             DeskHaptics.veto()
             return
@@ -1473,9 +2118,23 @@ public final class LightningDeskModel: ObservableObject {
         entryInFlight = true
         defer { entryInFlight = false }
 
-        let tradeID = armID ?? "\(commit.fingerprint)-\(Int(Date().timeIntervalSince1970 * 1000))"
+        let recordedAt = Date()
+        let enteredAt: Date
+        if late {
+            guard let actualEntryTime,
+                  actualEntryTime.timeIntervalSince1970.isFinite,
+                  actualEntryTime >= commit.scannedAt,
+                  actualEntryTime <= recordedAt else {
+                entryIssue = "Actual broker entry time is required for late logging"
+                DeskHaptics.veto()
+                return
+            }
+            enteredAt = actualEntryTime
+        } else {
+            enteredAt = recordedAt
+        }
+        let tradeID = armID ?? "\(commit.fingerprint)-\(Int(recordedAt.timeIntervalSince1970 * 1000))"
         let armedReference = armedAt ?? commit.scannedAt
-        let enteredAt = Date()
         let recordingDelayMs = max(0, enteredAt.timeIntervalSince(armedReference) * 1000)
         let evaluationAgeMs = max(0, enteredAt.timeIntervalSince(commit.scannedAt) * 1000)
         let remainingBeamMs = late ? 0 : max(0, Timing.liveMs - recordingDelayMs)
@@ -1501,6 +2160,9 @@ public final class LightningDeskModel: ObservableObject {
             DeskHaptics.veto()
             return
         }
+        let entryObservation = ExecutionObservation(armID: tradeID, commit: commit,
+            quote: liveQuote, kind: "manual-entry", regime: selectedSignal.features?.regime,
+            now: recordedAt)
         activeTrade = trade
         activeTradeQuote = liveQuote
         pendingTrade = trade
@@ -1509,6 +2171,7 @@ public final class LightningDeskModel: ObservableObject {
         entryIssue = nil
         DeskHaptics.tradeLocked()
         publishFrame()
+        await saveExecutionObservation(entryObservation)
     }
 
     /// True when a signal still exists but the eight-second action window has closed, so the
@@ -1526,6 +2189,23 @@ public final class LightningDeskModel: ObservableObject {
         )
     }
 
+    /// Records that a broker trade was reported but its actual execution time is unknown.
+    /// This is a research gap, not an active trade, so no expiry or outcome is fabricated.
+    public func recordUnknownLateEntryTime() async {
+        guard canLogLateEntry, let commit, let signal = selectedSignal,
+              signal.asset == commit.asset else {
+            entryIssue = "This signal is no longer available for late evidence"
+            return
+        }
+        let id = armID ?? "\(commit.fingerprint)-unknown-entry-time"
+        await saveExecutionObservation(ExecutionObservation(
+            armID: id, commit: commit, quote: nil,
+            kind: "late-entry-unknown-time",
+            reason: "Broker trade reported without actual execution timestamp",
+            regime: signal.features?.regime))
+        entryIssue = "Recorded as incomplete evidence; no expiry was inferred"
+    }
+
     /// Pure decision so the window and safety conditions are testable without a live desk.
     nonisolated public static func canLogLateEntry(
         commit: ScanCommit?,
@@ -1540,8 +2220,12 @@ public final class LightningDeskModel: ObservableObject {
         guard activeTrade == nil, !awaitingOutcome, !settlementInFlight, !scanning, !historical else {
             return false
         }
-        guard let commit, commit.veto == nil, let signal else { return false }
+        guard let commit, commit.veto == nil, let signal,
+              signal.asset == commit.asset else { return false }
         guard signal.cabinetSide == "HIGH" || signal.cabinetSide == "LOW" else { return false }
+        let call = commit.engineCall.uppercased()
+        if signal.cabinetSide == "HIGH", !call.contains("HIGH"), !call.contains("CALL") { return false }
+        if signal.cabinetSide == "LOW", !call.contains("LOW"), !call.contains("PUT") { return false }
         // Bound the window: an old scan is not a trade the operator just placed.
         return now.timeIntervalSince(commit.scannedAt) <= 10 * 60
     }
@@ -1690,8 +2374,8 @@ public final class LightningDeskModel: ObservableObject {
             publishFrame()
             return
         }
-        let batch = await OandaClient.fetchQuoteBatch(assets: [pair], session: session)
-        if batch.transport == .ok, let fresh = batch.quotes.first(where: { $0.asset == pair }) {
+        let batch = await marketData.quotes(market: .fx, assets: [pair], session: session)
+        if batch.status == .ok, let fresh = batch.quotes.first(where: { $0.asset == pair }) {
             quote = fresh
             if QuoteFreshness.isFresh(fresh, now: clock) {
                 lastFreshPollAt = clock
@@ -1715,12 +2399,12 @@ public final class LightningDeskModel: ObservableObject {
         feed = FeedStatusResolver.resolve(
             marketOpen: true,
             sessionReady: true,
-            transport: batch.transport,
+            transport: batch.status.oandaTransport,
             quote: quote,
             lastFreshPollAt: lastFreshPollAt,
             now: clock
         )
-        if candles.isEmpty && batch.transport == .ok {
+        if candles.isEmpty && batch.status == .ok {
             await loadCandles(for: pair)
         }
         publishFrame()
@@ -1887,7 +2571,12 @@ public final class LightningDeskModel: ObservableObject {
     }
 
     /// Writes the frozen scan to disk, then reloads the journal from that file.
-    private func remember(_ commit: ScanCommit, verb: String) async -> Bool {
+    private func remember(
+        _ commit: ScanCommit,
+        verb: String,
+        request: ScanRequestScheduler.Request? = nil
+    ) async -> Bool {
+        if let request, !isCurrentScan(request) { return false }
         let id = "\(commit.fingerprint)-\(Int(commit.scannedAt.timeIntervalSince1970 * 1000))"
         armID = id
         let entry = JournalEntry(
@@ -1927,7 +2616,10 @@ public final class LightningDeskModel: ObservableObject {
         )
         do {
             try await persistence.recordScan(entry, snapshot: snapshot)
-            await reloadFromDisk()
+            // The historical record remains valid even if a newer scan superseded it while
+            // the disk append was in flight. Do not let its completion replace current UI.
+            if let request, !isCurrentScan(request) { return true }
+            await reloadFromDisk(request: request)
             return true
         } catch {
             return false
@@ -1942,23 +2634,65 @@ public final class LightningDeskModel: ObservableObject {
         Task { try? await persistence.noteVeto(armID: armID, veto: veto) }
     }
 
-    private func reloadFromDisk() async {
+    private func reloadFromDisk(request: ScanRequestScheduler.Request? = nil) async {
         let restored = await persistence.restore()
+        let restoredReferenceOutcomes = await referenceStore.outcomes()
+        let restoredExecutionObservations: [ExecutionObservation]
+        let executionLoadIssue: String?
+        do {
+            restoredExecutionObservations = try await executionObservationStore.load()
+            executionLoadIssue = nil
+        } catch {
+            restoredExecutionObservations = []
+            executionLoadIssue = "Execution-quality archive unavailable: \(error.localizedDescription)"
+        }
+        let restoredManualObservations: [ManualBrokerChartObservation]
+        let manualLoadIssue: String?
+        do {
+            restoredManualObservations = try await otcArchive.manualObservations()
+            manualLoadIssue = nil
+        } catch {
+            restoredManualObservations = []
+            manualLoadIssue = "Manual OTC archive unavailable: \(error.localizedDescription)"
+        }
+        if let request, !isCurrentScan(request) { return }
         outcomeStats = restored.confirmedStats
         ledgerRows = restored.ledgerRows
         restoreIssues = restored.issues
         pendingSaveCount = restored.pendingSettlements.count
         storedJournal = restored.entries
         journal = restored.entries.map {
-            replay($0, bars: restored.bars(for: $0.fullFingerprint ?? $0.fingerprint))
+            replay($0,
+                bars: restored.bars(for: $0.fullFingerprint ?? $0.fingerprint),
+                m5Bars: restored.m5Bars(for: $0.fullFingerprint ?? $0.fingerprint))
         }
-        referenceOutcomes = await referenceStore.outcomes()
+        referenceOutcomes = restoredReferenceOutcomes
+        executionObservations = restoredExecutionObservations
+        executionObservationIssue = executionLoadIssue
+        manualBrokerObservations = restoredManualObservations
+        if let manualLoadIssue { otcResearchIssue = manualLoadIssue }
+        refreshOTCCredentialState()
+        refreshExecutionIntelligence()
+        // Attribute restored bars by persisted engine identity, not the mutable live watchlist.
+        let entryMarkets = Dictionary(
+            storedJournal.map { entry -> (String, DeskMarket) in
+                let crypto = entry.engineSHA == CryptoDeskSignal.engineIdentity
+                    || (entry.engineSHA == nil && CTAssets.watchlist.contains(entry.pair))
+                return (entry.id, crypto ? .crypto : .fx)
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
         for entry in journal {
-            if candlesByAsset[entry.pair] == nil && !entry.candles.isEmpty {
-                candlesByAsset[entry.pair] = entry.candles
+            let entryMarket = entryMarkets[entry.id] ?? .fx
+            let key = CandleCache.Key(market: entryMarket, asset: entry.pair)
+            if candleCache.cached(key).isEmpty && !entry.candles.isEmpty {
+                // Restored bars are display history, never a fresh transport observation.
+                candleCache.store(entry.candles, for: key, fetchedAt: .distantPast)
             }
         }
-        if candles.isEmpty, let saved = candlesByAsset[pair], !saved.isEmpty {
+        let selectedKey = CandleCache.Key(market: marketMode, asset: pair)
+        let saved = candleCache.cached(selectedKey)
+        if candles.isEmpty, !saved.isEmpty {
             candles = saved
         }
         if let issue = restored.issues.first, notice == nil {
@@ -2007,8 +2741,16 @@ public final class LightningDeskModel: ObservableObject {
         pendingTrade = position.trade
         if position.trade.isExpired {
             activeTrade = nil
-        activeTradeQuote = nil
-        activeEntryArmedAt = nil
+            activeTradeQuote = nil
+            activeEntryArmedAt = nil
+            pendingExpiry = ResearchOutcome.resolve(
+                eventID: position.trade.id,
+                horizon: Int(position.trade.durationSec),
+                entryTime: position.trade.enteredAt,
+                strike: position.trade.strike,
+                side: position.trade.side,
+                quote: nil,
+                observedAt: Date())
             expired = true
             awaitingOutcome = true
             notice = "Position expired while closed; confirm the venue result"
@@ -2021,7 +2763,7 @@ public final class LightningDeskModel: ObservableObject {
         publishFrame()
     }
 
-    private func replay(_ entry: JournalEntry, bars: [Candle]) -> ReplayEntry {
+    private func replay(_ entry: JournalEntry, bars: [Candle], m5Bars: [Candle] = []) -> ReplayEntry {
         ReplayEntry(
             id: entry.id,
             pair: entry.pair,
@@ -2032,6 +2774,7 @@ public final class LightningDeskModel: ObservableObject {
             veto: entry.veto,
             fingerprint: entry.fingerprint,
             candles: bars,
+            m5Candles: m5Bars,
             scannedAt: entry.scannedAt,
             voiceNote: entry.voiceNote,
             tag: entry.tag,
@@ -2065,8 +2808,13 @@ public final class LightningDeskModel: ObservableObject {
         }
         if expired {
             frame = frozen(commit, verb: "EXPIRED", remainingMs: 0)
-            if journal.first(where: { $0.id == armID })?.outcome == nil {
+            if pendingTrade != nil,
+               journal.first(where: { $0.id == armID })?.outcome == nil {
                 awaitingOutcome = true
+            } else if pendingTrade == nil {
+                // An expired signal is not a trade. Keep late manual logging and navigation
+                // available without presenting a fictitious settlement workflow.
+                awaitingOutcome = false
             }
             return
         }
@@ -2087,7 +2835,7 @@ public final class LightningDeskModel: ObservableObject {
             expired = true
             armedAt = nil
             frame = frozen(commit, verb: "EXPIRED", remainingMs: 0)
-            awaitingOutcome = true
+            awaitingOutcome = pendingTrade != nil
             return
         }
         let armed = next.isActionable
@@ -2135,6 +2883,7 @@ struct ReplayEntry: Identifiable, Equatable {
     var veto: String?
     var fingerprint: String
     var candles: [Candle]
+    var m5Candles: [Candle]
     var scannedAt: Date
     var voiceNote: VoiceNote?
     var tag: Tag?
@@ -2144,11 +2893,9 @@ struct ReplayEntry: Identifiable, Equatable {
 }
 
 public enum DeskTab: String, CaseIterable, Identifiable, Sendable {
-    case desk = "Desk"
-    case radar = "Radar"
-    case intel = "Intel"
-    case coach = "Coach"
-    case journal = "Journal"
+    case desk = "Trade"
+    case radar = "Markets"
+    case review = "Review"
 
     public var id: String { rawValue }
 
@@ -2156,9 +2903,7 @@ public enum DeskTab: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .desk: return "bolt.fill"
         case .radar: return "scope"
-        case .intel: return "clock.badge.checkmark"
-        case .coach: return "brain.head.profile"
-        case .journal: return "book.closed.fill"
+        case .review: return "book.closed.fill"
         }
     }
 }

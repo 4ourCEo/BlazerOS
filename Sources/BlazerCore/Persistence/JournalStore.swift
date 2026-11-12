@@ -110,33 +110,62 @@ public struct JournalEntry: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
-/// JSONL journal. A bad line is skipped. Saving rewrites the recovered entries plus the change.
+/// JSONL journal. Corrupt records are quarantined and surfaced rather than silently discarded.
 public actor JournalStore {
     private let url: URL
+    private let quarantineURL: URL
 
     public init(root: URL) {
         self.url = FileLocations.journal(in: root)
+        self.quarantineURL = root.appendingPathComponent("journal.corrupt.jsonl")
     }
 
-    public func load() throws -> [JournalEntry] {
-        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+    public struct ReadResult: Sendable {
+        public let entries: [JournalEntry]
+        public let corruptLines: Int
+    }
+
+    public func read() throws -> ReadResult {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return ReadResult(entries: [], corruptLines: 0)
+        }
         let text = try String(contentsOf: url, encoding: .utf8)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         var entries: [JournalEntry] = []
-        for raw in text.split(separator: "\n", omittingEmptySubsequences: true) {
+        var corruptLines = 0
+        var quarantined = (try? String(contentsOf: quarantineURL, encoding: .utf8)) ?? ""
+        for (offset, raw) in text.split(separator: "\n", omittingEmptySubsequences: true).enumerated() {
             guard let data = String(raw).data(using: .utf8),
                 let entry = try? decoder.decode(JournalEntry.self, from: data),
                 !entry.id.isEmpty
-            else { continue }
+            else {
+                corruptLines += 1
+                let record = "\(offset + 1)\t\(raw)\n"
+                if !quarantined.contains(record) { quarantined += record }
+                continue
+            }
             entries.append(entry)
         }
-        return entries
+        if corruptLines > 0 {
+            try AtomicFile.write(Data(quarantined.utf8), to: quarantineURL)
+        }
+        return ReadResult(entries: entries, corruptLines: corruptLines)
+    }
+
+    public func load() throws -> [JournalEntry] { try read().entries }
+
+    public func loadForMutation() throws -> [JournalEntry] {
+        let result = try read()
+        guard result.corruptLines == 0 else {
+            throw ScanError.failed("Journal contains \(result.corruptLines) quarantined corrupt line(s)")
+        }
+        return result.entries
     }
 
     /// Inserts or replaces the entry with the same id. Other recovered entries stay.
     public func upsert(_ entry: JournalEntry) throws {
-        var entries = try load()
+        var entries = try loadForMutation()
         if let index = entries.firstIndex(where: { $0.id == entry.id }) {
             entries[index] = entry
         } else {

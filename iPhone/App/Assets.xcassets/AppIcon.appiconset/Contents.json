@@ -93,8 +93,8 @@
     {
       "size": "1024x1024",
       "idiom": "universal",
-      "platform": "ios",
-      "filename": "icon-1024.png"
+      "filename": "icon-1024.png",
+      "platform": "ios"
     }
   ],
   "info": {

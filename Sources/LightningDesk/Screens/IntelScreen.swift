@@ -9,6 +9,15 @@ public struct IntelScreen: View {
     @State private var testAlertSent = false
     @State private var isScheduling = false
     @State private var now = Date()
+    @State private var showOTCSetup = false
+    @State private var pocketSessionDraft = ""
+    @State private var brokerPriceDraft = ""
+    @State private var providerPriceDraft = ""
+    @State private var payoutDraft = ""
+    @State private var screenshotDraft = ""
+    @State private var candleTimeDraft = ""
+    @State private var manualAgreement: ManualAgreement = .notAssessed
+    @State private var manualConfidence: ManualVerificationConfidence = .low
 
     public init(model: LightningDeskModel) {
         self.model = model
@@ -23,6 +32,15 @@ public struct IntelScreen: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 16) {
                     currentStatusCard
+                    executionEvidenceCard
+                    // OTC is optional research infrastructure. It stays out of the desk
+                    // unless the operator has explicitly configured a provider, so an
+                    // unconfigured adapter can never masquerade as a closed market.
+                    if model.pocketOptionSessionConfigured || model.otcAPIKeyConfigured || showOTCSetup {
+                        otcResearchCard
+                    } else {
+                        otcSetupRow
+                    }
                     scheduleCards
                     notificationsSection
                     pairConvictionSection
@@ -40,6 +58,214 @@ public struct IntelScreen: View {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
         }
+    }
+
+    private var otcSetupRow: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "waveform.path.ecg")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(DeskInk.slate)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("OTC research")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(DeskInk.ink)
+                Text("Optional · not configured · no provider connection")
+                    .font(.system(size: 10))
+                    .foregroundStyle(DeskInk.slate)
+            }
+            Spacer(minLength: 8)
+            Button("Set up") { showOTCSetup = true }
+                .font(.system(size: 11, weight: .semibold))
+        }
+        .padding(14)
+        .background(Color.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 14))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .strokeBorder(Color.white.opacity(0.06), lineWidth: 0.5)
+        )
+    }
+
+    /// Never call an unconfigured provider “disconnected” or a market “closed”. The only
+    /// source of a closed state is the broker's own `open == false`, which arrives from the
+    /// provider and is surfaced as a provider report.
+    private var otcStatusLine: String {
+        let provider = model.pocketOptionSessionConfigured ? "Pocket Option direct" : "OTCharts"
+        guard model.pocketOptionSessionConfigured || model.otcAPIKeyConfigured else {
+            return "Pocket Option direct: NOT CONFIGURED"
+        }
+        if model.otcCaptureActive {
+            return "\(provider): \(model.otcConnectionState.rawValue.uppercased())"
+        }
+        switch model.otcConnectionState {
+        case .disabled, .disconnected:
+            return "\(provider): READY · capture stopped"
+        case .connecting, .live, .degraded, .throttled:
+            return "\(provider): \(model.otcConnectionState.rawValue.uppercased())"
+        }
+    }
+
+    private var otcResearchCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("POCKET OPTION OTC · READ-ONLY RESEARCH")
+                .font(.system(size: 11, weight: .bold))
+            Text(otcStatusLine)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(
+                    model.pocketOptionSessionConfigured || model.otcAPIKeyConfigured
+                        ? DeskInk.electric : DeskInk.slate
+                )
+            if let issue = model.otcResearchIssue, !issue.isEmpty {
+                Text(issue)
+                    .font(.system(size: 10))
+                    .foregroundStyle(DeskInk.coral)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text("A Pocket Option demo session enables only the direct read-only research adapter. It stays in this device's Keychain and is never supplied to the trading engine or Foundation Models. The broker session itself is not scope-limited, so disconnect it when capture ends.")
+                .font(.system(size: 10))
+
+            if model.pocketOptionSessionConfigured || model.otcAPIKeyConfigured {
+                HStack {
+                    Button(model.otcCaptureActive ? "Stop research capture" : "Start 5-minute capture") {
+                        if model.otcCaptureActive { model.stopOTCResearchCapture() }
+                        else { model.startOTCResearchCapture() }
+                    }
+                    .font(.system(size: 11, weight: .semibold))
+                    Spacer()
+                    Button("Refresh report") {
+                        Task { await model.refreshOTCValidationReport() }
+                    }
+                    .font(.system(size: 11, weight: .semibold))
+                }
+                Text("Session: \(model.otcConnectionState.rawValue.uppercased()) · \(model.otcCapturedObservations) saved · \(model.otcObservedTicks) ticks\(model.otcObservedTickRate.map { String(format: " · %.1f/s", $0) } ?? "")\(model.otcClockSkewSeconds.map { String(format: " · clock %+.0fs", $0) } ?? "") · interruptions \(model.otcConnectionInterruptions) · research-only")
+                    .font(.system(size: 10, design: .monospaced))
+                if let report = model.otcValidationReport {
+                    Text("Samples \(report.totalSamples) · 60s transitions \(report.sixtySecondComparableTransitions) · agreements \(report.sixtySecondDirectionAgreements) · synthetic \(report.syntheticSampleCount)")
+                        .font(.system(size: 10, design: .monospaced))
+                    Text(report.status)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(report.hasProviderOTCObservation ? DeskInk.electric : DeskInk.slate)
+                    if let oldest = report.oldestCapturedAt, let newest = report.newestCapturedAt {
+                        Text("Retained archive: \(oldest.formatted(date: .abbreviated, time: .shortened)) → \(newest.formatted(date: .abbreviated, time: .shortened)) · limit \(report.retentionLimit)")
+                            .font(.system(size: 10, design: .monospaced))
+                    }
+                }
+                Button("Disconnect and remove credential") {
+                    if model.pocketOptionSessionConfigured {
+                        model.disconnectAndRemovePocketOptionSession()
+                    } else {
+                        model.disconnectAndRemoveOTChartsAPIKey()
+                    }
+                }
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(DeskInk.coral)
+            } else {
+                SecureField("Pocket Option demo auth frame", text: $pocketSessionDraft)
+                    .textFieldStyle(.roundedBorder)
+                Button("Save session to device Keychain") {
+                    model.savePocketOptionReadOnlySession(pocketSessionDraft)
+                    if model.pocketOptionSessionConfigured { pocketSessionDraft = "" }
+                }
+                .font(.system(size: 11, weight: .semibold))
+                Button("Hide OTC setup") { showOTCSetup = false }
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(DeskInk.slate)
+            }
+
+            Divider().overlay(Color.white.opacity(0.12))
+            Text("VISIBLE CHART CHECK · EUR/USD OTC")
+                .font(.system(size: 10, weight: .bold))
+            TextField("Broker displayed price", text: $brokerPriceDraft)
+                .textFieldStyle(.roundedBorder)
+            TextField("Provider price (optional)", text: $providerPriceDraft)
+                .textFieldStyle(.roundedBorder)
+            TextField("Displayed payout % (optional)", text: $payoutDraft)
+                .textFieldStyle(.roundedBorder)
+            TextField("Screenshot filename/reference (optional)", text: $screenshotDraft)
+                .textFieldStyle(.roundedBorder)
+            TextField("Candle time, ISO 8601 (optional)", text: $candleTimeDraft)
+                .textFieldStyle(.roundedBorder)
+            HStack {
+                Picker("Agreement", selection: $manualAgreement) {
+                    Text("Not assessed").tag(ManualAgreement.notAssessed)
+                    Text("Agrees").tag(ManualAgreement.agrees)
+                    Text("Discrepancy").tag(ManualAgreement.discrepancy)
+                }
+                Picker("Confidence", selection: $manualConfidence) {
+                    Text("Low").tag(ManualVerificationConfidence.low)
+                    Text("Medium").tag(ManualVerificationConfidence.medium)
+                    Text("High").tag(ManualVerificationConfidence.high)
+                }
+            }
+            .font(.system(size: 10))
+            Button("Capture timestamped chart observation") {
+                Task {
+                    await model.recordManualOTCObservation(
+                        brokerPrice: brokerPriceDraft, providerPrice: providerPriceDraft,
+                        payoutPercent: payoutDraft, screenshotReference: screenshotDraft,
+                        candleTimestamp: ISO8601DateFormatter().date(from: candleTimeDraft),
+                        agreement: manualAgreement, confidence: manualConfidence)
+                    if model.otcResearchIssue == nil {
+                        brokerPriceDraft = ""
+                        providerPriceDraft = ""
+                        payoutDraft = ""
+                        screenshotDraft = ""
+                        candleTimeDraft = ""
+                    }
+                }
+            }
+            .font(.system(size: 11, weight: .semibold))
+            Text("Saved checks: \(model.manualBrokerObservations.count) · research-only · never settles a trade")
+                .font(.system(size: 10, design: .monospaced))
+            if let issue = model.otcResearchIssue {
+                Text(issue).font(.system(size: 10)).foregroundStyle(DeskInk.coral)
+            }
+        }
+        .foregroundStyle(DeskInk.slate)
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DeskInk.surface, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private var executionEvidenceCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("VERIFIED EDGE · EXECUTION QUALITY")
+                .font(.system(size: 11, weight: .bold))
+            Text(model.edgeVerificationReport?.status ?? "INSUFFICIENT EVIDENCE")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(DeskInk.electric)
+            if let report = model.edgeVerificationReport {
+                Text("Confirmed \(report.wins)/\(report.resolved) · Candidate blocks \(report.candidateBlocks) · Effective N \(String(format: "%.1f", report.effectiveSampleSize))")
+                    .font(.system(size: 11, design: .monospaced))
+                Text(report.actualExpectancy.map { "Recorded payout EV: \(String(format: "%+.4f", $0)) per unit risk" }
+                    ?? "Recorded payout EV unavailable · payout coverage \(report.payoutCoverage)/\(report.resolved)")
+                    .font(.system(size: 11))
+                Text(report.quality.meanScanToRecordMs.map { "Mean scan-to-record: \(String(format: "%.1f", $0 / 1000))s · timing records \(report.quality.timingCoverage)" }
+                    ?? "Entry timing unavailable for historical records")
+                    .font(.system(size: 11))
+                Text("Rejected attempts \(report.quality.rejectedAttempts) · Closed scans without recorded entry \(report.quality.closedScansWithoutRecordedEntry)")
+                    .font(.system(size: 11))
+                DisclosureGroup("Evidence quality and market / expiry breakdown") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Quote-age coverage: \(report.quality.quoteCoverage) · Reference disagreements: \(report.quality.referenceDisagreements)/\(report.quality.referenceComparisons)")
+                        ForEach(report.cohorts.prefix(8), id: \.key) { cohort in
+                            Text("\(cohort.key) · \(cohort.wins)/\(cohort.resolved) · " + (cohort.actualExpectancy.map { String(format: "EV %+.4f", $0) } ?? "payout incomplete"))
+                        }
+                        if let finding = report.findings.first {
+                            Text("Research finding: \(finding.hypothesis). \(finding.evidence) \(finding.limitation)")
+                        }
+                        Text("Block independence remains unverified. At least 250 independent clustered prime-window events across the six-asset basket and independent prospective validation are required. Recording time is not venue fill time.")
+                    }
+                    .font(.system(size: 10))
+                }
+            }
+            if let issue = model.executionObservationIssue {
+                Text(issue).font(.system(size: 11)).foregroundStyle(DeskInk.coral)
+            }
+        }
+        .foregroundStyle(DeskInk.slate)
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DeskInk.surface, in: RoundedRectangle(cornerRadius: 16))
     }
 
     // MARK: - Header
@@ -463,11 +689,11 @@ public struct IntelScreen: View {
                     .padding(.vertical, 2)
 
                 HStack {
-                    Text("Break-even: 53.2% (at 88% payout)")
+                    Text("Break-even: unavailable until a contract payout and cost basis are recorded")
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .foregroundStyle(DeskInk.slate)
                     Spacer()
-                    Text("95% CI: ±10–13%")
+                    Text("Intervals depend on local evidence")
                         .font(.system(size: 10, weight: .medium, design: .monospaced))
                         .foregroundStyle(DeskInk.slate.opacity(0.8))
                 }
@@ -491,7 +717,9 @@ public struct IntelScreen: View {
 
     private func dynamicConvictionRow(pair: String) -> some View {
         let stats = model.edgeStats(for: pair)
-        let ratePct = String(format: "%.1f%%", stats.winRate * 100)
+        let ratePct = stats.sampleSize > 0
+            ? String(format: "%.1f%% [%.1f–%.1f]", stats.winRate * 100, stats.lower95 * 100, stats.upper95 * 100)
+            : "unavailable"
         let isEdge = stats.isProvenEdge
         let isWarning = stats.statusBadge.contains("CHOP")
         let driftStr: String
@@ -499,14 +727,7 @@ public struct IntelScreen: View {
             let sign = avgDrift >= 0 ? "+" : ""
             driftStr = "\(sign)\(String(format: "%.1f", avgDrift))p"
         } else {
-            switch pair {
-            case "GBP/USD", "USD/JPY": driftStr = "+0.3p"
-            case "GBP/JPY": driftStr = "+0.2p"
-            case "XAU/USD": driftStr = "+0.4p"
-            case "USD/CAD": driftStr = "-0.4p"
-            case "EUR/GBP": driftStr = "+0.0p"
-            default: driftStr = "0.0p"
-            }
+            driftStr = "unavailable"
         }
         return convictionRow(
             pair: pair,
@@ -519,27 +740,31 @@ public struct IntelScreen: View {
     }
 
     private func convictionRow(pair: String, tag: String, winRate: String, drift: String, isEdge: Bool, isWarning: Bool = false) -> some View {
-        HStack {
-            Text(pair)
-                .font(.system(size: 13, weight: .bold, design: .monospaced))
-                .foregroundStyle(DeskInk.ink)
-
-            Text(tag)
-                .font(.system(size: 9, weight: .heavy))
-                .foregroundStyle(isWarning ? DeskInk.coral : (isEdge ? DeskInk.emerald : DeskInk.slate))
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background((isWarning ? DeskInk.coral : (isEdge ? DeskInk.emerald : DeskInk.slate)).opacity(0.16), in: RoundedRectangle(cornerRadius: 4))
-
-            Spacer()
-
-            Text("Drift \(drift)")
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                .foregroundStyle(DeskInk.slate.opacity(0.8))
-
-            Text(winRate)
-                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                .foregroundStyle(isWarning ? DeskInk.coral : (isEdge ? DeskInk.emerald : DeskInk.slate))
+        let tint = isWarning ? DeskInk.coral : (isEdge ? DeskInk.emerald : DeskInk.slate)
+        return VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(pair)
+                    .font(.system(size: 13, weight: .bold, design: .monospaced))
+                    .foregroundStyle(DeskInk.ink)
+                Spacer()
+                Text(winRate)
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundStyle(tint)
+            }
+            HStack(alignment: .top, spacing: 8) {
+                Text(tag)
+                    .font(.system(size: 9, weight: .heavy))
+                    .foregroundStyle(tint)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(tint.opacity(0.16), in: RoundedRectangle(cornerRadius: 4))
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                Text("Drift \(drift)")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(DeskInk.slate.opacity(0.8))
+            }
         }
+        .padding(.vertical, 3)
     }
 }

@@ -28,6 +28,20 @@
             buildForAnalyzing = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
+               BlueprintIdentifier = "A10000000000000000000007"
+               BuildableName = "BlazerUITests.xctest"
+               BlueprintName = "BlazerUITests"
+               ReferencedContainer = "container:BlazerOS.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "NO"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
                BlueprintIdentifier = "A10000000000000000000006"
                BuildableName = "BlazerTests.xctest"
                BlueprintName = "BlazerTests"
@@ -51,9 +65,26 @@
                BuildableName = "BlazerTests.xctest"
                BlueprintName = "BlazerTests"
                ReferencedContainer = "container:BlazerOS.xcodeproj">
+             </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "A10000000000000000000007"
+               BuildableName = "BlazerUITests.xctest"
+               BlueprintName = "BlazerUITests"
+               ReferencedContainer = "container:BlazerOS.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
+      <TestPlans>
+         <TestPlanReference
+            reference = "container:BlazerOS.xctestplan"
+            default = "YES">
+         </TestPlanReference>
+      </TestPlans>
    </TestAction>
    <LaunchAction
       buildConfiguration = "Debug"

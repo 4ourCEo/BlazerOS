@@ -36,8 +36,12 @@ public enum ScanKernel {
         guard StrategyEngine.isReady else {
             throw ScanError.failed("SCAN ENGINE OFFLINE")
         }
-        let completed = input.candles1m.map {
-            CompletedBar(
+        let evaluationMs = input.evaluatedAtMs
+        let completed: [CompletedBar] = input.candles1m.compactMap {
+            guard Self.isClosed($0.time, intervalSeconds: 60, evaluatedAtMs: evaluationMs) else {
+                return nil
+            }
+            return CompletedBar(
                 time: $0.time,
                 open: $0.open,
                 high: $0.high,
@@ -46,15 +50,23 @@ public enum ScanKernel {
                 complete: true
             )
         }
-        let frozenM5 = input.candles5m.map {
+        let completedM5: [StrategyEngine.CandlePayload] = input.candles5m.compactMap {
+            guard Self.isClosed($0.time, intervalSeconds: 300, evaluatedAtMs: evaluationMs) else {
+                return nil
+            }
+            return $0
+        }
+        let frozenM5 = completedM5.map {
             Candle(time: $0.time, open: $0.open, high: $0.high, low: $0.low, close: $0.close)
+        }
+        guard completed.count >= 20, completedM5.count >= 20 else {
+            throw ScanError.failed("Feed incomplete: forming or future candle present")
         }
         let frozenBid = input.bid
         let frozenAsk = input.ask
         let frozenSpread = input.spread
         let frozenExpiry = input.expirySeconds
-        await ring.loadCompleted(completed)
-        let ringBars = await ring.fetchLatestBars(count: completed.count)
+        let ringBars = await ring.loadAndFetch(completed)
         input.candles1m = ringBars.map {
             StrategyEngine.CandlePayload(
                 time: $0.time,
@@ -64,6 +76,8 @@ public enum ScanKernel {
                 close: $0.close
             )
         }
+        input.candles5m = completedM5
+
         input.expirySeconds = expiry
         let barComplete = !ringBars.isEmpty && ringBars.allSatisfy(\.complete)
         let realSpread: Double? = input.spread.isFinite && input.spread > 0 ? input.spread : nil
@@ -135,12 +149,15 @@ public enum ScanKernel {
         scannedAt: Date = Date()
     ) -> ScanCommit {
         let fingerprint = ScanFingerprint.hex(candles: snapshot)
+        let rawScore = found.opportunity ?? found.confidence ?? 0
+        let scoreValid = rawScore.isFinite && (0...100).contains(rawScore)
+            && (found.confidence.map { $0.isFinite && (0...100).contains($0) } ?? true)
         return ScanCommit(
             asset: found.asset,
-            engineCall: found.call,
+            engineCall: scoreValid ? found.call : "WAIT",
             // The engine's directional score is 0...100. Convert it to side-neutral
             // conviction once, here, so every downstream consumer reads the same number.
-            score: Int((found.opportunity ?? found.confidence ?? 0).rounded()),
+            score: scoreValid ? Int(rawScore.rounded()) : 0,
             evidence: found.evidence ?? found.why,
             strike: found.entryPrice ?? found.price,
             fingerprint: fingerprint,
@@ -165,8 +182,19 @@ public enum ScanKernel {
             engineSHA: engineSHA,
             policy: policy,
             scannedAt: scannedAt,
-            veto: nil,
+            veto: scoreValid ? nil : "Invalid engine numeric output",
             driftPips: nil
         )
+    }
+
+    private static func isClosed(
+        _ time: Double,
+        intervalSeconds: Double,
+        evaluatedAtMs: Double?
+    ) -> Bool {
+        guard time.isFinite, time > 0 else { return false }
+        guard let evaluatedAtMs else { return true }
+        guard evaluatedAtMs.isFinite, evaluatedAtMs > 0 else { return false }
+        return time + intervalSeconds * 1000 <= evaluatedAtMs + 1
     }
 }

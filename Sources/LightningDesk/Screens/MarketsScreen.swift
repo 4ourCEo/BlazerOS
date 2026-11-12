@@ -3,6 +3,7 @@ import SwiftUI
 
 struct MarketsScreen: View {
     @ObservedObject var model: LightningDeskModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let columns = [
         GridItem(.flexible(), spacing: 10),
@@ -10,36 +11,163 @@ struct MarketsScreen: View {
     ]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 12) {
             header
                 .padding(.horizontal, 20)
                 .padding(.top, 14)
 
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 12) {
-                    if let leader = model.radarLeader {
-                        radarLeaderBanner(leader)
-                    }
+            radar
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
 
-                    LazyVGrid(columns: columns, spacing: 10) {
-                        ForEach(model.pairs, id: \.self) { pair in
-                            MarketTacticalTile(
-                                pair: pair,
-                                isSelected: pair == model.pair,
-                                score: model.score(for: pair),
-                                side: model.side(for: pair) ?? "WAIT",
-                                strike: model.strike(for: pair),
-                                candles: model.candles(for: pair)
-                            ) {
-                                DeskHaptics.tabSwitch()
-                                model.selectAndNavigate(pair: pair)
-                            }
-                        }
+            Text("All markets")
+                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                .foregroundStyle(DeskInk.ink)
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+
+            LazyVGrid(columns: columns, spacing: 10) {
+                ForEach(model.pairs, id: \.self) { pair in
+                    MarketTacticalTile(
+                        pair: pair,
+                        isSelected: pair == model.pair,
+                        score: model.score(for: pair),
+                        side: model.side(for: pair) ?? "WAIT",
+                        strike: model.strike(for: pair),
+                        candles: model.candles(for: pair)
+                    ) {
+                        DeskHaptics.tabSwitch()
+                        model.selectAndNavigate(pair: pair)
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 24)
             }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 24)
+            }
+        }
+    }
+
+    private var radar: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Live market intelligence")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(DeskInk.slate)
+                    Text("Focus on what matters.")
+                        .font(.system(size: 18, weight: .semibold, design: .rounded))
+                        .foregroundStyle(DeskInk.ink)
+                }
+                Spacer()
+                Text("\(model.pairs.count) PAIRS")
+                    .font(.system(size: 9, weight: .heavy, design: .monospaced))
+                    .tracking(0.7)
+                    .foregroundStyle(DeskInk.slate)
+            }
+
+            RadarPlot(model: model, reduceMotion: reduceMotion)
+
+            radarStatusStrip
+
+            radarDetailCard
+        }
+    }
+
+    private var radarStatusStrip: some View {
+        let eligible = model.pairs.filter { ["HIGH", "LOW"].contains(model.side(for: $0)) }.count
+        return HStack(spacing: 0) {
+            radarStatusCell(title: "MONITORED", value: "\(model.pairs.count)")
+            Divider().frame(height: 28).overlay(Color.white.opacity(0.08))
+            radarStatusCell(title: "ELIGIBLE", value: eligible == 0 ? "—" : "\(eligible)")
+            Divider().frame(height: 28).overlay(Color.white.opacity(0.08))
+            radarStatusCell(title: "FEED", value: feedWord)
+        }
+        .padding(.vertical, 10)
+        .background(DeskInk.surface.opacity(0.78), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.white.opacity(0.06), lineWidth: 0.6))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Monitored \(model.pairs.count), eligible \(eligible), feed \(feedWord)")
+    }
+
+    private func radarStatusCell(title: String, value: String) -> some View {
+        VStack(spacing: 3) {
+            Text(title)
+                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                .tracking(0.7)
+                .foregroundStyle(DeskInk.slate)
+            Text(value)
+                .font(.system(size: 14, weight: .bold, design: .monospaced))
+                .foregroundStyle(DeskInk.ink)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var radarDetailCard: some View {
+        let pair = model.pair
+        let side = model.side(for: pair) ?? "WAIT"
+        let tint = radarTint(side)
+
+        return Button {
+            DeskHaptics.tabSwitch()
+            model.selectAndNavigate(pair: pair)
+        } label: {
+            HStack(spacing: 12) {
+                Circle()
+                    .fill(tint)
+                    .frame(width: 8, height: 8)
+                    .shadow(color: tint.opacity(0.75), radius: 5)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(pair)
+                            .font(.system(size: 15, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(DeskInk.ink)
+                        Text("M1")
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundStyle(DeskInk.slate)
+                    }
+                     Text("Research preview · tap for full scan")
+                         .font(.system(size: 10, weight: .medium))
+                         .foregroundStyle(DeskInk.slate)
+                     if let orb = model.orbDecision(for: pair) {
+                         Text("ORB · \(orb.stage.rawValue.replacingOccurrences(of: "_", with: " "))")
+                             .font(.system(size: 9, weight: .bold, design: .monospaced))
+                             .foregroundStyle(orb.stage == .setupConfirmed ? DeskInk.electric : DeskInk.slate)
+                     }
+                }
+
+                Spacer()
+
+                VStack(alignment: .trailing, spacing: 3) {
+                    Text(side == "HIGH" ? "CALL ↑" : side == "LOW" ? "PUT ↓" : "WAIT")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(tint)
+                    if let score = model.score(for: pair) {
+                        Text("Score \(score)")
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundStyle(DeskInk.slate)
+                    }
+                }
+            }
+            .padding(14)
+            .background(DeskInk.surface.opacity(0.82), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(tint.opacity(0.28), lineWidth: 0.8)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(pair), \(side), research preview. Tap for full scan.")
+    }
+
+    private func radarTint(_ side: String) -> Color {
+        switch side {
+        case "HIGH": return DeskInk.emerald
+        case "LOW": return DeskInk.coral
+        default: return DeskInk.slate
         }
     }
 
@@ -146,6 +274,138 @@ struct MarketsScreen: View {
     }
 }
 
+private struct RadarPlot: View {
+    @ObservedObject var model: LightningDeskModel
+    let reduceMotion: Bool
+
+    var body: some View {
+        GeometryReader { proxy in
+            let size = min(proxy.size.width, proxy.size.height)
+            let center = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+            let radius = size * 0.43
+
+            ZStack {
+                RadarGrid(center: center, radius: radius, reduceMotion: reduceMotion)
+
+                ForEach(Array(model.pairs.enumerated()), id: \.element) { index, pair in
+                    Button {
+                        DeskHaptics.tabSwitch()
+                        model.select(pair: pair)
+                    } label: {
+                        radarMarker(pair: pair, isSelected: pair == model.pair)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(radarAccessibilityLabel(for: pair))
+                    .accessibilityAddTraits(pair == model.pair ? .isSelected : [])
+                    .position(markerPoint(index: index, pair: pair, center: center, radius: radius))
+                }
+
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(DeskInk.electric)
+                    .frame(width: 46, height: 46)
+                    .background(DeskInk.background, in: Circle())
+                    .overlay(Circle().strokeBorder(DeskInk.electric.opacity(0.7), lineWidth: 1))
+                    .shadow(color: DeskInk.electric.opacity(0.45), radius: 14)
+                    .position(center)
+            }
+        }
+        .frame(height: 285)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Radar plot for \(model.pairs.count) markets")
+    }
+
+    private func markerPoint(index: Int, pair: String, center: CGPoint, radius: CGFloat) -> CGPoint {
+        let score = Double(model.score(for: pair) ?? 50)
+        let normalized = max(0.28, min(0.86, score / 100))
+        let angle = (Double(index) / Double(max(model.pairs.count, 1))) * (.pi * 2) - (.pi / 2)
+        return CGPoint(
+            x: center.x + CGFloat(cos(angle)) * radius * normalized,
+            y: center.y + CGFloat(sin(angle)) * radius * normalized
+        )
+    }
+
+    private func radarMarker(pair: String, isSelected: Bool) -> some View {
+        let side = model.side(for: pair) ?? "WAIT"
+        let tint: Color = switch side {
+        case "HIGH": DeskInk.emerald
+        case "LOW": DeskInk.coral
+        default: DeskInk.slate
+        }
+
+        return VStack(spacing: 3) {
+            Circle()
+                .fill(tint)
+                .frame(width: isSelected ? 15 : 9, height: isSelected ? 15 : 9)
+                .overlay(Circle().strokeBorder(Color.white.opacity(isSelected ? 0.8 : 0.35), lineWidth: 1))
+                .shadow(color: tint.opacity(0.8), radius: isSelected ? 9 : 5)
+            if isSelected {
+                Text(pair)
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundStyle(DeskInk.ink)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(DeskInk.surface.opacity(0.95), in: Capsule())
+            }
+        }
+    }
+
+    private func radarAccessibilityLabel(for pair: String) -> String {
+        let side = model.side(for: pair) ?? "WAIT"
+        let direction = side == "HIGH" ? "CALL" : side == "LOW" ? "PUT" : side
+        let score = model.score(for: pair).map { ", score \($0)" } ?? ""
+        return "\(pair), \(direction)\(score)\(pair == model.pair ? ", selected" : "")"
+    }
+}
+
+private struct RadarGrid: View {
+    let center: CGPoint
+    let radius: CGFloat
+    let reduceMotion: Bool
+
+    var body: some View {
+        Canvas { context, _ in
+            for step in 1...4 {
+                let diameter = radius * 2 * CGFloat(step) / 4
+                let ring = Path(ellipseIn: CGRect(
+                    x: center.x - diameter / 2,
+                    y: center.y - diameter / 2,
+                    width: diameter,
+                    height: diameter
+                ))
+                context.stroke(ring, with: .color(DeskInk.indigo.opacity(step == 4 ? 0.42 : 0.22)), lineWidth: 0.8)
+            }
+
+            var horizontal = Path()
+            horizontal.move(to: CGPoint(x: center.x - radius, y: center.y))
+            horizontal.addLine(to: CGPoint(x: center.x + radius, y: center.y))
+            context.stroke(horizontal, with: .color(DeskInk.indigo.opacity(0.22)), lineWidth: 0.7)
+
+            var vertical = Path()
+            vertical.move(to: CGPoint(x: center.x, y: center.y - radius))
+            vertical.addLine(to: CGPoint(x: center.x, y: center.y + radius))
+            context.stroke(vertical, with: .color(DeskInk.indigo.opacity(0.22)), lineWidth: 0.7)
+        }
+        .overlay {
+            if !reduceMotion {
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+                    let period = 7.0
+                    let angle = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) / period * .pi * 2
+                    Canvas { sweepContext, _ in
+                        for offset in stride(from: 0.22, through: 0.02, by: -0.04) {
+                            var path = Path()
+                            let trailAngle = angle - offset * .pi
+                            path.move(to: center)
+                            path.addLine(to: CGPoint(x: center.x + cos(trailAngle) * radius, y: center.y + sin(trailAngle) * radius))
+                            sweepContext.stroke(path, with: .color(DeskInk.electric.opacity(0.10 + (0.22 - offset) * 1.7)), lineWidth: offset < 0.06 ? 1.2 : 0.8)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 // MARK: - Tactical Matrix Tile
 
 struct MarketTacticalTile: View {
@@ -188,14 +448,14 @@ struct MarketTacticalTile: View {
                         .foregroundStyle(DeskInk.ink)
 
                     if case .edgeConfirmed = conviction {
-                        Text("EDGE")
+                        Text("PRIOR")
                             .font(.system(size: 8, weight: .heavy))
                             .foregroundStyle(DeskInk.emerald)
                             .padding(.horizontal, 4)
                             .padding(.vertical, 1.5)
                             .background(DeskInk.emerald.opacity(0.16), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
                     } else if case .chopRisk = conviction {
-                        Text("CHOP")
+                        Text("EXCLUDED")
                             .font(.system(size: 8, weight: .heavy))
                             .foregroundStyle(DeskInk.coral)
                             .padding(.horizontal, 4)

@@ -203,15 +203,17 @@ struct PersistCheck {
             text += "\n"
             try text.write(to: FileLocations.snapshots(in: root), atomically: true, encoding: .utf8)
             let store = SnapshotStore(root: root)
-            let loaded = try await store.load()
-            results.check("malformed snapshot keeps the valid record", loaded == [record], "")
-            let inserted = try await store.archive(sampleSnapshot(hash: "CE239CDB"))
-            let again = try await store.archive(record)
-            let hashes = try await store.load().map(\.hash)
+            let snapshotURL = FileLocations.snapshots(in: root)
+            let before = try Data(contentsOf: snapshotURL)
+            var loadRejected = false
+            do { _ = try await store.load() } catch { loadRejected = true }
+            var archiveRejected = false
+            do { _ = try await store.archive(sampleSnapshot(hash: "CE239CDB")) } catch { archiveRejected = true }
+            let unchanged = try Data(contentsOf: snapshotURL) == before
             results.check(
-                "snapshot hash is not rewritten",
-                inserted && !again && hashes == ["F9813E3C", "CE239CDB"],
-                hashes.joined(separator: ",")
+                "malformed snapshot fails closed without rewrite",
+                loadRejected && archiveRejected && unchanged,
+                "loadRejected=\(loadRejected) archiveRejected=\(archiveRejected) unchanged=\(unchanged)"
             )
         } catch {
             results.check("malformed snapshot keeps the valid record", false, error.localizedDescription)
@@ -278,9 +280,13 @@ struct PersistCheck {
             let store = JournalStore(root: root)
             let loaded = try await store.load()
             results.check("malformed journal keeps the valid entry", loaded.map(\.id) == ["arm-7"], "")
-            try await store.upsert(sampleEntry(id: "arm-8", hash: "F9813E3C"))
+            var mutationRejected = false
+            do { try await store.upsert(sampleEntry(id: "arm-8", hash: "F9813E3C")) }
+            catch { mutationRejected = true }
             let saved = try await store.load()
-            results.check("journal upsert keeps both entries", saved.map(\.id) == ["arm-7", "arm-8"], saved.map(\.id).joined(separator: ","))
+            results.check("journal mutation refuses quarantined corruption",
+                          mutationRejected && saved.map(\.id) == ["arm-7"],
+                          saved.map(\.id).joined(separator: ","))
         } catch {
             results.check("malformed journal keeps the valid entry", false, error.localizedDescription)
         }
@@ -539,7 +545,7 @@ struct PersistCheck {
             }
 
             let statsEmpty = LedgerStatsEngine.evaluate(pair: "EUR/USD", rows: loaded)
-            results.check("stats engine marks missing calibration provenance", statsEmpty.statusBadge == "UNVERIFIED PRIOR" && statsEmpty.sampleSize == 0, statsEmpty.statusBadge)
+            results.check("stats engine marks missing calibration provenance", statsEmpty.statusBadge.contains("UNVERIFIED PRIOR") && statsEmpty.statusBadge.contains("INSUFFICIENT EVIDENCE") && statsEmpty.sampleSize == 0, statsEmpty.statusBadge)
 
             let statsGBP = LedgerStatsEngine.evaluate(pair: "GBP/USD", rows: loaded)
             results.check(

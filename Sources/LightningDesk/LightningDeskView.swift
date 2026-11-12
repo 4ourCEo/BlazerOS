@@ -8,7 +8,7 @@ import UIKit
 #endif
 
 /// Main native desk container for iPhone 16.
-/// Features a hero-first execution screen, 5-screen navigation, and a floating bottom bar.
+/// Features a hero-first execution screen, three primary destinations, and a floating bottom bar.
 public struct LightningDeskView: View {
     public init(model: LightningDeskModel) {
         self.model = model
@@ -18,7 +18,22 @@ public struct LightningDeskView: View {
 
     public var body: some View {
         ZStack {
-            DeskInk.background.ignoresSafeArea()
+            ZStack {
+                DeskInk.background
+                RadialGradient(
+                    colors: [DeskInk.indigo.opacity(0.20), .clear],
+                    center: .topTrailing,
+                    startRadius: 20,
+                    endRadius: 460
+                )
+                RadialGradient(
+                    colors: [DeskInk.electric.opacity(0.08), .clear],
+                    center: .bottomLeading,
+                    startRadius: 10,
+                    endRadius: 380
+                )
+            }
+            .ignoresSafeArea()
 
             VStack(spacing: 0) {
                 // Active Screen Content. GeometryReader gives every tab a finite viewport so a
@@ -32,14 +47,8 @@ public struct LightningDeskView: View {
                         case .radar:
                             MarketsScreen(model: model)
                                 .transition(.opacity)
-                        case .intel:
-                            IntelScreen(model: model)
-                                .transition(.opacity)
-                        case .coach:
-                            CoachScreen(model: model)
-                                .transition(.opacity)
-                        case .journal:
-                            JournalScreen(model: model)
+                        case .review:
+                            ReviewScreen(model: model)
                                 .transition(.opacity)
                         }
                     }
@@ -117,4 +126,3 @@ public struct LightningDeskView: View {
 #Preview("iPhone 16 Desk") {
     LightningDeskView(model: LightningDeskModel())
 }
-

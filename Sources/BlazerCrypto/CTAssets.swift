@@ -75,13 +75,9 @@ public enum CTAssets {
     }
 
     // MARK: - Minimum Conviction Threshold
-    // Set to 65 for crypto calibration phase (vs. 70 for FX).
-    // CryptoEngine max realistic score is ~80-90 on the strongest setups.
-    // 65 enforces multi-indicator confluence without being so strict that
-    // the 65-candle Binance window produces 0 signals.
-    //
-    // Raise to 72 after 100 calibration signals if WR ≥ 60%.
-    // Raise to 78 after 200 signals if WR holds above 62%.
+    // Current fixed gate is 75. This score is not a calibrated probability.
+    // Any threshold change requires separate prospective validation, version review
+    // and explicit authorization; nominal win-rate counts do not authorize a change.
 
     public static let minConviction: Int = 75
 }

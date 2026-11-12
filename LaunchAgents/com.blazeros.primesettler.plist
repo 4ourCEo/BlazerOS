@@ -6,11 +6,12 @@
     <string>com.blazeros.primesettler</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/thagreat/BlazerOS/.build/out/Products/Release/ForwardTest</string>
+        <string>/Users/thagreat/Desktop/Blazer/BlazerOS/.build/out/Products/Release/ForwardTest</string>
         <string>--daemon</string>
+        <string>--all-policies</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/thagreat/BlazerOS</string>
+    <string>/Users/thagreat/Desktop/Blazer/BlazerOS</string>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>

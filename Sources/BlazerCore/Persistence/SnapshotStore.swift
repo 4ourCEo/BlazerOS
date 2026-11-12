@@ -74,7 +74,8 @@ public struct SnapshotRecord: Codable, Equatable, Sendable {
     }
 }
 
-/// JSONL snapshots. The same identity is not written twice. A bad line does not drop the others.
+/// JSONL snapshots. The same identity is not written twice. Corruption fails closed so a later
+/// archive cannot rewrite the file and silently erase malformed evidence.
 public actor SnapshotStore {
     private let url: URL
 
@@ -99,10 +100,15 @@ public actor SnapshotStore {
         let decoder = JSONDecoder()
         var records: [SnapshotRecord] = []
         for raw in text.split(separator: "\n", omittingEmptySubsequences: true) {
-            guard let data = String(raw).data(using: .utf8),
-                let record = try? decoder.decode(SnapshotRecord.self, from: data),
-                !record.hash.isEmpty
-            else { continue }
+            guard let data = String(raw).data(using: .utf8) else {
+                throw ScanError.failed("Snapshot archive contains invalid text")
+            }
+            let record: SnapshotRecord
+            do { record = try decoder.decode(SnapshotRecord.self, from: data) }
+            catch { throw ScanError.failed("Snapshot archive contains a corrupt record") }
+            guard !record.hash.isEmpty else {
+                throw ScanError.failed("Snapshot archive contains an invalid identity")
+            }
             records.append(record)
         }
         return records

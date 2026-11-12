@@ -2,6 +2,9 @@ import Foundation
 #if canImport(UserNotifications)
 import UserNotifications
 #endif
+#if os(iOS)
+import UIKit
+#endif
 
 /// Manages local push notifications for high-conviction Pacific Time prime trading windows.
 /// Configured for 5:00 AM PT (Morning NY Overlap) and 11:00 PM PT (Late Night London Surge).
@@ -11,6 +14,8 @@ public final class MarketNotificationService: NSObject, @unchecked Sendable {
     public static let morningNotificationID = "blazer.prime.morning"
     public static let lateNightNotificationID = "blazer.prime.latenight"
     public static let testNotificationID = "blazer.prime.test"
+    public static let orbNotificationReceived = Notification.Name("blazer.orb.notificationReceived")
+    public static let remotePushTokenKey = "blazer.remotePushToken"
 
     private let userDefaultsKey = "blazer.notifications.prime_windows_enabled"
 
@@ -178,6 +183,82 @@ public final class MarketNotificationService: NSObject, @unchecked Sendable {
         return false
         #endif
     }
+
+    /// Schedule one evidence-backed ORB stage alert. The alert only asks the user
+    /// to revalidate current evidence; it never authorizes entry or broker action.
+    public func scheduleORBNotification(_ notification: ORBNotification,
+                                        delaySec: TimeInterval = 1) async -> Bool {
+        #if canImport(UserNotifications)
+        guard Self.hasAppBundle else { return false }
+        guard await requestAuthorization() else { return false }
+        let content = UNMutableNotificationContent()
+        content.title = "ORB \(notification.stage.rawValue.replacingOccurrences(of: "_", with: " "))"
+        content.subtitle = "\(notification.instrument) · \(notification.strategyVersion)"
+        content.body = "Revalidate the current Trade plan. This alert is research evidence, not an entry instruction."
+        content.sound = .default
+        content.userInfo = ["deepLink": notification.deepLink,
+                            "notificationID": notification.id,
+                            "strategy": notification.strategyVersion]
+        let request = UNNotificationRequest(identifier: notification.id, content: content,
+            trigger: UNTimeIntervalNotificationTrigger(timeInterval: max(1, delaySec), repeats: false))
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+            return true
+        } catch {
+            return false
+        }
+        #else
+        return false
+        #endif
+    }
+
+    public func cancelORBNotification(_ notification: ORBNotification) {
+        #if canImport(UserNotifications)
+        guard Self.hasAppBundle else { return }
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [notification.id])
+        #endif
+    }
+
+    /// Publishes an adaptive research notification through the existing local
+    /// delivery path. It never authorizes an order and refuses expired events.
+    public func scheduleAdaptiveNotification(_ notification: AdaptiveNotification,
+                                             now: Date = Date()) async -> Bool {
+        #if canImport(UserNotifications)
+        guard Self.hasAppBundle, notification.isFresh(at: now), await requestAuthorization() else {
+            return false
+        }
+        let content = UNMutableNotificationContent()
+        content.title = notification.kind.rawValue.replacingOccurrences(of: "_", with: " ")
+        content.subtitle = notification.instrument
+        content.body = "Research update. Revalidate current market data before any manual action."
+        content.sound = .default
+        content.userInfo = ["deepLink": notification.deepLink,
+                            "notificationID": notification.id,
+                            "kind": notification.kind.rawValue]
+        let request = UNNotificationRequest(identifier: notification.id, content: content,
+            trigger: UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false))
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+            return true
+        } catch {
+            return false
+        }
+        #else
+        return false
+        #endif
+    }
+
+    /// Registers the app with APNs after permission is granted. The token is only
+    /// a routing identifier; producer authentication remains server-side.
+    public func registerForRemoteNotifications() async -> Bool {
+        #if os(iOS)
+        guard Self.hasAppBundle, await requestAuthorization() else { return false }
+        await MainActor.run { UIApplication.shared.registerForRemoteNotifications() }
+        return true
+        #else
+        return false
+        #endif
+    }
 }
 
 #if canImport(UserNotifications)
@@ -192,6 +273,15 @@ extension MarketNotificationService: UNUserNotificationCenterDelegate {
         } else {
             completionHandler([.alert, .sound, .badge])
         }
+    }
+
+    public func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                       didReceive response: UNNotificationResponse,
+                                       withCompletionHandler completionHandler: @escaping () -> Void) {
+        if let deepLink = response.notification.request.content.userInfo["deepLink"] as? String {
+            NotificationCenter.default.post(name: Self.orbNotificationReceived, object: deepLink)
+        }
+        completionHandler()
     }
 }
 #endif
