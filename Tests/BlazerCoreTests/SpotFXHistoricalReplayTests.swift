@@ -76,3 +76,32 @@ private let replayHigh: StrategyValidationEngine.Evaluator = { input in
     #expect(record.netPnl == nil)
     #expect(record.reason == "Executable bid/ask entry observation missing")
 }
+
+@Test func spotReplayRejectsUnknownStrategyInsteadOfSilentlyRunningBaseline() async {
+    await #expect(throws: ScanError.self) {
+        try await SpotFXHistoricalReplay.replay(cases: [], strategyID: "not-a-policy")
+    }
+}
+
+@Test func spotReplayRequiresEngineSupportedHorizon() async {
+    await #expect(throws: ScanError.self) {
+        try await SpotFXHistoricalReplay.replay(cases: [], strategyID: "baseline",
+            configuration: .init(horizonSeconds: 120))
+    }
+}
+
+@Test func spotReplayEvaluatesSignalUsingTheConfiguredHorizon() async throws {
+    let item = StrategyValidationCase(id: "matching-horizon", stage: .historicalReplay,
+        instrumentID: "oanda:EUR/USD", engineAsset: "EUR/USD", venueID: "OANDA",
+        marketKind: .standard, signalTimestamp: replaySignalTime,
+        engineSHA: EngineIdentity.pinnedSHA1, input: replayInput(),
+        observations: [], provenance: "horizon-contract fixture")
+    let records = try await SpotFXHistoricalReplay.replay(cases: [item], strategyID: "baseline",
+        configuration: .init(horizonSeconds: 180), evaluator: { input in
+            #expect(input.expirySeconds == 180)
+            return EngineSignal(asset: input.asset, cabinetSide: "WAIT", call: "WAIT",
+                why: "fixture", price: input.lastPrice)
+        })
+    #expect(records.count == 1)
+    #expect(records[0].status == .unresolved)
+}
