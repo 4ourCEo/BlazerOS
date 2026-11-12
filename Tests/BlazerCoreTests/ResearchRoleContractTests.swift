@@ -10,9 +10,13 @@ private func strategy() throws -> ResearchStrategyIdentity {
     try ResearchStrategyIdentity(name: "contextual-breakout", version: "2.1")
 }
 
-@Test func m5ContextM1TriggerCanUseStructuralExitWithoutHorizon() throws {
+@Test func currentBaselineSelectsM5At30BarsOtherwiseM1AndKeepsM1Trigger() throws {
     let contract = try ResearchRoleContract(
         dataResolutions: [try resolution("M1"), try resolution("M5", seconds: 300)],
+        resolutionSelections: [
+            try ResearchResolutionSelectionRule(selectionRole: "primary", resolutionID: "M5", minimumCompletedBars: 30),
+            try ResearchResolutionSelectionRule(selectionRole: "primary", resolutionID: "M1", minimumCompletedBars: 20)
+        ],
         featureRoles: [
             try ResearchFeatureRole(name: "context", version: "v1", sourceResolutionID: "M5", lookback: .bars(12)),
             try ResearchFeatureRole(name: "entry", version: "v2", sourceResolutionID: "M1", lookback: .duration(seconds: 90))
@@ -25,11 +29,46 @@ private func strategy() throws -> ResearchStrategyIdentity {
 
     #expect(contract.dataResolutions.map(\.id) == ["M1", "M5"])
     #expect(contract.featureRoles[0].sourceResolutionID == "M5")
+    #expect(contract.resolutionSelections.map(\.resolutionID) == ["M5", "M1"])
     if case .structural = contract.exit {
         // Structural exits deliberately carry no duration or implied horizon.
     } else {
         Issue.record("expected structural exit")
     }
+}
+
+@Test func featuresCanUseSeveralStreamsOrASelectionRoleAndPolicyFreshnessIsExplicit() throws {
+    let contract = try ResearchRoleContract(
+        dataResolutions: [try resolution("M1"), try resolution("M5", seconds: 300)],
+        resolutionSelections: [try ResearchResolutionSelectionRule(selectionRole: "primary", resolutionID: "M5", minimumCompletedBars: 30), try ResearchResolutionSelectionRule(selectionRole: "primary", resolutionID: "M1", minimumCompletedBars: 20)],
+        featureRoles: [
+            try ResearchFeatureRole(name: "spread-context", version: "v2", inputs: [
+                ResearchFeatureInput(sourceResolutionID: "M1", lookback: .bars(4)),
+                ResearchFeatureInput(sourceResolutionID: "M5", lookback: .bars(14))
+            ], policyScope: "orb"),
+            try ResearchFeatureRole(name: "primary-context", version: "v3", inputs: [
+                ResearchFeatureInput(selectionRole: "primary", lookback: .duration(seconds: 900))
+            ], policyScope: "orb")
+        ],
+        freshnessRequirements: [
+            try ResearchFreshnessRequirement(kind: .quoteAge, sourceRole: "entry-quote", maximumSeconds: 2),
+            try ResearchFreshnessRequirement(kind: .futureSkew, sourceRole: "entry-quote", maximumSeconds: 0.5),
+            try ResearchFreshnessRequirement(kind: .completedBarTrigger, sourceRole: "M1", maximumSeconds: 300)
+        ], declaredInputRoles: ["entry-quote"], trigger: .barClose(resolutionID: "M1"), exit: .structuralWithSetupExpiry(planName: "orb-stop-or-target", maximumSetupDurationSeconds: 1_800), strategy: try strategy(), engineIdentity: nil
+    )
+    #expect(contract.featureRoles[0].sourceResolutionIDs == ["M1", "M5"])
+    #expect(contract.featureRoles[0].inputs.map(\.lookback) == [.bars(4), .bars(14)])
+    #expect(contract.freshnessRequirements.map(\.kind) == [.quoteAge, .futureSkew, .completedBarTrigger])
+    if case .structuralWithSetupExpiry(_, let expiry) = contract.exit { #expect(expiry == 1_800) } else { Issue.record("expected setup expiry without exit horizon") }
+}
+
+@Test func selectionsChooseOrderedFallbacksAndIndependentGroups() throws {
+    let rules = [try ResearchResolutionSelectionRule(selectionRole: "primary", resolutionID: "M5", minimumCompletedBars: 30), try ResearchResolutionSelectionRule(selectionRole: "primary", resolutionID: "M1", minimumCompletedBars: 20), try ResearchResolutionSelectionRule(selectionRole: "confirmation", resolutionID: "M15", minimumCompletedBars: 10), try ResearchResolutionSelectionRule(selectionRole: "confirmation", resolutionID: "M1", minimumCompletedBars: 5)]
+    #expect(rules.selectedResolutionID(selectionRole: "primary", completedBarsByResolution: ["M5": 30, "M1": 52]) == "M5")
+    #expect(rules.selectedResolutionID(selectionRole: "primary", completedBarsByResolution: ["M5": 29, "M1": 52]) == "M1")
+    #expect(rules.selectedResolutionID(selectionRole: "primary", completedBarsByResolution: ["M5": 29, "M1": 19]) == nil)
+    #expect(rules.selectedResolutionID(selectionRole: "confirmation", completedBarsByResolution: ["M15": 9, "M1": 5]) == "M1")
+    #expect(throws: ResearchRoleContractError.invalidFallbackOrder) { try ResearchRoleContract(dataResolutions: [try resolution("M1"), try resolution("M5"), try resolution("M15")], resolutionSelections: [try ResearchResolutionSelectionRule(selectionRole: "primary", resolutionID: "M5", minimumCompletedBars: 30), try ResearchResolutionSelectionRule(selectionRole: "primary", resolutionID: "M1", minimumCompletedBars: 20), try ResearchResolutionSelectionRule(selectionRole: "confirmation", resolutionID: "M15", minimumCompletedBars: 4), try ResearchResolutionSelectionRule(selectionRole: "confirmation", resolutionID: "M1", minimumCompletedBars: 5)], featureRoles: [], trigger: .barClose(resolutionID: "M1"), exit: .structural(planName: "p"), strategy: try strategy(), engineIdentity: nil) }
 }
 
 @Test func anotherResolutionConfigurationAndQuoteTriggerAreIndependent() throws {
@@ -72,6 +111,15 @@ private func strategy() throws -> ResearchStrategyIdentity {
             strategy: try strategy(), engineIdentity: nil
         )
     }
+    #expect(throws: ResearchRoleContractError.invalidFallbackOrder) {
+        try ResearchRoleContract(dataResolutions: [try resolution("M1"), try resolution("M5")], resolutionSelections: [try ResearchResolutionSelectionRule(selectionRole: "primary", resolutionID: "M5", minimumCompletedBars: 20), try ResearchResolutionSelectionRule(selectionRole: "primary", resolutionID: "M1", minimumCompletedBars: 30)], featureRoles: [], trigger: .barClose(resolutionID: "M1"), exit: .structural(planName: "plan"), strategy: try strategy(), engineIdentity: nil)
+    }
+    #expect(throws: ResearchRoleContractError.invalidFreshness) {
+        try ResearchFreshnessRequirement(kind: .quoteAge, sourceRole: "quote", maximumSeconds: .infinity)
+    }
+    #expect(throws: ResearchRoleContractError.invalidPolicyScope) {
+        try ResearchFeatureRole(name: "f", version: "v1", sourceResolutionID: "M1", lookback: .bars(1), policyScope: " ")
+    }
 }
 
 @Test func contractJSONRoundTripsAndDecodingRemainsValidated() throws {
@@ -102,4 +150,10 @@ private func strategy() throws -> ResearchStrategyIdentity {
     #expect(throws: ResearchRoleContractError.invalidName) {
         try JSONDecoder().decode(ResearchRoleContract.self, from: malformedStrategyData)
     }
+}
+
+@Test func lookbackDecodesPriorSynthesizedEnumWireFormat() throws {
+    let decoder = JSONDecoder()
+    #expect(try decoder.decode(ResearchLookback.self, from: Data(#"{"bars":{"_0":12}}"#.utf8)) == .bars(12))
+    #expect(try decoder.decode(ResearchLookback.self, from: Data(#"{"duration":{"_0":90}}"#.utf8)) == .duration(seconds: 90))
 }
