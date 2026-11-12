@@ -24,6 +24,7 @@ struct Options {
     var interactiveCredentials = false
     var historicalBidAsk = false
     var authenticReplay = false
+    var orbStructuralArchive = false
     var forwardQuotes = false
     var captureSeconds = 30
     var historicalHours = 15
@@ -48,6 +49,7 @@ struct Options {
             case "--interactive-credentials": interactiveCredentials = true
             case "--historical-bid-ask": historicalBidAsk = true
             case "--authentic-replay": authenticReplay = true
+            case "--orb-structural-archive": orbStructuralArchive = true
             case "--forward-quotes": forwardQuotes = true
             case "--policy-funnel": policyFunnel = true
             case "--replay": replay = true
@@ -587,7 +589,14 @@ struct ForwardTestApp {
         do {
             let options = try Options(Array(CommandLine.arguments.dropFirst()))
             if options.help {
-                 print("ForwardTest [--edge-report --root DESK_PATH --as-of UNIX_SECONDS | --policy-funnel | --historical-bid-ask --historical-hours N --historical-offset-hours N | --forward-quotes --capture-seconds N | --authentic-replay | --benchmark | --stats | --bootstrap | --replay | --experiment | --adaptive | --adaptive-diagnostic] [--interactive-credentials] [--orb] [--root PATH] [--asset PAIR] [--policy baseline|continuation|reversal|regime|control | --all-policies] [--max-events N] [--prime-only] [--continuous | --daemon]")
+                 print("ForwardTest [--orb-structural-archive --root SCRATCH_ROOT (scratch only; contains historical-bid-ask; report written under root) [--asset EUR/USD|GBP/JPY] | --edge-report --root DESK_PATH --as-of UNIX_SECONDS | --policy-funnel | --historical-bid-ask --historical-hours N --historical-offset-hours N | --forward-quotes --capture-seconds N | --authentic-replay | --benchmark | --stats | --bootstrap | --replay | --experiment | --adaptive | --adaptive-diagnostic] [--interactive-credentials] [--orb] [--root PATH] [--asset PAIR] [--policy baseline|continuation|reversal|regime|control | --all-policies] [--max-events N] [--prime-only] [--continuous | --daemon]")
+                return
+            }
+            if options.orbStructuralArchive {
+                guard let root = options.root else {
+                    throw ScanError.failed("--orb-structural-archive requires --root SCRATCH_ROOT")
+                }
+                try ORBArchiveReplayCommand.run(root: root, asset: options.asset)
                 return
             }
             let runner = ResearchRunner(options: options)
