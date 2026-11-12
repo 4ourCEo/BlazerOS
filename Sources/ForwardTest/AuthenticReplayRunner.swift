@@ -10,11 +10,25 @@ struct AuthenticReplaySummary: Codable {
     let cases: Int
     let rejections: Int
     let strategyResults: [StrategyReplaySummary]
+    let policyDiagnostics: [PolicyReplayDiagnostics]
     let adaptive: StrategyReplaySummary
     let orb: ORBReplaySummary
     let delaySensitivity: [DelayReplaySummary]
     let costSensitivity: [CostReplaySummary]
     let chronologicalHoldout: HoldoutReplaySummary
+}
+
+/// Descriptive engine/selector funnel evidence for the exact evaluations used
+/// by the adaptive research decision. These counts do not describe outcomes or
+/// performance and do not authorize execution.
+struct PolicyReplayDiagnostics: Codable {
+    let policy: String
+    let observations: Int
+    let featureCompleteObservations: Int
+    let directionalCandidates: Int
+    let engineRejectionReasons: [String: Int]
+    let selectorRejectionReasons: [String: Int]
+    let selectedCandidates: Int
 }
 
 struct ORBReplaySummary: Codable {
@@ -151,6 +165,9 @@ extension ResearchRunner {
                 cases: built.cases, strategyID: policy, configuration: configurations[0])))
         }
         var adaptivePolicies: [String: String] = [:]
+        var policyDiagnostics: [String: (featureComplete: Int, directional: Int,
+                                        engineReasons: [String: Int], selectorReasons: [String: Int],
+                                        selected: Int)] = [:]
         for item in built.cases {
             var candidates: [AdaptiveOpportunityCandidate] = []
             for policy in policies {
@@ -162,11 +179,34 @@ extension ResearchRunner {
                 } catch {
                     throw ScanError.failed("\(StrategyEngine.dtcException ?? error.localizedDescription) policy=\(policy) case=\(item.id) m1=\(input.candles1m.count) m5=\(input.candles5m.count) evaluated=\(input.evaluatedAtMs ?? -1)")
                 }
+                var diagnostic = policyDiagnostics[policy] ??
+                    (featureComplete: 0, directional: 0, engineReasons: [:], selectorReasons: [:], selected: 0)
+                if evaluation.signal.features != nil { diagnostic.featureComplete += 1 }
+                let engineReasons = (evaluation.signal.vetoes?.isEmpty == false)
+                    ? (evaluation.signal.vetoes ?? [])
+                    : (evaluation.signal.cabinetSide == "WAIT" ? [evaluation.signal.why] : [])
+                for reason in engineReasons {
+                    diagnostic.engineReasons[reason, default: 0] += 1
+                }
+                policyDiagnostics[policy] = diagnostic
                 candidates.append(AdaptiveOpportunityAdapters.engine(input, policy: ScanPolicy(rawValue: policy)!,
                     startedAt: item.signalTimestamp, completedAt: item.signalTimestamp, result: evaluation))
             }
             let decision = AdaptiveOpportunitySelector.select(candidates, now: item.signalTimestamp,
                 decisionAt: item.signalTimestamp)
+            for (candidate, reviewed) in zip(candidates, decision.candidates) {
+                var diagnostic = policyDiagnostics[candidate.strategyID] ??
+                    (featureComplete: 0, directional: 0, engineReasons: [:], selectorReasons: [:], selected: 0)
+                // Feature presence and direction are properties of the engine
+                // result, not of replay profitability or entry availability.
+                if candidate.direction != .wait { diagnostic.directional += 1 }
+                let candidateReasonSet = Set(candidate.rejectionReasons)
+                for reason in reviewed.rejectionReasons where !candidateReasonSet.contains(reason) {
+                    diagnostic.selectorReasons[reason, default: 0] += 1
+                }
+                if decision.selectedCandidateID == candidate.id { diagnostic.selected += 1 }
+                policyDiagnostics[candidate.strategyID] = diagnostic
+            }
             if let selected = decision.selectedCandidateID,
                let policy = policies.first(where: { selected.hasPrefix("\($0)-") }) {
                 adaptivePolicies[item.id] = policy
@@ -200,6 +240,16 @@ extension ResearchRunner {
             m1Candles: m1.count, m5Candles: m5.count, cases: built.cases.count,
             rejections: built.rejections.count,
             strategyResults: strategyRecords.map { summarize(policy: $0.0, records: $0.1, cases: built.cases.count) },
+            policyDiagnostics: policies.map { policy in
+                let diagnostic = policyDiagnostics[policy] ??
+                    (featureComplete: 0, directional: 0, engineReasons: [:], selectorReasons: [:], selected: 0)
+                return PolicyReplayDiagnostics(policy: policy, observations: built.cases.count,
+                    featureCompleteObservations: diagnostic.featureComplete,
+                    directionalCandidates: diagnostic.directional,
+                    engineRejectionReasons: diagnostic.engineReasons,
+                    selectorRejectionReasons: diagnostic.selectorReasons,
+                    selectedCandidates: diagnostic.selected)
+            },
             adaptive: summarize(policy: "adaptive", records: adaptiveRecords, cases: built.cases.count),
             orb: orbReplay(asset: asset, candles: m1, prices: prices),
             delaySensitivity: recordsByDelay.map { delay, records in
