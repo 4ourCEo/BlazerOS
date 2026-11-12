@@ -25,10 +25,91 @@ struct PolicyReplayDiagnostics: Codable {
     let policy: String
     let observations: Int
     let featureCompleteObservations: Int
+    let spreadATRAbove02: Int
+    /// Recomputed from the exact input using the pinned engine's isSpreadOk rule.
+    let signalSpreadOkFalse: Int
+    let spreadChecksBothFail: Int
+    let spreadChecksEitherFail: Int
+    /// Engine's emitted combined reason; it does not identify the failing arm.
+    let combinedSpreadVetoReason: Int
     let directionalCandidates: Int
     let engineRejectionReasons: [String: Int]
+    /// Pairwise overlaps are per-case observations, not exclusive buckets.
+    let engineRejectionIntersections: [String: Int]
     let selectorRejectionReasons: [String: Int]
     let selectedCandidates: Int
+    let limitations: [String]
+}
+
+private struct AuthenticPolicyDiagnosticAccumulator {
+    var featureComplete = 0
+    var directional = 0
+    var engineReasons: [String: Int] = [:]
+    var selectorReasons: [String: Int] = [:]
+    var selected = 0
+    var spreadATRAbove02 = 0
+    var signalSpreadOkFalse = 0
+    var spreadChecksBothFail = 0
+    var spreadChecksEitherFail = 0
+    var combinedSpreadVetoReason = 0
+    var engineRejectionIntersections: [String: Int] = [:]
+
+    mutating func observe(_ signal: EngineSignal, input: StrategyEngine.MarketInput,
+                          engineReasons: [String]) {
+        if signal.features != nil { featureComplete += 1 }
+        for reason in engineReasons { self.engineReasons[reason, default: 0] += 1 }
+
+        var atoms = Set<String>()
+        let spreadATRRejected = (signal.features?.spreadATR ?? 0) > 0.2
+        if spreadATRRejected {
+            spreadATRAbove02 += 1
+            atoms.insert("spreadATR_gt_0.2")
+        }
+        // EngineSignal doesn't decode `spreadOk`, so recompute its pinned
+        // isSpreadOk rule from the exact evaluated input. Keep the emitted
+        // combined reason as a separate observable for consistency checking.
+        let signalSpreadAccepted = Self.pinnedEngineSpreadOK(input)
+        if !signalSpreadAccepted {
+            signalSpreadOkFalse += 1
+            atoms.insert("signal_spread_ok_false")
+        }
+        let combinedVetoObserved = engineReasons.contains("Spread relative to volatility")
+        if combinedVetoObserved {
+            combinedSpreadVetoReason += 1
+            atoms.insert("combined_spread_veto_reason")
+        }
+        if spreadATRRejected && !signalSpreadAccepted {
+            spreadChecksBothFail += 1
+        }
+        if spreadATRRejected || !signalSpreadAccepted {
+            spreadChecksEitherFail += 1
+        }
+
+        let reasonAtoms: [(String, String)] = [
+            ("no_qualifying_setup", "No qualifying setup"),
+            ("shock_or_compression", "Shock or compression regime"),
+            ("trigger_too_old", "Trigger candle too old"),
+            ("quote_stale", "Research quote stale")
+        ]
+        for (atom, reason) in reasonAtoms where engineReasons.contains(reason) {
+            atoms.insert(atom)
+        }
+        let ordered = atoms.sorted()
+        for i in 0..<ordered.count {
+            for j in (i + 1)..<ordered.count {
+                let key = "\(ordered[i]) & \(ordered[j])"
+                engineRejectionIntersections[key, default: 0] += 1
+            }
+        }
+    }
+
+    private static func pinnedEngineSpreadOK(_ input: StrategyEngine.MarketInput) -> Bool {
+        guard input.spread.isFinite, input.spread > 0 else { return false }
+        let rawRange = input.candles1m.last.map { $0.high - $0.low } ?? 0
+        let barRange = rawRange.isFinite ? rawRange : 0
+        let pip = Assets.pipScale(for: input.asset)
+        return !(input.spread > max(3 * pip, 0.5 * barRange))
+    }
 }
 
 struct ORBReplaySummary: Codable {
@@ -165,9 +246,7 @@ extension ResearchRunner {
                 cases: built.cases, strategyID: policy, configuration: configurations[0])))
         }
         var adaptivePolicies: [String: String] = [:]
-        var policyDiagnostics: [String: (featureComplete: Int, directional: Int,
-                                        engineReasons: [String: Int], selectorReasons: [String: Int],
-                                        selected: Int)] = [:]
+        var policyDiagnostics: [String: AuthenticPolicyDiagnosticAccumulator] = [:]
         for item in built.cases {
             var candidates: [AdaptiveOpportunityCandidate] = []
             for policy in policies {
@@ -179,15 +258,11 @@ extension ResearchRunner {
                 } catch {
                     throw ScanError.failed("\(StrategyEngine.dtcException ?? error.localizedDescription) policy=\(policy) case=\(item.id) m1=\(input.candles1m.count) m5=\(input.candles5m.count) evaluated=\(input.evaluatedAtMs ?? -1)")
                 }
-                var diagnostic = policyDiagnostics[policy] ??
-                    (featureComplete: 0, directional: 0, engineReasons: [:], selectorReasons: [:], selected: 0)
-                if evaluation.signal.features != nil { diagnostic.featureComplete += 1 }
                 let engineReasons = (evaluation.signal.vetoes?.isEmpty == false)
                     ? (evaluation.signal.vetoes ?? [])
                     : (evaluation.signal.cabinetSide == "WAIT" ? [evaluation.signal.why] : [])
-                for reason in engineReasons {
-                    diagnostic.engineReasons[reason, default: 0] += 1
-                }
+                var diagnostic = policyDiagnostics[policy] ?? AuthenticPolicyDiagnosticAccumulator()
+                diagnostic.observe(evaluation.signal, input: input, engineReasons: engineReasons)
                 policyDiagnostics[policy] = diagnostic
                 candidates.append(AdaptiveOpportunityAdapters.engine(input, policy: ScanPolicy(rawValue: policy)!,
                     startedAt: item.signalTimestamp, completedAt: item.signalTimestamp, result: evaluation))
@@ -195,8 +270,7 @@ extension ResearchRunner {
             let decision = AdaptiveOpportunitySelector.select(candidates, now: item.signalTimestamp,
                 decisionAt: item.signalTimestamp)
             for (candidate, reviewed) in zip(candidates, decision.candidates) {
-                var diagnostic = policyDiagnostics[candidate.strategyID] ??
-                    (featureComplete: 0, directional: 0, engineReasons: [:], selectorReasons: [:], selected: 0)
+                var diagnostic = policyDiagnostics[candidate.strategyID] ?? AuthenticPolicyDiagnosticAccumulator()
                 // Feature presence and direction are properties of the engine
                 // result, not of replay profitability or entry availability.
                 if candidate.direction != .wait { diagnostic.directional += 1 }
@@ -242,13 +316,24 @@ extension ResearchRunner {
             strategyResults: strategyRecords.map { summarize(policy: $0.0, records: $0.1, cases: built.cases.count) },
             policyDiagnostics: policies.map { policy in
                 let diagnostic = policyDiagnostics[policy] ??
-                    (featureComplete: 0, directional: 0, engineReasons: [:], selectorReasons: [:], selected: 0)
+                    AuthenticPolicyDiagnosticAccumulator()
                 return PolicyReplayDiagnostics(policy: policy, observations: built.cases.count,
                     featureCompleteObservations: diagnostic.featureComplete,
+                    spreadATRAbove02: diagnostic.spreadATRAbove02,
+                    signalSpreadOkFalse: diagnostic.signalSpreadOkFalse,
+                    spreadChecksBothFail: diagnostic.spreadChecksBothFail,
+                    spreadChecksEitherFail: diagnostic.spreadChecksEitherFail,
+                    combinedSpreadVetoReason: diagnostic.combinedSpreadVetoReason,
                     directionalCandidates: diagnostic.directional,
                     engineRejectionReasons: diagnostic.engineReasons,
+                    engineRejectionIntersections: diagnostic.engineRejectionIntersections,
                     selectorRejectionReasons: diagnostic.selectorReasons,
-                    selectedCandidates: diagnostic.selected)
+                    selectedCandidates: diagnostic.selected,
+                    limitations: [
+                        "Spread counts are overlapping per-case observations, not exclusive categories.",
+                        "signalSpreadOkFalse is recomputed from the exact input using the pinned scan-engine.js isSpreadOk rule because EngineSignal does not decode spreadOk; combinedSpreadVetoReason records only the emitted OR-combined veto text.",
+                        "Rejection intersections are emitted only for reason atoms observable in the signal/veto array; counts must not be summed."
+                    ])
             },
             adaptive: summarize(policy: "adaptive", records: adaptiveRecords, cases: built.cases.count),
             orb: orbReplay(asset: asset, candles: m1, prices: prices),
