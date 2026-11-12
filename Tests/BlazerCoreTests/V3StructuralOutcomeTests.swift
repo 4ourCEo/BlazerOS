@@ -132,6 +132,12 @@ struct V3StructuralOutcomeTests {
         #expect(first.firstTouchCandleStart == now)
         #expect(first.firstTouchCandleEnd == now.addingTimeInterval(60))
         #expect(abs((first.spreadToRiskRatio ?? 0) - 0.2) < 1e-12)
+        #expect(first.entryQuoteCandleStart == now.addingTimeInterval(-60))
+        #expect(first.entryQuoteCandleEnd == now)
+        #expect(first.entryBidClose == 1.0999)
+        #expect(first.entryAskClose == 1.1001)
+        #expect(first.entrySpread == first.entryAskClose! - first.entryBidClose!)
+        #expect(first.entryIndicativeSideClose == first.entryAskClose)
         let quiet = archiveCandle(now, bid: (1.100, 1.101, 1.0995, 1.100),
             ask: (1.1002, 1.1012, 1.0997, 1.1002))
         let unresolved = ORBArchiveStructuralReplay.evaluate(plan: plan, candles: [archiveEntryCandle(plan), quiet])
@@ -240,6 +246,9 @@ struct V3StructuralOutcomeTests {
             ask: (1.0999, 1.1000, 1.0979, 1.0998))
         #expect(ORBArchiveStructuralReplay.evaluate(plan: short,
             candles: [archiveEntryCandle(short), target]).status == .targetTouched)
+        let shortEntry = ORBArchiveStructuralReplay.evaluate(plan: short, candles: [archiveEntryCandle(short)])
+        #expect(shortEntry.entryIndicativeSideClose == shortEntry.entryBidClose)
+        #expect(shortEntry.entrySpread == shortEntry.entryAskClose! - shortEntry.entryBidClose!)
         let long = archivePlan()
         let both = archiveCandle(now, bid: (1.100, 1.1021, 1.0989, 1.100),
             ask: (1.1002, 1.1023, 1.0991, 1.1002))
@@ -249,7 +258,19 @@ struct V3StructuralOutcomeTests {
 
     @Test func archiveStructuralReplaySeparatesMissingEntryAndSpreadFailure() {
         let plan = archivePlan()
-        #expect(ORBArchiveStructuralReplay.evaluate(plan: plan, candles: []).status == .entryMissingQuote)
+        let missing = ORBArchiveStructuralReplay.evaluate(plan: plan, candles: [])
+        #expect(missing.status == .entryMissingQuote)
+        #expect(missing.entryQuoteCandleStart == nil)
+        #expect(missing.entryQuoteCandleEnd == nil)
+        #expect(missing.entryBidClose == nil)
+        #expect(missing.entryAskClose == nil)
+        #expect(missing.entryIndicativeSideClose == nil)
+        let wrongMinute = archiveCandle(now.addingTimeInterval(-120),
+            bid: (1.0999, 1.1000, 1.0998, 1.0999),
+            ask: (1.1001, 1.1002, 1.1000, 1.1001))
+        let noFallback = ORBArchiveStructuralReplay.evaluate(plan: plan, candles: [wrongMinute])
+        #expect(noFallback.status == .entryMissingQuote)
+        #expect(noFallback.entryQuoteCandleStart == nil)
         let wide = archiveEntryCandle(plan, spread: 0.0004)
         #expect(ORBArchiveStructuralReplay.evaluate(plan: plan, candles: [wide]).status == .entrySpreadExceeded)
     }

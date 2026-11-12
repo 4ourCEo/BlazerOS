@@ -19,6 +19,8 @@ Repeated candidate evaluations were deduplicated by plan ID: 537 repeated decisi
 
 The GBP/JPY entry-spread failures describe incompatibility with the existing ORB plan limit, not failed exits and not evidence to loosen the limit. The entry check is a source-matched candle-close quote feasibility observation only.
 
+The JSON report records, per plan, the exact matched M1 candle start/end, bid close, ask close, computed ask-minus-bid spread, and a side-indicative reference (long ask close / short bid close). These fields are **archived candle-close quote evidence only**—not an order, live quote, fill, or guaranteed executable price. The archive cannot establish quote receive timestamp or quote age; no freshness is fabricated and no age threshold is applied. A missing or invalid exact entry candle is not replaced by a fallback candle.
+
 ## Interpretation limits
 
 - Stop/target touch classes are observations from candle OHLC bounds, not broker-confirmed executions, positions, or fills.
@@ -36,6 +38,6 @@ swift run ForwardTest --orb-structural-archive \
   --root /path/to/scratch-root
 ```
 
-The command reads `<scratch-root>/historical-bid-ask` and writes `<scratch-root>/structural-replay/orb-structural-report.json`. It validates Practice filename/range identity, transport, HTTP status, candle identity/integrity, and overlapping batches; conflicting duplicate candles fail closed. The JSON output SHA-256 for this run is `b3d0bca1cce013b0e85a5984265938361c1b42d7b0c9dc1f88507845aa6d3fbd`.
+The command reads `<scratch-root>/historical-bid-ask` and writes `<scratch-root>/structural-replay/orb-structural-report.json`. It validates Practice filename/range identity, transport, HTTP status, candle identity/integrity, and overlapping batches; conflicting duplicate candles fail closed.
 
-The source archive is read-only and must not be used as the output root. The report is a measured research artifact, not a trading recommendation.
+The source archive is read-only and must not be used as the output root. The updated JSON output SHA-256 is `f1203f07c24c4c419c06ec8da41b1519c9c8d4a06cfff3000b2703692e90929b`; the report's 20/20 source SHA-256 values match the authorized scratch archive, and all source bytes remained unchanged. The report is a measured research artifact, not a trading recommendation.
