@@ -185,7 +185,8 @@ def collect(repo, binary, credentials, asset, hours, offset, archive_root,
         result = subprocess.run(command, cwd=repo, env=child_env, check=False)
         if result.returncode:
             raise PreflightError("COLLECTION_FAILED", "ForwardTest historical collector failed")
-    # Collections for different instruments may run concurrently in one archive.
+    # Filter by instrument so independent EUR/USD and GBP/JPY collections can
+    # safely share the archive directory without counting each other's files.
     created = sorted(set(archive_root.glob(archive_pattern)) - before)
     expected = set(granularities)
     if len(created) != len(expected):

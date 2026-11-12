@@ -60,9 +60,12 @@ class PracticeLauncherTests(unittest.TestCase):
     def test_preflight_checks_account_membership_and_m1_candle_access(self):
         credentials = {"OANDA_API_TOKEN": "never-printed", "OANDA_ACCOUNT_ID": "selected", "OANDA_ENV": "practice"}
         with patch.object(MODULE, "request_json", side_effect=[
-            {"accounts": [{"id": "selected"}]}, {"candles": [{"complete": True,
-                "bid": {"o": "1", "h": "2", "l": "1", "c": "2"},
-                "ask": {"o": "3", "h": "4", "l": "3", "c": "4"}}]},
+            {"accounts": [{"id": "selected"}]}, {"candles": [
+                {"complete": True,
+                 "bid": {"o": "1", "h": "2", "l": "1", "c": "2"},
+                 "ask": {"o": "3", "h": "4", "l": "3", "c": "4"}},
+                {"complete": False},
+            ]},
         ]) as request:
             with patch("builtins.print"):
                 MODULE.preflight(credentials, "EUR/USD")
@@ -194,6 +197,31 @@ class PracticeLauncherTests(unittest.TestCase):
     def test_runner_rejects_arbitrary_repo_option(self):
         with self.assertRaises(SystemExit):
             MODULE.main(["collect", "--repo", "/tmp/untrusted", "--asset", "EUR/USD"])
+
+    def test_collection_ignores_concurrent_other_instrument_archive(self):
+        credentials = {"OANDA_API_TOKEN": "unused", "OANDA_ACCOUNT_ID": "id", "OANDA_ENV": "practice"}
+        candle = {"complete": True, "sourceTime": 815692800,
+                  "instrument": "EUR_USD", "granularity": "M15",
+                  "bidOpen": 1, "bidHigh": 2, "bidLow": 1, "bidClose": 2,
+                  "askOpen": 3, "askHigh": 4, "askLow": 3, "askClose": 4}
+
+        def create_batches(command, **kwargs):
+            archive = Path(command[command.index("--root") + 1]) / "historical-bid-ask"
+            archive.mkdir(parents=True, exist_ok=True)
+            for instrument in ("EUR_USD", "GBP_JPY"):
+                payload = {"transport": "ok", "instrument": instrument, "granularity": "M15",
+                           "requestedFrom": 815692740, "requestedTo": 815692860,
+                           "candles": [{**candle, "instrument": instrument}]}
+                (archive / f"oanda-practice-{instrument}-M15-concurrent.json").write_text(
+                    json.dumps(payload), encoding="utf-8")
+            return type("Completed", (), {"returncode": 0})()
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "historical-bid-ask"
+            with patch.object(MODULE.subprocess, "run", side_effect=create_batches), \
+                    patch("builtins.print"):
+                MODULE.collect(MODULE.SCRIPT_REPO, Path("/bin/true"), credentials,
+                               "EUR/USD", 1, 0, root, ("M15",))
 
     def test_connection_failure_is_distinct(self):
         with patch.object(MODULE.urllib.request, "urlopen", side_effect=OSError("offline")):
