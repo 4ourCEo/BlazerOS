@@ -1,4 +1,5 @@
 import BlazerCore
+import CryptoKit
 import Foundation
 import LightningDesk
 
@@ -17,6 +18,18 @@ struct Options {
     var maxEvents = 100
     var bootstrap = false
     var experiment = false
+    var orb = false
+    var adaptive = false
+    var adaptiveDiagnostic = false
+    var interactiveCredentials = false
+    var historicalBidAsk = false
+    var authenticReplay = false
+    var forwardQuotes = false
+    var captureSeconds = 30
+    var historicalHours = 15
+    var historicalOffsetHours = 0
+    var policyFunnel = false
+    var asset: String?
 
     init(_ arguments: [String]) throws {
         var index = 0
@@ -29,12 +42,20 @@ struct Options {
             case "--stats", "-s": stats = true
             case "--bootstrap": stats = true; bootstrap = true
             case "--experiment": experiment = true
+            case "--orb": orb = true
+            case "--adaptive": adaptive = true
+            case "--adaptive-diagnostic": adaptiveDiagnostic = true
+            case "--interactive-credentials": interactiveCredentials = true
+            case "--historical-bid-ask": historicalBidAsk = true
+            case "--authentic-replay": authenticReplay = true
+            case "--forward-quotes": forwardQuotes = true
+            case "--policy-funnel": policyFunnel = true
             case "--replay": replay = true
             case "--continuous": continuous = true
             case "--daemon", "-d": daemon = true; continuous = true; primeOnly = true
             case "--prime-only", "--smart-schedule": primeOnly = true
             case "--all-policies": policies = ["control"] + ScanPolicy.allCases.map(\.rawValue)
-            case "--root", "--policy", "--max-events", "--as-of":
+            case "--root", "--policy", "--max-events", "--as-of", "--asset", "--historical-hours", "--historical-offset-hours", "--capture-seconds":
                 index += 1
                 guard index < arguments.count else { throw ScanError.failed("Missing value for \(arg)") }
                 let value = arguments[index]
@@ -52,6 +73,28 @@ struct Options {
                 if arg == "--max-events" {
                     guard let count = Int(value), count > 0 else { throw ScanError.failed("Invalid event limit") }
                     maxEvents = count
+                }
+                if arg == "--asset" {
+                    guard Assets.watchlist.contains(value) else { throw ScanError.failed("Unsupported asset \(value)") }
+                    asset = value
+                }
+                if arg == "--historical-hours" {
+                    guard let hours = Int(value), (1...120).contains(hours) else {
+                        throw ScanError.failed("Historical hours must be between 1 and 120")
+                    }
+                    historicalHours = hours
+                }
+                if arg == "--historical-offset-hours" {
+                    guard let offset = Int(value), (0...720).contains(offset) else {
+                        throw ScanError.failed("Historical offset hours must be between 0 and 720")
+                    }
+                    historicalOffsetHours = offset
+                }
+                if arg == "--capture-seconds" {
+                    guard let seconds = Int(value), (1...300).contains(seconds) else {
+                        throw ScanError.failed("Capture seconds must be between 1 and 300")
+                    }
+                    captureSeconds = seconds
                 }
             default: throw ScanError.failed("Unknown argument \(arg)")
             }
@@ -71,6 +114,9 @@ final class ResearchRunner {
     var lastBar: [String: Double] = [:]
     var captured = 0
     var observationFault: String?
+    var orbPlans: [String: V3TradePlan] = [:]
+    var orbEntries: [String: V3PlanEntryEvidence] = [:]
+    var orbCompleted: Set<String> = []
 
     init(options: Options) {
         self.options = options
@@ -113,6 +159,56 @@ final class ResearchRunner {
         for event in events where event.sourceKind == "oanda-proxy" {
             if let time = event.input.candles1m.last?.time { lastBar[event.input.asset] = max(lastBar[event.input.asset] ?? 0, time) }
         }
+        if options.orb {
+            orbPlans = Dictionary(uniqueKeysWithValues: try await store.v3TradePlans().map { ($0.id, $0) })
+            orbEntries = Dictionary(uniqueKeysWithValues: try await store.v3PlanEntryEvidence().map { ($0.planID, $0) })
+            orbCompleted = Set(try await store.v3StructuralOutcomes().map(\.planID))
+        }
+    }
+
+    private func orbObservation(input: StrategyEngine.MarketInput, at time: Date) -> V3MarketObservation? {
+        guard let timestamp = input.quoteAsOfMs else { return nil }
+        guard timestamp.isFinite, timestamp > 0, input.bid.isFinite, input.ask.isFinite,
+              input.bid > 0, input.ask > input.bid else { return nil }
+        let sourceTime = Date(timeIntervalSince1970: timestamp / 1000)
+        guard sourceTime <= time.addingTimeInterval(1) else { return nil }
+        return V3MarketObservation(id: "orb-quote-\(input.asset)-\(timestamp)",
+            instrument: input.asset, provider: "OANDA", environment: .oandaPractice,
+            bid: input.bid, ask: input.ask, sourceTime: sourceTime, receivedAt: time)
+    }
+
+    private func processORB(input: StrategyEngine.MarketInput, at time: Date) async throws {
+        guard let observation = orbObservation(input: input, at: time) else {
+            print("ORB_ENTRY_UNAVAILABLE \(input.asset) missing_or_invalid_quote")
+            return
+        }
+        for (planID, entry) in orbEntries where entry.observation.instrument == input.asset
+            && !orbCompleted.contains(planID) {
+            guard let plan = orbPlans[planID] else { continue }
+            let outcome = V3StructuralOutcomeEvaluator.evaluate(plan: plan, entry: entry,
+                exitQuotes: [observation], asOf: time)
+            guard outcome.status == .winner || outcome.status == .loser
+                || outcome.status == .ambiguous else { continue }
+            try await store.record(outcome)
+            orbCompleted.insert(planID)
+            let netText = outcome.netPnl.map { String($0) } ?? "unresolved"
+            print("ORB_OUTCOME \(input.asset) \(planID) \(outcome.status.rawValue) \(outcome.exitReason.rawValue) net=\(netText)")
+        }
+        let decision = ORBBreakRetestV1.evaluate(input: input, asOf: time)
+        guard let plan = decision.candidate?.plan, !orbCompleted.contains(plan.id),
+              orbEntries[plan.id] == nil else {
+            print("ORB_STAGE \(input.asset) \(decision.stage.rawValue) \(decision.reason)")
+            return
+        }
+        if orbPlans[plan.id] == nil {
+            try await store.record(plan)
+            orbPlans[plan.id] = plan
+        }
+        let entry = V3PlanEntryEvidence(id: "\(plan.id)-entry-\(observation.sourceTime.timeIntervalSince1970)",
+            planID: plan.id, observation: observation, quality: .simulated, recordedAt: time)
+        try await store.record(entry)
+        orbEntries[plan.id] = entry
+        print("ORB_ENTRY \(input.asset) \(plan.id) simulated_at=\(observation.sourceTime.timeIntervalSince1970)")
     }
 
     func registerCampaign() async throws {
@@ -231,6 +327,14 @@ final class ResearchRunner {
     func runLive(session: OandaSession) async throws {
         try await registerCampaign()
         try await restore()
+        if options.orb {
+            let diagnostic = await OandaClient.diagnose(session: session)
+            let latencyText = diagnostic.latencyMs.map { String(format: "%.1f", $0) } ?? "unavailable"
+            print("OANDA_DIAGNOSTIC state=\(diagnostic.state.rawValue) environment=\(diagnostic.environment.rawValue) instrument=\(diagnostic.instrument) quotes=\(diagnostic.quoteCount) candles=\(diagnostic.candleCount) latencyMs=\(latencyText) message=\(diagnostic.message)")
+            guard diagnostic.state == .ready else {
+                throw ScanError.failed("OANDA diagnostic \(diagnostic.state.rawValue): \(diagnostic.message)")
+            }
+        }
         let observer = Task {
             do { try await self.observe(session: session) }
             catch is CancellationError {}
@@ -245,13 +349,17 @@ final class ResearchRunner {
                 try await Task.sleep(for: .seconds(5))
                 continue
             }
-            for pair in Assets.watchlist {
+            let watchlist = options.asset.map { [$0] } ?? Assets.watchlist
+            for pair in watchlist {
                 if Task.isCancelled { break }
                 do {
                     guard var input = try await OandaClient.fetchBundle(asset: pair, session: session),
                           let bar = input.candles1m.last, bar.time > (lastBar[pair] ?? 0) else { continue }
                     let time = Date()
                     input.evaluatedAtMs = time.timeIntervalSince1970 * 1000
+                    if options.orb {
+                        try await processORB(input: input, at: time)
+                    }
                     let quote = LiveQuote(asset: pair, bid: input.bid, ask: input.ask, mid: input.lastPrice,
                         asOfMs: input.quoteAsOfMs ?? 0, source: input.source)
                     _ = try await capture(input, quote: quote, at: time, synthetic: false)
@@ -352,6 +460,13 @@ final class ResearchRunner {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         print(String(decoding: try encoder.encode(report), as: UTF8.self))
+    }
+
+    func printPolicyFunnel() async throws {
+        let events = try await store.events()
+        let reports = PolicyEligibilityDiagnostics.evaluate(events: events, instrument: options.asset)
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        print(String(decoding: try encoder.encode(reports), as: UTF8.self))
     }
 
     func runExperiment() async throws {
@@ -472,19 +587,185 @@ struct ForwardTestApp {
         do {
             let options = try Options(Array(CommandLine.arguments.dropFirst()))
             if options.help {
-                print("ForwardTest [--edge-report --root DESK_PATH --as-of UNIX_SECONDS | --benchmark | --stats | --bootstrap | --replay | --experiment] [--root PATH] [--policy baseline|continuation|reversal|regime|control | --all-policies] [--max-events N] [--prime-only] [--continuous | --daemon]")
+                 print("ForwardTest [--edge-report --root DESK_PATH --as-of UNIX_SECONDS | --policy-funnel | --historical-bid-ask --historical-hours N --historical-offset-hours N | --forward-quotes --capture-seconds N | --authentic-replay | --benchmark | --stats | --bootstrap | --replay | --experiment | --adaptive | --adaptive-diagnostic] [--interactive-credentials] [--orb] [--root PATH] [--asset PAIR] [--policy baseline|continuation|reversal|regime|control | --all-policies] [--max-events N] [--prime-only] [--continuous | --daemon]")
                 return
             }
             let runner = ResearchRunner(options: options)
             if options.edgeReport { try await runner.printEdgeReport(); return }
+            if options.policyFunnel { try await runner.printPolicyFunnel(); return }
+            if options.historicalBidAsk {
+                let credentialGate: CredentialGate
+                if options.interactiveCredentials {
+                    credentialGate = DeskCredentials.session(allowPrompt: true)
+                } else if let environmentSession = DeskCredentials.environmentSession() {
+                    credentialGate = .ready(environmentSession)
+                } else {
+                    credentialGate = .missing
+                }
+                guard case .ready(let session) = credentialGate else {
+                    print("HISTORICAL_BID_ASK state=CREDENTIAL_CONTEXT_UNAVAILABLE")
+                    return
+                }
+                guard session.environment == .practice else {
+                    print("HISTORICAL_BID_ASK state=LIVE_REJECTED")
+                    return
+                }
+                let asset = options.asset ?? "EUR/USD"
+                let to = Date().addingTimeInterval(-60 - Double(options.historicalOffsetHours) * 3600)
+                let from = to.addingTimeInterval(-Double(options.historicalHours) * 3600)
+                async let m1 = OandaClient.fetchHistoricalBidAskCandles(
+                    asset: asset, from: from, to: to, granularity: "M1", session: session)
+                async let m5 = OandaClient.fetchHistoricalBidAskCandles(
+                    asset: asset, from: from, to: to, granularity: "M5", session: session)
+                let batches = await [m1, m5]
+                for batch in batches {
+                    let first = batch.candles.first?.sourceTime.timeIntervalSince1970
+                    let last = batch.candles.last?.sourceTime.timeIntervalSince1970
+                    let firstText = first.map { String($0) } ?? "none"
+                    let lastText = last.map { String($0) } ?? "none"
+                    let statusText = batch.httpStatus.map { String($0) } ?? "none"
+                    let errorText = batch.serverError ?? "none"
+                    print("HISTORICAL_BID_ASK instrument=\(batch.instrument) granularity=\(batch.granularity) transport=\(batch.transport) httpStatus=\(statusText) serverError=\(errorText) completeCount=\(batch.candles.count) firstUnix=\(firstText) lastUnix=\(lastText) intrabarSequence=unknown")
+                    guard batch.transport == .ok, !batch.candles.isEmpty else { continue }
+                    let archiveRoot = (options.root ?? ResearchStore.defaultRoot())
+                        .appendingPathComponent("historical-bid-ask", isDirectory: true)
+                    try FileManager.default.createDirectory(at: archiveRoot, withIntermediateDirectories: true)
+                    let encoder = JSONEncoder()
+                    encoder.outputFormatting = [.sortedKeys]
+                    let payload = try encoder.encode(batch)
+                    let digest = SHA256.hash(data: payload).map { String(format: "%02x", $0) }.joined()
+                    let start = Int(batch.requestedFrom.timeIntervalSince1970)
+                    let end = Int(batch.requestedTo.timeIntervalSince1970)
+                    let name = "oanda-practice-\(batch.instrument)-\(batch.granularity)-\(start)-\(end).json"
+                    let destination = archiveRoot.appendingPathComponent(name)
+                    if !FileManager.default.fileExists(atPath: destination.path) {
+                        try payload.write(to: destination, options: .withoutOverwriting)
+                    }
+                    print("HISTORICAL_ARCHIVE path=\(destination.path) sha256=\(digest) status=immutable")
+                }
+                return
+            }
+            if options.authenticReplay {
+                try await runner.runAuthenticReplay()
+                return
+            }
+            if options.forwardQuotes {
+                let credentialGate: CredentialGate
+                if options.interactiveCredentials {
+                    credentialGate = DeskCredentials.session(allowPrompt: true)
+                } else if let environmentSession = DeskCredentials.environmentSession() {
+                    credentialGate = .ready(environmentSession)
+                } else {
+                    credentialGate = .missing
+                }
+                guard case .ready(let session) = credentialGate else {
+                    print("FORWARD_QUOTES state=CREDENTIAL_CONTEXT_UNAVAILABLE")
+                    return
+                }
+                guard session.environment == .practice else {
+                    print("FORWARD_QUOTES state=LIVE_REJECTED")
+                    return
+                }
+                let asset = options.asset ?? "EUR/USD"
+                let capture = await OandaClient.captureForwardQuotes(
+                    asset: asset, duration: TimeInterval(options.captureSeconds),
+                    maxQuotes: 500, session: session)
+                let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+                let payload = try encoder.encode(capture)
+                let digest = SHA256.hash(data: payload).map { String(format: "%02x", $0) }.joined()
+                let directory = (options.root ?? ResearchStore.defaultRoot())
+                    .appendingPathComponent("forward-quotes", isDirectory: true)
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                let file = directory.appendingPathComponent(
+                    "\(asset.replacingOccurrences(of: "/", with: "_"))-\(Int(capture.startedAt.timeIntervalSince1970)).json")
+                try payload.write(to: file, options: .withoutOverwriting)
+                let status = capture.httpStatus.map { String($0) } ?? "none"
+                let contentType = capture.contentType ?? "none"
+                let errorCode = capture.errorCode ?? "none"
+                print("FORWARD_QUOTES instrument=\(capture.instrument) transport=\(capture.transport) httpStatus=\(status) contentType=\(contentType) count=\(capture.quotes.count) heartbeats=\(capture.heartbeatCount) parseFailures=\(capture.parseFailures) termination=\(capture.termination) errorCode=\(errorCode) started=\(capture.startedAt.timeIntervalSince1970) ended=\(capture.endedAt.timeIntervalSince1970) archive=\(file.path) sha256=\(digest)")
+                return
+            }
             if options.experiment { try await runner.runExperiment(); return }
             if options.stats { try await runner.printStats(); return }
             if options.replay { try await runner.replay(); return }
             if options.synthetic { try await runner.runSynthetic(); return }
             guard EngineIdentity.bundleMatchesPin() else { throw ScanError.failed("Engine pin mismatch") }
-            let gate = DeskCredentials.session(allowPrompt: !options.daemon)
-            guard case .ready(let session) = gate else {
-                throw ScanError.failed("OANDA Keychain session unavailable. Use --benchmark explicitly for isolated synthetic testing.")
+            if options.adaptive || options.adaptiveDiagnostic {
+                let credentialStart = DispatchTime.now().uptimeNanoseconds
+                // The default remains noninteractive: access-controlled values
+                // can block an unattended CLI. An owner may explicitly opt in
+                // to the native Keychain authorization flow for one bounded
+                // research run.
+                let credentialGate: CredentialGate
+                if options.interactiveCredentials {
+                    credentialGate = DeskCredentials.session(allowPrompt: true)
+                } else if let environmentSession = DeskCredentials.environmentSession() {
+                    credentialGate = .ready(environmentSession)
+                } else {
+                    credentialGate = .missing
+                }
+                guard case .ready(let session) = credentialGate else {
+                    let credentialMs = Double(DispatchTime.now().uptimeNanoseconds - credentialStart) / 1_000_000
+                    let state: String
+                    if case .locked = credentialGate {
+                        state = "KEYCHAIN_AUTHORIZATION_REQUIRED"
+                    } else {
+                        state = "CLI_CREDENTIAL_CONTEXT_MISSING"
+                    }
+                    print("ADAPTIVE_DIAGNOSTIC state=\(state) message=approved_Practice_credential_context_unavailable durationMs=\(String(format: "%.3f", credentialMs))")
+                    print("PHASE process_termination state=COMPLETE")
+                    return
+                }
+                let credentialMs = Double(DispatchTime.now().uptimeNanoseconds - credentialStart) / 1_000_000
+                guard session.environment == .practice else {
+                    print("ADAPTIVE_DIAGNOSTIC state=LIVE_REJECTED message=adaptive_diagnostic_is_practice_only durationMs=\(String(format: "%.3f", credentialMs))")
+                    print("PHASE process_termination state=COMPLETE")
+                    return
+                }
+                print("PHASE credential_lookup state=KEYCHAIN_OR_SECURE_ENVIRONMENT environment=practice durationMs=\(String(format: "%.3f", credentialMs))")
+                let asset = options.asset ?? "EUR/USD"
+                let diagnostic = await AdaptiveMarketRehearsal.runBounded(
+                    asset: asset, session: session,
+                    store: ResearchStore(root: options.root ?? ResearchStore.defaultRoot()))
+                print("ADAPTIVE_DIAGNOSTIC state=\(diagnostic.state.rawValue) message=\(diagnostic.message)")
+                guard let result = diagnostic.result else {
+                    print("PHASE process_termination state=COMPLETE")
+                    return
+                }
+                let rehearsal = result.record
+                print("ADAPTIVE_REHEARSAL \(rehearsal.instrument) availability=\(rehearsal.availability.rawValue) state=\(rehearsal.decisionState.rawValue) selected=\(rehearsal.decision.selectedCandidateID ?? "NO_TRADE")")
+                for candidate in rehearsal.candidates {
+                    print("CANDIDATE \(candidate.strategyID) direction=\(candidate.direction.rawValue) state=\(candidate.state.rawValue) freshness=\(candidate.freshness.rawValue) reasons=\(candidate.rejectionReasons.joined(separator: "|"))")
+                }
+                if let timing = diagnostic.timing {
+                    print("LATENCY credentialMs=\(String(format: "%.3f", credentialMs)) brokerMs=\(String(format: "%.3f", timing.brokerMs)) validationMs=\(String(format: "%.3f", timing.validationMs)) candidateMs=\(String(format: "%.3f", timing.candidateEvaluationMs)) selectionMs=\(String(format: "%.3f", timing.selectionMs)) persistenceMs=\(String(format: "%.3f", timing.persistenceMs)) totalMs=\(String(format: "%.3f", timing.totalMs)) publication=unmeasured")
+                }
+                print("PHASE process_termination state=COMPLETE")
+                return
+            }
+            // Never make ordinary CLI research probe the native app's
+            // access-controlled Keychain item. That path is intentionally
+            // opt-in because SwiftPM executables are ad-hoc signed and their
+            // identity can change after a rebuild. Use the approved secure
+            // environment provider for unattended/repeatable runs, or pass
+            // --interactive-credentials once for an explicitly authorized
+            // native Keychain access.
+            let gate: CredentialGate
+            if options.interactiveCredentials {
+                gate = DeskCredentials.session(allowPrompt: true)
+            } else if let environmentSession = DeskCredentials.environmentSession() {
+                gate = .ready(environmentSession)
+            } else {
+                gate = .missing
+            }
+            let session: OandaSession
+            switch gate {
+            case .ready(let value):
+                session = value
+            case .locked:
+                throw ScanError.failed("OANDA credentials require explicit authorization: rerun with --interactive-credentials")
+            case .missing:
+                throw ScanError.failed("OANDA credentials missing: use the approved secure environment provider or --interactive-credentials")
             }
             try await runner.runLive(session: session)
         } catch {

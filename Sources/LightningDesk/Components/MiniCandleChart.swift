@@ -8,8 +8,12 @@ struct MiniCandleChart: View, Equatable {
     var side: String? = nil
     var pair: String? = nil
     var candidateAnnotations: [Candidate001Candidate] = []
+    var visibleBars: Int = 32
+    var allowsZoom: Bool = false
 
     @State private var scrubbedIndex: Int? = nil
+    @State private var zoomScale: CGFloat = 1
+    @State private var viewportShift: Int = 0
 
     static nonisolated func == (lhs: MiniCandleChart, rhs: MiniCandleChart) -> Bool {
         lhs.candles == rhs.candles
@@ -18,10 +22,15 @@ struct MiniCandleChart: View, Equatable {
             && lhs.side == rhs.side
             && lhs.pair == rhs.pair
             && lhs.candidateAnnotations == rhs.candidateAnnotations
+            && lhs.visibleBars == rhs.visibleBars
+            && lhs.allowsZoom == rhs.allowsZoom
     }
 
     private var bars: [Candle] {
-        Array(candles.suffix(32))
+        let count = max(6, min(visibleBars, Int(CGFloat(visibleBars) / zoomScale)))
+        let end = max(count, candles.count - viewportShift)
+        let start = max(0, end - count)
+        return Array(candles[start..<min(end, candles.count)])
     }
 
     var body: some View {
@@ -122,10 +131,32 @@ struct MiniCandleChart: View, Equatable {
                         }
                     }
             )
+            .simultaneousGesture(
+                MagnificationGesture()
+                    .onChanged { value in
+                        guard allowsZoom else { return }
+                        zoomScale = min(3, max(1, value))
+                    }
+                    .onEnded { _ in
+                        guard allowsZoom else { return }
+                        zoomScale = min(3, max(1, zoomScale))
+                    }
+            )
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 14)
+                    .onEnded { value in
+                        guard allowsZoom, zoomScale > 1, candles.count > bars.count else { return }
+                        let shift = Int((-value.translation.width / 18).rounded())
+                        let maxShift = max(0, candles.count - bars.count)
+                        viewportShift = min(maxShift, max(0, viewportShift + shift))
+                    }
+            )
         }
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .accessibilityLabel("Interactive candle chart")
-        .accessibilityHint("Drag horizontally to scrub historical prices")
+        .accessibilityHint(allowsZoom
+            ? "Drag to scrub. Pinch to zoom and drag horizontally to browse candles"
+            : "Drag horizontally to scrub historical prices")
     }
 
     private func scrubPill(for bar: Candle) -> some View {

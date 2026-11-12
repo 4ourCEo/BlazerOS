@@ -8,7 +8,7 @@ import UIKit
 #endif
 
 /// Main native desk container for iPhone 16.
-/// Features a hero-first execution screen, 5-screen navigation, and a floating bottom bar.
+/// Features a hero-first execution screen, three primary destinations, and a floating bottom bar.
 public struct LightningDeskView: View {
     public init(model: LightningDeskModel) {
         self.model = model
@@ -47,14 +47,8 @@ public struct LightningDeskView: View {
                         case .radar:
                             MarketsScreen(model: model)
                                 .transition(.opacity)
-                        case .intel:
-                            IntelScreen(model: model)
-                                .transition(.opacity)
-                        case .coach:
-                            CoachScreen(model: model)
-                                .transition(.opacity)
-                        case .journal:
-                            JournalScreen(model: model)
+                        case .review:
+                            ReviewScreen(model: model)
                                 .transition(.opacity)
                         }
                     }

@@ -53,7 +53,7 @@ public struct ExecutionObservation: Codable, Sendable, Equatable, Identifiable {
         self.brokerEntryAt = brokerEntryAt
         self.brokerEntryPrice = brokerEntryPrice.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
         self.referencePrice = referencePrice.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
-        self.durationSeconds = durationSeconds.flatMap { [60, 180, 300].contains($0) ? $0 : nil }
+        self.durationSeconds = durationSeconds.flatMap { [60, 180, 300, 600].contains($0) ? $0 : nil }
         if let quote, quote.asset == commit.asset, quote.asOfMs.isFinite,
            quote.bid.isFinite, quote.ask.isFinite, quote.mid.isFinite,
            quote.bid > 0, quote.ask > quote.bid {

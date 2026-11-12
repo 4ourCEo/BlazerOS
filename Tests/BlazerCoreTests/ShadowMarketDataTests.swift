@@ -57,7 +57,6 @@ private func shadowPoint(_ identity: ShadowMarketIdentity, _ provider: String, _
     let id = ShadowMarketDataFixtures.standardEURUSD
     let otc = ShadowMarketDataFixtures.pocketOptionEURUSDOTC
     let now = 1_700_000_100.0
-    let freshA = shadowPoint(id, "a", now - 1, 1.2)
     let freshPrevA = shadowPoint(id, "a", now - 2, 1.1)
     let freshB = shadowPoint(otc, "b", now - 1, 1.3)
     let freshPrevB = shadowPoint(otc, "b", now - 2, 1.2)

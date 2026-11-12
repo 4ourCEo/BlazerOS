@@ -89,7 +89,8 @@ private actor CancellationIgnoringGate {
     model.handleAppBackgrounded(now: scanTime.addingTimeInterval(2))
     #expect(model.frame?.isActionable == false)
     #expect(model.frame?.verb == "EXPIRED")
-    #expect(model.awaitingOutcome)
+    #expect(!model.awaitingOutcome)
+    #expect(model.canLogLateEntry)
 
     model.handleAppForegrounded(now: scanTime.addingTimeInterval(20))
     #expect(model.frame?.isActionable == false)

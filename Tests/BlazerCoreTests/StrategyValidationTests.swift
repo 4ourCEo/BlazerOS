@@ -279,6 +279,34 @@ private let highEvaluator: StrategyValidationEngine.Evaluator = { input in
     #expect(cohort.winRate == 0.5)
 }
 
+@Test func unresolvedEnteredTradeWithholdsPathStatisticsAndEqualTimesAreDeterministic() async throws {
+    let resolved = try await StrategyValidationEngine.replay(
+        cases: [validationCase(id: "a-loss", entryPrice: 1.10, expiryPrice: 1.09),
+                validationCase(id: "b-win")],
+        configuration: StrategyValidationConfiguration(entryDelaySeconds: 3),
+        evaluator: highEvaluator)
+    let forward = StrategyValidationEngine.report(records: resolved, stage: .historicalReplay)
+    let reversed = StrategyValidationEngine.report(
+        records: Array(resolved.reversed()), stage: .historicalReplay)
+    #expect(forward.overall.maximumUnitDrawdown == reversed.overall.maximumUnitDrawdown)
+    #expect(forward.overall.maximumConsecutiveLosses == reversed.overall.maximumConsecutiveLosses)
+
+    let base = validationCase(id: "missing-expiry")
+    let entryOnly = StrategyValidationCase(
+        id: base.id, stage: base.stage, instrumentID: base.instrumentID,
+        engineAsset: base.engineAsset, venueID: base.venueID, marketKind: base.marketKind,
+        signalTimestamp: base.signalTimestamp, engineSHA: base.engineSHA, input: base.input,
+        observations: Array(base.observations.prefix(1)), payoutRatio: base.payoutRatio,
+        provenance: base.provenance)
+    let unresolved = try await StrategyValidationEngine.replay(
+        cases: [entryOnly], configuration: StrategyValidationConfiguration(entryDelaySeconds: 3),
+        evaluator: highEvaluator)
+    let incomplete = StrategyValidationEngine.report(
+        records: resolved + unresolved, stage: .historicalReplay)
+    #expect(incomplete.overall.maximumUnitDrawdown == nil)
+    #expect(incomplete.overall.maximumConsecutiveLosses == nil)
+}
+
 @Test func duplicateVenueSettlementCannotCountUnderDifferentCaseIDs() async throws {
     let entry = validationSignalTime.addingTimeInterval(2)
     let execution = RecordedValidationExecution(
@@ -432,6 +460,31 @@ private let highEvaluator: StrategyValidationEngine.Evaluator = { input in
     object["id"] = "modified-but-decodable"
     try JSONSerialization.data(withJSONObject: object).write(to: url)
     await #expect(throws: (any Error).self) { try await store.strategyValidationCases() }
+}
+
+@Test func researchStoreLinksRecordByCaseDigestWhenHumanCaseIDIsReused() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("strategy-validation-reused-id-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let original = validationCase(id: "same-human-id")
+    let extended = StrategyValidationCase(
+        id: original.id, stage: original.stage, instrumentID: original.instrumentID,
+        engineAsset: original.engineAsset, venueID: original.venueID, marketKind: original.marketKind,
+        signalTimestamp: original.signalTimestamp, engineSHA: original.engineSHA, input: original.input,
+        observations: original.observations + [ValidationPriceObservation(
+            instrumentID: original.instrumentID, venueID: original.venueID,
+            observedAt: validationSignalTime.addingTimeInterval(180), price: 1.2,
+            source: "fixture", authority: .independentProvider)],
+        payoutRatio: original.payoutRatio, provenance: original.provenance)
+    let configuration = StrategyValidationConfiguration(entryDelaySeconds: 3)
+    let record = try #require(try await StrategyValidationEngine.replay(
+        cases: [original], configuration: configuration, evaluator: highEvaluator).first)
+    let store = ResearchStore(root: root)
+    try await store.record(original)
+    try await store.record(extended)
+    try await store.record(record)
+    #expect(try await store.strategyValidationCases().count == 2)
+    #expect(try await store.strategyValidationRecords() == [record])
 }
 
 @Test func validationRecordDecodesArchivesWrittenBeforeTiePolicy() async throws {

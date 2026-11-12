@@ -29,6 +29,120 @@ public actor ResearchStore {
     }
     public func outcomes() throws -> [ResearchOutcome] { try load(ResearchOutcome.self, directory: "outcomes") }
 
+    public func record(_ rehearsal: AdaptiveMarketRehearsalRecord) throws {
+        guard rehearsal.validation().isEmpty else { throw ScanError.failed("Invalid adaptive rehearsal") }
+        try writeOnceOrVerify(rehearsal, directory: "adaptive-rehearsals", name: rehearsal.id)
+    }
+
+    public func adaptiveRehearsals() throws -> [AdaptiveMarketRehearsalRecord] {
+        try loadNamed(AdaptiveMarketRehearsalRecord.self, directory: "adaptive-rehearsals").map(\.1)
+    }
+
+    /// Stores executable V3 spot evidence separately from legacy midpoint outcomes.
+    /// Replaying the same ID is accepted only when the complete record is identical.
+    public func record(_ outcome: V3DurableSpotOutcome) throws {
+        guard outcome.validation().isEmpty,
+              outcome.id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" }) else {
+            throw ScanError.failed("Invalid V3 spot outcome")
+        }
+        try writeOnceOrVerify(outcome, directory: "v3-spot-outcomes", name: outcome.id)
+    }
+
+    /// Immutable V3 plan snapshots use their identity as the storage key. A later
+    /// lifecycle change must be represented by a new plan/event, never by mutation.
+    public func record(_ plan: V3TradePlan) throws {
+        guard plan.validation().isEmpty,
+              plan.id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" }) else {
+            throw ScanError.failed("Invalid V3 trade plan")
+        }
+        try writeOnceOrVerify(plan, directory: "v3-trade-plans", name: plan.id)
+    }
+
+    public func v3TradePlans() throws -> [V3TradePlan] {
+        let named = try loadNamed(V3TradePlan.self, directory: "v3-trade-plans")
+        for (_, plan) in named where !plan.validation().isEmpty {
+            throw ScanError.failed("Invalid V3 trade plan: \(plan.id)")
+        }
+        return named.map(\.1)
+    }
+
+    /// ForwardTest-facing V3 path: evaluate executable sides first, then persist the
+    /// complete provenance envelope. Missing exit evidence remains UNRESOLVED.
+    @discardableResult
+    public func recordV3SpotOutcome(plan: V3TradePlan, entry: V3MarketObservation?,
+                                    exit: V3MarketObservation?, recordedAt: Date) throws
+        -> V3DurableSpotOutcome {
+        guard plan.validation().isEmpty else { throw ScanError.failed("Invalid V3 trade plan") }
+        guard let provenance = entry ?? exit,
+              provenance.instrument == plan.instrument else {
+            throw ScanError.failed("V3 observation instrument mismatch")
+        }
+        let evaluation = V3SpotOutcomeEvaluator.evaluate(side: plan.side, units: plan.units,
+            entry: entry, exit: exit)
+        let exitID = exit?.id ?? "missing-exit"
+        let outcome = V3DurableSpotOutcome(id: "\(plan.id)-\(exitID)",
+            planID: plan.id, instrument: plan.instrument, provider: provenance.provider,
+            environment: provenance.environment, entryObservation: entry,
+            exitObservation: exit, evaluation: evaluation,
+            strategyVersion: plan.strategyVersion, engineVersion: plan.engineVersion,
+            recordedAt: recordedAt)
+        try record(outcome)
+        return outcome
+    }
+
+    public func v3SpotOutcomes() throws -> [V3DurableSpotOutcome] {
+        let named = try loadNamed(V3DurableSpotOutcome.self, directory: "v3-spot-outcomes")
+        for (_, outcome) in named where !outcome.validation().isEmpty {
+            throw ScanError.failed("Invalid V3 spot outcome: \(outcome.id)")
+        }
+        return named.map(\.1)
+    }
+
+    /// Position lifecycle events are append-only evidence, separate from plans and outcomes.
+    public func record(_ position: V3PositionRecord) throws {
+        guard position.validation().isEmpty,
+              position.id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" }) else {
+            throw ScanError.failed("Invalid V3 position record")
+        }
+        try writeOnceOrVerify(position, directory: "v3-position-events", name: position.id)
+    }
+
+    public func v3PositionRecords() throws -> [V3PositionRecord] {
+        let named = try loadNamed(V3PositionRecord.self, directory: "v3-position-events")
+        for (_, position) in named where !position.validation().isEmpty {
+            throw ScanError.failed("Invalid V3 position record: \(position.id)")
+        }
+        return named.map(\.1).sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    public func record(_ entry: V3PlanEntryEvidence) throws {
+        guard !entry.id.isEmpty, !entry.planID.isEmpty,
+              entry.observation.validation(now: entry.observation.receivedAt).isEmpty else {
+            throw ScanError.failed("Invalid V3 plan entry evidence")
+        }
+        try writeOnceOrVerify(entry, directory: "v3-plan-entry-evidence", name: entry.id)
+    }
+
+    public func v3PlanEntryEvidence() throws -> [V3PlanEntryEvidence] {
+        try loadNamed(V3PlanEntryEvidence.self, directory: "v3-plan-entry-evidence").map(\.1)
+    }
+
+    public func record(_ outcome: V3StructuralOutcome) throws {
+        guard outcome.validation().isEmpty,
+              outcome.id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" }) else {
+            throw ScanError.failed("Invalid V3 structural outcome")
+        }
+        try writeOnceOrVerify(outcome, directory: "v3-structural-outcomes", name: outcome.id)
+    }
+
+    public func v3StructuralOutcomes() throws -> [V3StructuralOutcome] {
+        let named = try loadNamed(V3StructuralOutcome.self, directory: "v3-structural-outcomes")
+        for (_, outcome) in named where !outcome.validation().isEmpty {
+            throw ScanError.failed("Invalid V3 structural outcome: \(outcome.id)")
+        }
+        return named.map(\.1)
+    }
+
     public func record(_ experiment: ResearchExperiment) throws {
         try writeOnce(experiment, directory: "experiments", name: experiment.id)
     }
@@ -86,15 +200,15 @@ public actor ResearchStore {
     public func strategyValidationRecords() throws -> [StrategyValidationRecord] {
         let named = try loadNamed(StrategyValidationRecord.self, directory: "strategy-validation")
         let cases = try strategyValidationCases()
-        let casesByID = Dictionary(grouping: cases, by: \.id)
+        let casesByDigest = Dictionary(uniqueKeysWithValues: cases.map {
+            (StrategyValidationEngine.digest(of: $0), $0)
+        })
         for (url, result) in named {
             guard url.deletingPathExtension().lastPathComponent == result.id,
                   result.id == StrategyValidationEngine.recordID(
                     caseDigest: result.caseDigest,
                     configurationDigest: result.configurationDigest),
-                  let matches = casesByID[result.caseID], matches.count == 1,
-                  let item = matches.first,
-                  StrategyValidationEngine.digest(of: item) == result.caseDigest,
+                  let item = casesByDigest[result.caseDigest], item.id == result.caseID,
                   try ResearchEvent.digest(of: item.input) == result.inputDigest else {
                 throw ScanError.failed("Strategy validation record identity mismatch: \(result.caseID)")
             }
@@ -146,6 +260,24 @@ public actor ResearchStore {
         encoder.dateEncodingStrategy = .millisecondsSince1970
         encoder.outputFormatting = [.sortedKeys]
         try AtomicFile.write(encoder.encode(value), to: url)
+    }
+
+    private func writeOnceOrVerify<T: Codable>(_ value: T, directory: String, name: String) throws {
+        guard !name.isEmpty, name.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" }) else {
+            throw ScanError.failed("Invalid research event ID")
+        }
+        let url = root.appendingPathComponent(directory).appendingPathComponent(name + ".json")
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .millisecondsSince1970
+        encoder.outputFormatting = [.sortedKeys]
+        let encoded = try encoder.encode(value)
+        if FileManager.default.fileExists(atPath: url.path) {
+            guard try Data(contentsOf: url) == encoded else {
+                throw ScanError.failed("Research record identity conflict: \(name)")
+            }
+            return
+        }
+        try AtomicFile.write(encoded, to: url)
     }
 
     private func load<T: Decodable>(_ type: T.Type, directory: String) throws -> [T] {

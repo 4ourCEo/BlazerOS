@@ -1,4 +1,5 @@
 import BlazerCore
+import LightningDesk
 import XCTest
 
 final class PhoneTargetTests: XCTestCase {
@@ -22,5 +23,18 @@ final class PhoneTargetTests: XCTestCase {
         XCTAssertNotEqual(PhoneTarget.width, 430)
         XCTAssertEqual(PhoneTarget.bundleIdentifier, "com.blazer.os")
         XCTAssertEqual(PhoneTarget.appGroup, "group.com.blazer.os")
+    }
+
+    func testV3PrimaryNavigationUsesThreeDestinations() {
+        XCTAssertEqual(DeskTab.allCases.map(\.rawValue), ["Trade", "Markets", "Review"])
+        XCTAssertEqual(DeskTab.allCases.map(\.icon), ["bolt.fill", "scope", "book.closed.fill"])
+    }
+
+    @MainActor
+    func testORBNotificationDeepLinkNavigatesForRevalidationOnly() {
+        let model = LightningDeskModel()
+        model.handleORBDeepLink("blazer://trade?instrument=EUR%2FUSD&strategy=ORB_BREAK_RETEST_V1")
+        XCTAssertEqual(model.activeTab, .desk)
+        XCTAssertEqual(model.pair, "EUR/USD")
     }
 }

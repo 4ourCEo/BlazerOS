@@ -29,6 +29,9 @@ struct CoachScreen: View {
                 .padding(.vertical, 5)
                 .background(DeskInk.violet.opacity(0.12), in: Capsule())
                 .overlay(Capsule().strokeBorder(DeskInk.violet.opacity(0.25), lineWidth: 0.5))
+                Text(BuildIdentity.display)
+                    .font(.system(size: 8, weight: .medium, design: .monospaced))
+                    .foregroundStyle(DeskInk.slate)
             }
             .padding(.horizontal, 20)
             .padding(.top, 14)

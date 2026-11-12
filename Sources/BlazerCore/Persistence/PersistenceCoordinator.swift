@@ -134,7 +134,14 @@ public actor PersistenceCoordinator {
 
         var entries: [JournalEntry] = []
         do {
-            entries = try await journal.load()
+            let result = try await journal.read()
+            entries = result.entries
+            if result.corruptLines > 0 {
+                issues.append(RestoreIssue(
+                    domain: .journal,
+                    message: "\(result.corruptLines) corrupt line(s) were quarantined; the journal was left unchanged"
+                ))
+            }
         } catch {
             issues.append(RestoreIssue(domain: .journal, message: error.localizedDescription))
         }
@@ -217,7 +224,7 @@ public actor PersistenceCoordinator {
     public func noteVeto(armID: String, veto: String) async throws {
         await acquireJournal()
         defer { releaseJournal() }
-        var entries = try await journal.load()
+        var entries = try await journal.loadForMutation()
         guard let index = entries.firstIndex(where: { $0.id == armID }) else { return }
         entries[index].veto = veto
         try await journal.save(entries)
@@ -233,7 +240,7 @@ public actor PersistenceCoordinator {
     ) async throws {
         await acquireJournal()
         defer { releaseJournal() }
-        var entries = try await journal.load()
+        var entries = try await journal.loadForMutation()
         guard let index = entries.firstIndex(where: { $0.id == entryID }) else { return }
         if let voiceNote { entries[index].voiceNote = voiceNote }
         if let tag { entries[index].tag = tag }
@@ -363,16 +370,16 @@ public actor PersistenceCoordinator {
     /// The actual write. Snapshots first, then the ledger, then the journal stamp.
     private func writeSettlement(armID: String, row: LedgerRow, snapshot: SnapshotRecord) async throws -> Bool {
         _ = try await snapshots.archive(snapshot)
-        var entries = try await journal.load()
+        var entries = try await journal.loadForMutation()
         guard let index = entries.firstIndex(where: { $0.id == armID }) else { return false }
         if entries[index].outcome != nil { return false }
 
         let wrote = try await ledger.record(row)
         if !wrote {
-            // Already present from an earlier attempt: adopt the durable outcome.
+            // Only the same durable arm may be adopted after an interrupted retry. A different
+            // arm that shares scan identity is a conflict, not evidence of this arm's outcome.
             let all = try await ledger.rows()
-            let existing = all.first { $0.identity == row.identity && $0.pair == row.pair }
-                ?? all.first { $0.outcomeEventID == row.outcomeEventID }
+            let existing = all.first { $0.outcomeEventID == row.outcomeEventID }
             if let existing {
                 entries[index].outcome = existing.outcome
                 try await journal.save(entries)

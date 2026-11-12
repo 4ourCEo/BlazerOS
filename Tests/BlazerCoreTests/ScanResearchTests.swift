@@ -8,7 +8,7 @@ private func trendInput(down: Bool = false, asset: String = "EUR/USD") -> Strate
     let sign = down ? -1.0 : 1.0
     let now = clock.timeIntervalSince1970 * 1000
     let pip = Assets.pipScale(for: asset)
-    let start = asset == "XAU/USD" ? 2650.0 : 1.1
+    let start = asset == "XAU/USD" ? 2650.0 : asset.contains("JPY") ? 190.0 : 1.1
     let final = start + sign * 120 * pip * 3
     func bars(count: Int, step: Double, delta: Double, ending: Double) -> [StrategyEngine.CandlePayload] {
         (0..<count).map { i in
@@ -120,6 +120,28 @@ private func quote(_ input: StrategyEngine.MarketInput, time: Date = clock, mid:
     let late = try await StrategyEngine.evaluate(input: input).signal
     #expect(late.cabinetSide == "WAIT")
     #expect(late.vetoes?.contains("Trigger candle too old") == true)
+}
+
+@Test func spreadToATRUsesRawPriceUnitsForEURUSDAndGBPJPY() async throws {
+    for asset in ["EUR/USD", "GBP/JPY"] {
+        var input = trendInput(asset: asset)
+        input.policy = .continuation
+        let signal = try await StrategyEngine.evaluate(input: input).signal
+        let features = try #require(signal.features)
+        #expect(features.atr1m > 0)
+        #expect(features.spreadATR < 0.2)
+        #expect(signal.vetoes?.contains("Spread relative to volatility") != true)
+        #expect(signal.cabinetSide == "HIGH")
+
+        let boundarySpread = features.atr1m * 0.21
+        input.spread = boundarySpread
+        input.bid = input.lastPrice - boundarySpread / 2
+        input.ask = input.lastPrice + boundarySpread / 2
+        let rejected = try await StrategyEngine.evaluate(input: input).signal
+        #expect(rejected.features?.spreadATR ?? 0 > 0.2)
+        #expect(rejected.vetoes?.contains("Spread relative to volatility") == true)
+        #expect(rejected.cabinetSide == "WAIT")
+    }
 }
 
 @Test func ambiguousSweepIsRejected() async throws {
