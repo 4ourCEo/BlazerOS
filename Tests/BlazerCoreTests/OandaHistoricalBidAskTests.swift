@@ -20,3 +20,16 @@ import Testing
     #expect(batch.practiceOnlyRejected)
     #expect(batch.transport == .network)
 }
+
+@Test func historicalClosedEndAlignsAndLagsEverySupportedInterval() {
+    let now = Date(timeIntervalSince1970: 1_700_000_123)
+    let intervals: [(String, TimeInterval)] = [("M1", 60), ("M5", 300), ("M15", 900), ("H1", 3600)]
+    for (granularity, seconds) in intervals {
+        let end = OandaClient.historicalClosedEnd(now: now, granularity: granularity)
+        #expect(end != nil)
+        #expect(end!.timeIntervalSince1970.truncatingRemainder(dividingBy: seconds) == 0)
+        #expect(now.timeIntervalSince(end!) >= seconds)
+        #expect(now.timeIntervalSince(end!) < seconds * 2)
+    }
+    #expect(OandaClient.historicalClosedEnd(now: now, granularity: "M30") == nil)
+}

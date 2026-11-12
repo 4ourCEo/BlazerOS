@@ -60,13 +60,25 @@ class PracticeLauncherTests(unittest.TestCase):
     def test_preflight_checks_account_membership_and_m1_candle_access(self):
         credentials = {"OANDA_API_TOKEN": "never-printed", "OANDA_ACCOUNT_ID": "selected", "OANDA_ENV": "practice"}
         with patch.object(MODULE, "request_json", side_effect=[
-            {"accounts": [{"id": "selected"}]}, {"candles": [{"complete": True}]},
+            {"accounts": [{"id": "selected"}]}, {"candles": [{"complete": True,
+                "bid": {"o": "1", "h": "2", "l": "1", "c": "2"},
+                "ask": {"o": "3", "h": "4", "l": "3", "c": "4"}}]},
         ]) as request:
             with patch("builtins.print"):
                 MODULE.preflight(credentials, "EUR/USD")
         self.assertEqual(request.call_count, 2)
         self.assertEqual(request.call_args_list[0].args[0], "/v3/accounts")
         self.assertEqual(request.call_args_list[1].args[0], "/v3/instruments/EUR_USD/candles")
+        self.assertEqual(request.call_args_list[1].args[2]["count"], 10)
+
+    def test_preflight_rejects_without_a_completed_candle(self):
+        credentials = {"OANDA_API_TOKEN": "unused", "OANDA_ACCOUNT_ID": "selected", "OANDA_ENV": "practice"}
+        with patch.object(MODULE, "request_json", side_effect=[
+            {"accounts": [{"id": "selected"}]}, {"candles": [{"complete": False}]},
+        ]):
+            with self.assertRaises(MODULE.PreflightError) as error:
+                MODULE.preflight(credentials, "EUR/USD")
+        self.assertEqual(error.exception.code, "UNSUPPORTED_DATA_REQUEST")
 
     def test_preflight_rejects_inaccessible_account_and_unknown_instrument(self):
         credentials = {"OANDA_API_TOKEN": "unused", "OANDA_ACCOUNT_ID": "not-listed", "OANDA_ENV": "practice"}
@@ -138,6 +150,50 @@ class PracticeLauncherTests(unittest.TestCase):
                 with self.assertRaises(MODULE.PreflightError) as error:
                     MODULE.verify_archive(path, "EUR/USD")
                 self.assertEqual(error.exception.code, "PROVENANCE_VERIFICATION_FAILED")
+
+    def test_verifies_all_allowlisted_granularities(self):
+        for granularity in MODULE.ALLOWED_GRANULARITIES:
+            with tempfile.TemporaryDirectory() as temp:
+                path = Path(temp) / "batch.json"
+                path.write_text(json.dumps({
+                    "transport": "ok", "instrument": "GBP_JPY", "granularity": granularity,
+                    "requestedFrom": 100, "requestedTo": 200,
+                    "candles": [{"complete": True, "sourceTime": 100,
+                                 "instrument": "GBP_JPY", "granularity": granularity,
+                                 "bidOpen": 1, "bidHigh": 2, "bidLow": 1, "bidClose": 2,
+                                 "askOpen": 3, "askHigh": 4, "askLow": 3, "askClose": 4}],
+                }), encoding="utf-8")
+                self.assertEqual(MODULE.verify_archive(path, "GBP/JPY")[3], granularity)
+
+    def test_verifies_foundation_date_values_and_rejects_out_of_range_candle(self):
+        # 815,692,800 is 2026-11-12 in Foundation-Date seconds; request bounds
+        # use the same Codable representation as the Swift archive.
+        candle = {"complete": True, "sourceTime": 815692800,
+                  "instrument": "EUR_USD", "granularity": "H1",
+                  "bidOpen": 1, "bidHigh": 2, "bidLow": 1, "bidClose": 2,
+                  "askOpen": 3, "askHigh": 4, "askLow": 3, "askClose": 4}
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "batch.json"
+            path.write_text(json.dumps({"transport": "ok", "instrument": "EUR_USD",
+                "granularity": "H1", "requestedFrom": 815692740, "requestedTo": 815692860,
+                "candles": [candle]}), encoding="utf-8")
+            self.assertEqual(MODULE.verify_archive(path, "EUR/USD")[2], 1)
+            candle["sourceTime"] = 815693000
+            path.write_text(json.dumps({"transport": "ok", "instrument": "EUR_USD",
+                "granularity": "H1", "requestedFrom": 815692740, "requestedTo": 815692860,
+                "candles": [candle]}), encoding="utf-8")
+            with self.assertRaises(MODULE.PreflightError):
+                MODULE.verify_archive(path, "EUR/USD")
+
+    def test_collection_rejects_non_allowlisted_granularity_before_build(self):
+        with self.assertRaises(MODULE.PreflightError) as error:
+            MODULE.collect(MODULE.SCRIPT_REPO, Path("/bin/true"), {}, "EUR/USD", 1, 0,
+                           Path(tempfile.gettempdir()), ("M30",))
+        self.assertEqual(error.exception.code, "UNSUPPORTED_DATA_REQUEST")
+
+    def test_runner_rejects_arbitrary_repo_option(self):
+        with self.assertRaises(SystemExit):
+            MODULE.main(["collect", "--repo", "/tmp/untrusted", "--asset", "EUR/USD"])
 
     def test_connection_failure_is_distinct(self):
         with patch.object(MODULE.urllib.request, "urlopen", side_effect=OSError("offline")):

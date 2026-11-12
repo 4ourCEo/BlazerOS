@@ -5,12 +5,12 @@ import argparse
 import hashlib
 import http.client
 import json
+import math
 import os
 import stat
 import subprocess
 import sys
 import tempfile
-import math
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -24,6 +24,9 @@ INSTRUMENTS = {
     "EUR/GBP": "EUR_GBP", "AUD/USD": "AUD_USD", "USD/CAD": "USD_CAD",
     "EUR/JPY": "EUR_JPY", "GBP/JPY": "GBP_JPY", "XAU/USD": "XAU_USD",
 }
+ALLOWED_GRANULARITIES = ("M1", "M5", "M15", "H1")
+DEFAULT_GRANULARITIES = ("M1", "M5")
+SCRIPT_REPO = Path(__file__).resolve().parents[1]
 
 
 class PreflightError(Exception):
@@ -100,11 +103,36 @@ def preflight(credentials, asset):
     if credentials["OANDA_ACCOUNT_ID"] not in account_ids:
         raise PreflightError("INACCESSIBLE_ACCOUNT", "Configured account ID is not accessible to this Practice token")
     candles = request_json(f"/v3/instruments/{instrument}/candles", credentials,
-                           {"granularity": "M1", "count": 1, "price": "BA", "smooth": "false"})
+                           {"granularity": "M1", "count": 10, "price": "BA", "smooth": "false"})
     rows = candles.get("candles")
-    if not isinstance(rows, list) or not rows:
+    usable = lambda row: isinstance(row, dict) and row.get("complete") is True \
+        and isinstance(row.get("bid"), dict) and isinstance(row.get("ask"), dict) \
+        and all(row[side].get(field) is not None for side in ("bid", "ask") for field in ("o", "h", "l", "c"))
+    if not isinstance(rows, list) or not rows or not any(usable(row) for row in rows):
         raise PreflightError("UNSUPPORTED_DATA_REQUEST", "Practice M1 candle endpoint returned no usable candle")
     print(f"OANDA_PREFLIGHT state=READY environment=practice account_match=true instrument={instrument} granularity=M1 candle_count={len(rows)}")
+
+
+def timestamp_seconds(value):
+    """Decode Foundation Date JSON and common ISO/Unix representations."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        seconds = float(value)
+        if not math.isfinite(seconds):
+            raise ValueError
+        # JSONEncoder's default Date strategy uses seconds since 2001-01-01.
+        return seconds + 978307200 if seconds < 1_500_000_000 else seconds
+    if isinstance(value, str):
+        from datetime import datetime
+        text = value.replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(text)
+        if parsed.tzinfo is None:
+            from datetime import timezone
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        seconds = parsed.timestamp()
+        if not math.isfinite(seconds):
+            raise ValueError
+        return seconds
+    raise ValueError
 
 
 def research_child_environment(credentials):
@@ -136,26 +164,37 @@ def build_isolated(repo, build_root):
     return binary
 
 
-def collect(repo, binary, credentials, asset, hours, offset, archive_root):
+def collect(repo, binary, credentials, asset, hours, offset, archive_root,
+            granularities=DEFAULT_GRANULARITIES):
     if asset not in INSTRUMENTS:
         raise PreflightError("UNSUPPORTED_DATA_REQUEST", "Instrument is not supported by the Practice collector")
     if not 1 <= hours <= 24 or not 0 <= offset <= 720:
         raise PreflightError("UNSUPPORTED_DATA_REQUEST", "Collection bound must be 1–24 hours and offset 0–720 hours")
+    if not granularities or any(granularity not in ALLOWED_GRANULARITIES for granularity in granularities):
+        raise PreflightError("UNSUPPORTED_DATA_REQUEST", "Granularity must be one of M1, M5, M15, H1")
     archive_root.mkdir(parents=True, exist_ok=True)
-    before = set(archive_root.glob("oanda-practice-*.json"))
+    instrument = INSTRUMENTS[asset]
+    archive_pattern = f"oanda-practice-{instrument}-*.json"
+    before = set(archive_root.glob(archive_pattern))
     child_env = research_child_environment(credentials)
-    command = [str(binary), "--historical-bid-ask", "--asset", asset,
-               "--historical-hours", str(hours), "--historical-offset-hours", str(offset),
-               "--root", str(archive_root.parent)]
-    result = subprocess.run(command, cwd=repo, env=child_env, check=False)
-    if result.returncode:
-        raise PreflightError("COLLECTION_FAILED", f"ForwardTest historical collector exited {result.returncode}")
-    created = sorted(set(archive_root.glob("oanda-practice-*.json")) - before)
-    if len(created) != 2:
-        raise PreflightError("PROVENANCE_VERIFICATION_FAILED", f"Expected two new M1/M5 archive batches; found {len(created)}")
+    for granularity in granularities:
+        command = [str(binary), "--historical-bid-ask", "--asset", asset,
+                   "--historical-granularity", granularity,
+                   "--historical-hours", str(hours), "--historical-offset-hours", str(offset),
+                   "--root", str(archive_root.parent)]
+        result = subprocess.run(command, cwd=repo, env=child_env, check=False)
+        if result.returncode:
+            raise PreflightError("COLLECTION_FAILED", "ForwardTest historical collector failed")
+    # Collections for different instruments may run concurrently in one archive.
+    created = sorted(set(archive_root.glob(archive_pattern)) - before)
+    expected = set(granularities)
+    if len(created) != len(expected):
+        raise PreflightError("PROVENANCE_VERIFICATION_FAILED", "Unexpected number of new archive batches")
     verified = []
     for path in created:
         verified.append(verify_archive(path, asset))
+    if {granularity for _, _, _, granularity in verified} != expected:
+        raise PreflightError("PROVENANCE_VERIFICATION_FAILED", "Archive batches did not match requested granularities")
     for name, digest, count, granularity in verified:
         print(f"OANDA_ARCHIVE status=VERIFIED granularity={granularity} candle_count={count} sha256={digest} file={name}")
 
@@ -167,37 +206,38 @@ def verify_archive(path, asset):
         transport_ok = transport == "ok" or transport == {"ok": {}}
         candles = payload.get("candles")
         fields = ("bidOpen", "bidHigh", "bidLow", "bidClose", "askOpen", "askHigh", "askLow", "askClose")
-        requested_from, requested_to = payload.get("requestedFrom"), payload.get("requestedTo")
+        granularity = payload.get("granularity")
+        requested_from = timestamp_seconds(payload["requestedFrom"])
+        requested_to = timestamp_seconds(payload["requestedTo"])
         if (not transport_ok or not isinstance(candles, list) or not candles
                 or payload.get("instrument") != INSTRUMENTS[asset]
-                or payload.get("granularity") not in ("M1", "M5")
-                or not isinstance(requested_from, (int, float)) or not math.isfinite(requested_from)
-                or not isinstance(requested_to, (int, float)) or not math.isfinite(requested_to)
+                or granularity not in ALLOWED_GRANULARITIES
                 or requested_from >= requested_to
-                or not all(isinstance(candle, dict) and candle.get("sourceTime") is not None
-                           and isinstance(candle.get("sourceTime"), (int, float))
-                           and math.isfinite(candle["sourceTime"])
-                           and candle.get("complete") is True
+                or not all(isinstance(candle, dict) and candle.get("complete") is True
+                           and requested_from <= timestamp_seconds(candle.get("sourceTime")) <= requested_to
                            and candle.get("instrument") == INSTRUMENTS[asset]
-                           and candle.get("granularity") == payload.get("granularity")
-                           and all(isinstance(candle.get(field), (int, float))
-                                   and math.isfinite(candle[field]) and candle[field] > 0 for field in fields)
+                           and candle.get("granularity") == granularity
+                           and all(math.isfinite(float(candle[field])) and float(candle[field]) > 0
+                                   for field in fields)
                            and all(candle[bid] < candle[ask] for bid, ask in zip(
                                ("bidOpen", "bidHigh", "bidLow", "bidClose"),
                                ("askOpen", "askHigh", "askLow", "askClose")))
                            for candle in candles)):
             raise ValueError
+        times = [timestamp_seconds(candle["sourceTime"]) for candle in candles]
+        if times != sorted(times) or len(times) != len(set(times)):
+            raise ValueError
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
+    except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError, ValueError):
         raise PreflightError("PROVENANCE_VERIFICATION_FAILED", "Archive batch failed schema/content verification")
-    return (path.name, digest, len(candles), payload["granularity"])
+    return (path.name, digest, len(candles), granularity)
 
 
-def verify_existing(archive_root, asset):
+def verify_existing(archive_root, asset, granularities=DEFAULT_GRANULARITIES):
     if asset not in INSTRUMENTS:
         raise PreflightError("UNSUPPORTED_DATA_REQUEST", "Instrument is not supported by the Practice collector")
     verified = []
-    for granularity in ("M1", "M5"):
+    for granularity in granularities:
         files = sorted(archive_root.glob(f"oanda-practice-{INSTRUMENTS[asset]}-{granularity}-*.json"))
         if not files:
             raise PreflightError("PROVENANCE_VERIFICATION_FAILED", f"No persisted {granularity} archive batch found")
@@ -212,12 +252,15 @@ def main(argv=None):
     parser.add_argument("--asset", default="EUR/USD")
     parser.add_argument("--hours", type=int, default=1)
     parser.add_argument("--offset-hours", type=int, default=0)
+    parser.add_argument("--granularity", action="append", choices=ALLOWED_GRANULARITIES,
+                        help="Interval to collect or verify; repeat for multiple intervals (default: M1 M5)")
     parser.add_argument("--archive-root", type=Path,
                         default=Path.home() / "Library/Application Support/BlazerOS/Research/oanda-practice-bounded/historical-bid-ask")
     args = parser.parse_args(argv)
     try:
         if args.command == "verify":
-            verify_existing(args.archive_root.expanduser().resolve(), args.asset)
+            verify_existing(args.archive_root.expanduser().resolve(), args.asset,
+                            tuple(args.granularity or DEFAULT_GRANULARITIES))
             return 0
         repo = Path(__file__).resolve().parents[1]
         archive_root = args.archive_root.expanduser().resolve()
@@ -228,7 +271,8 @@ def main(argv=None):
                 binary = build_isolated(repo, Path(temp_build) / "build")
                 credentials = read_credentials()
                 preflight(credentials, args.asset)
-                collect(repo, binary, credentials, args.asset, args.hours, args.offset_hours, archive_root)
+                collect(repo, binary, credentials, args.asset, args.hours, args.offset_hours,
+                        archive_root, tuple(args.granularity or DEFAULT_GRANULARITIES))
             return 0
         credentials = read_credentials()
         preflight(credentials, args.asset)
