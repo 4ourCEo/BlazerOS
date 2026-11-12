@@ -605,20 +605,22 @@ public enum OandaClient {
         asset: String, duration: TimeInterval = 30, maxQuotes: Int = 100,
         session: OandaSession
     ) async -> OandaForwardQuoteCapture {
-        let started = Date()
         let instrumentName = instrument(for: asset) ?? asset
         guard session.isConfigured, session.environment == .practice,
               let mapped = instrument(for: asset), duration > 0, maxQuotes > 0 else {
             return OandaForwardQuoteCapture(instrument: instrumentName,
-                environment: session.environment, startedAt: started, endedAt: Date(),
+                environment: session.environment, startedAt: Date(), endedAt: Date(),
                 quotes: [], transport: session.isConfigured ? .network : .missingToken)
         }
         guard await OandaRateLimit.shared.acquire(timeout: 15),
-              var components = URLComponents(
-                  string: "\(session.environment.streamHost)/v3/accounts/\(session.accountId)/pricing/stream") else {
+               var components = URLComponents(
+                   string: "\(session.environment.streamHost)/v3/accounts/\(session.accountId)/pricing/stream") else {
             return OandaForwardQuoteCapture(instrument: mapped, environment: session.environment,
-                startedAt: started, endedAt: Date(), quotes: [], transport: .network)
+                startedAt: Date(), endedAt: Date(), quotes: [], transport: .network)
         }
+        // The requested observation interval begins only after rate limiting has
+        // admitted the request; waiting for a token is not capture time.
+        let started = Date()
         components.queryItems = [URLQueryItem(name: "instruments", value: mapped)]
         guard let url = components.url else {
             return OandaForwardQuoteCapture(instrument: mapped, environment: session.environment,
@@ -637,17 +639,15 @@ public enum OandaClient {
                     termination: "invalid_response")
             }
             let contentType = http.value(forHTTPHeaderField: "Content-Type")
-            if http.statusCode == 401 || http.statusCode == 403 {
+            let httpTransport = forwardHTTPTransport(statusCode: http.statusCode)
+            if httpTransport != .ok {
+                let termination = httpTransport == .rateLimited
+                    ? "http_rate_limited"
+                    : (httpTransport == .unauthorized ? "http_auth_rejected" : "http_failure")
                 return OandaForwardQuoteCapture(instrument: mapped, environment: session.environment,
-                    startedAt: started, endedAt: Date(), quotes: [], transport: .unauthorized,
+                    startedAt: started, endedAt: Date(), quotes: [], transport: httpTransport,
                     httpStatus: http.statusCode, contentType: contentType,
-                    termination: "http_auth_rejected")
-            }
-            guard http.statusCode < 400 else {
-                return OandaForwardQuoteCapture(instrument: mapped, environment: session.environment,
-                    startedAt: started, endedAt: Date(), quotes: [], transport: .network,
-                    httpStatus: http.statusCode, contentType: contentType,
-                    termination: "http_failure")
+                    termination: termination)
             }
             var termination = "stream_ended"
             for try await line in bytes.lines {
@@ -676,22 +676,66 @@ public enum OandaClient {
                 }
                 quotes.append(quote)
             }
+            let endedAt = Date()
+            let final = finalizeForwardStream(endedAt: endedAt, startedAt: started,
+                duration: duration, quoteCount: quotes.count, maxQuotes: maxQuotes,
+                termination: termination)
             return OandaForwardQuoteCapture(instrument: mapped, environment: session.environment,
-                startedAt: started, endedAt: Date(), quotes: quotes, transport: .ok,
+                startedAt: started, endedAt: endedAt, quotes: quotes, transport: final.transport,
                 httpStatus: http.statusCode, contentType: contentType,
                 heartbeatCount: heartbeatCount, parseFailures: parseFailures,
-                termination: termination)
-        } catch let error as URLError where error.code == .timedOut {
-            return OandaForwardQuoteCapture(instrument: mapped, environment: session.environment,
-                startedAt: started, endedAt: Date(), quotes: quotes, transport: .timeout,
-                heartbeatCount: heartbeatCount, parseFailures: parseFailures,
-                termination: "timeout", errorCode: error.code.rawValue.description)
+                termination: final.termination)
         } catch {
+            let failure = classifyForwardError(error)
             return OandaForwardQuoteCapture(instrument: mapped, environment: session.environment,
-                startedAt: started, endedAt: Date(), quotes: quotes, transport: .network,
+                startedAt: started, endedAt: Date(), quotes: quotes, transport: failure.transport,
                 heartbeatCount: heartbeatCount, parseFailures: parseFailures,
-                termination: "network_failure", errorCode: (error as NSError).code.description)
+                termination: failure.termination, errorCode: failure.errorCode)
         }
+    }
+
+    /// Classifies a completed stream without depending on URLSession. A normal
+    /// EOF before the requested interval is incomplete and cannot be archived
+    /// or reported as a successful capture. Delayed provider messages are not
+    /// rejected here; only the bounded capture interval is considered.
+    static func finalizeForwardStream(endedAt: Date, startedAt: Date,
+                                      duration: TimeInterval, quoteCount: Int,
+                                      maxQuotes: Int, termination: String)
+        -> (transport: OandaTransport, termination: String) {
+        if termination == "duration_reached"
+            || quoteCount >= maxQuotes {
+            return (.ok, termination == "duration_reached" ? termination : "quote_limit_reached")
+        }
+        if endedAt.timeIntervalSince(startedAt) < duration {
+            return (.network, "early_eof")
+        }
+        return (.ok, "duration_reached")
+    }
+
+    static func forwardHTTPTransport(statusCode: Int) -> OandaTransport {
+        if statusCode == 429 { return .rateLimited }
+        if statusCode == 401 || statusCode == 403 { return .unauthorized }
+        return statusCode >= 400 ? .network : .ok
+    }
+
+    static func classifyForwardError(_ error: Error)
+        -> (transport: OandaTransport, termination: String, errorCode: String?) {
+        if error is CancellationError {
+            return (.network, "cancelled", nil)
+        }
+        if let urlError = error as? URLError {
+            if urlError.code == .cancelled {
+                return (.network, "cancelled", urlError.code.rawValue.description)
+            }
+            if urlError.code == .timedOut {
+                return (.timeout, "timeout", urlError.code.rawValue.description)
+            }
+        }
+        return (.network, "network_failure", (error as NSError).code.description)
+    }
+
+    static func isValidForwardBidAsk(bid: Double, ask: Double) -> Bool {
+        bid.isFinite && ask.isFinite && bid > 0 && ask > 0 && ask > bid
     }
 
     private struct CandleFetch: Sendable {
@@ -821,7 +865,7 @@ public enum OandaClient {
         let ask =
             Double(row.asks?.first?.price ?? "")
             ?? Double(row.closeoutAsk ?? "")
-        guard let bid, let ask, bid.isFinite, ask.isFinite, ask > bid else { return nil }
+        guard let bid, let ask, isValidForwardBidAsk(bid: bid, ask: ask) else { return nil }
         guard let raw = row.time, let asOf = parseOandaTimeMs(raw) else { return nil }
         let mid = (bid + ask) / 2
         guard mid.isFinite else { return nil }
