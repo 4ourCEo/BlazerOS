@@ -105,6 +105,9 @@ public struct StrategyValidationCase: Codable, Sendable {
     public let signalTimestamp: Date
     public let engineSHA: String
     public let input: StrategyEngine.MarketInput
+    /// Source-declared maximum age for the quote that produced the historical signal.
+    /// Nil is retained for decoding old records, but historical replay fails closed.
+    public let maximumSignalQuoteAgeSeconds: TimeInterval?
     /// Authority of the quote/history used to create the signal input. Optional only for
     /// archives written before signal-input authority was recorded.
     public let signalPriceAuthority: ValidationPriceAuthority?
@@ -125,6 +128,7 @@ public struct StrategyValidationCase: Codable, Sendable {
         signalTimestamp: Date,
         engineSHA: String,
         input: StrategyEngine.MarketInput,
+        maximumSignalQuoteAgeSeconds: TimeInterval? = nil,
         signalPriceAuthority: ValidationPriceAuthority? = nil,
         observations: [ValidationPriceObservation],
         recordedExecution: RecordedValidationExecution? = nil,
@@ -142,6 +146,7 @@ public struct StrategyValidationCase: Codable, Sendable {
         self.signalTimestamp = signalTimestamp
         self.engineSHA = engineSHA
         self.input = input
+        self.maximumSignalQuoteAgeSeconds = maximumSignalQuoteAgeSeconds
         self.signalPriceAuthority = signalPriceAuthority
         self.observations = observations
         self.recordedExecution = recordedExecution
@@ -282,6 +287,9 @@ public struct HistoricalValidationSeries: Codable, Sendable {
     public let candles5m: [StrategyEngine.CandlePayload]
     public let prices: [ValidationPriceObservation]
     public let evaluationTimes: [Date]
+    /// Source-specific quote freshness contract. Historical construction is rejected if
+    /// the source does not supply a finite, non-negative limit.
+    public let maximumSignalQuoteAgeSeconds: TimeInterval?
     public let payoutRatio: Double?
     public let signalCategory: String?
     public let marketRegime: String?
@@ -294,6 +302,7 @@ public struct HistoricalValidationSeries: Codable, Sendable {
         candles1m: [StrategyEngine.CandlePayload],
         candles5m: [StrategyEngine.CandlePayload],
         prices: [ValidationPriceObservation], evaluationTimes: [Date],
+        maximumSignalQuoteAgeSeconds: TimeInterval? = nil,
         payoutRatio: Double? = nil, signalCategory: String? = nil,
         marketRegime: String? = nil, provenance: String
     ) {
@@ -307,6 +316,7 @@ public struct HistoricalValidationSeries: Codable, Sendable {
         self.candles5m = candles5m
         self.prices = prices
         self.evaluationTimes = evaluationTimes
+        self.maximumSignalQuoteAgeSeconds = maximumSignalQuoteAgeSeconds
         self.payoutRatio = payoutRatio
         self.signalCategory = signalCategory
         self.marketRegime = marketRegime
@@ -342,6 +352,15 @@ public enum HistoricalValidationCaseBuilder {
                         evaluationTime: $0, reason: "Invalid historical builder configuration")
                 })
         }
+        guard let maxQuoteAge = series.maximumSignalQuoteAgeSeconds,
+              maxQuoteAge.isFinite, maxQuoteAge >= 0 else {
+            return HistoricalValidationBuildResult(
+                cases: [], rejections: series.evaluationTimes.map {
+                    HistoricalValidationBuildRejection(
+                        evaluationTime: $0,
+                        reason: "Source-specific signal quote freshness contract unavailable")
+                })
+        }
         var output: [StrategyValidationCase] = []
         var rejected: [HistoricalValidationBuildRejection] = []
         let times = Array(Set(series.evaluationTimes)).sorted()
@@ -371,6 +390,13 @@ public enum HistoricalValidationCaseBuilder {
                     evaluationTime: evaluationTime, reason: "Historical bid/ask quote unavailable"))
                 continue
             }
+            let quoteAge = evaluationTime.timeIntervalSince(quote.observedAt)
+            guard quoteAge.isFinite, quoteAge >= 0, quoteAge <= maxQuoteAge else {
+                rejected.append(.init(
+                    evaluationTime: evaluationTime,
+                    reason: "Historical signal quote exceeds source freshness contract"))
+                continue
+            }
             let input = StrategyEngine.MarketInput(
                 asset: series.engineAsset, source: series.source,
                 candles1m: Array(m1), candles5m: Array(m5),
@@ -385,6 +411,7 @@ public enum HistoricalValidationCaseBuilder {
                 engineAsset: series.engineAsset, venueID: series.venueID,
                 marketKind: series.marketKind, signalTimestamp: evaluationTime,
                 engineSHA: EngineIdentity.pinnedSHA1, input: input,
+                maximumSignalQuoteAgeSeconds: maxQuoteAge,
                 signalPriceAuthority: series.authority,
                 observations: series.prices, payoutRatio: series.payoutRatio,
                 signalCategory: series.signalCategory, marketRegime: series.marketRegime,
@@ -519,6 +546,16 @@ public enum StrategyValidationEngine {
         }
         if quoteAt / 1_000 > item.signalTimestamp.timeIntervalSince1970 + 0.001 {
             return "Future quote leaked into the signal"
+        }
+        if item.stage == .historicalReplay {
+            guard let maximumAge = item.maximumSignalQuoteAgeSeconds,
+                  maximumAge.isFinite, maximumAge >= 0 else {
+                return "Source-specific signal quote freshness contract unavailable"
+            }
+            let quoteAge = item.signalTimestamp.timeIntervalSince1970 - quoteAt / 1_000
+            guard quoteAge.isFinite, quoteAge >= 0, quoteAge <= maximumAge else {
+                return "Historical signal quote exceeds source freshness contract"
+            }
         }
         guard validCompleted(item.input.candles1m, interval: 60, at: item.signalTimestamp),
               validCompleted(item.input.candles5m, interval: 300, at: item.signalTimestamp) else {
