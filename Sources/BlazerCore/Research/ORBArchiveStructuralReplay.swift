@@ -20,6 +20,13 @@ public struct ORBArchiveStructuralResult: Codable, Sendable, Equatable {
     public let status: ORBArchiveStructuralStatus
     public let entryTime: Date?
     public let entrySpread: Double?
+    /// Archived M1 candle-close quote evidence only; not an order, live quote, fill,
+    /// or guaranteed executable price. Archive data cannot establish receive time/age.
+    public let entryQuoteCandleStart: Date?
+    public let entryQuoteCandleEnd: Date?
+    public let entryBidClose: Double?
+    public let entryAskClose: Double?
+    public let entryIndicativeSideClose: Double?
     public let structuralRisk: Double?
     public let spreadToRiskRatio: Double?
     public let firstTouchCandleStart: Date?
@@ -31,6 +38,9 @@ public struct ORBArchiveStructuralResult: Codable, Sendable, Equatable {
     public init(planID: String, sourceIdentity: String, instrument: String,
                 status: ORBArchiveStructuralStatus, entryTime: Date? = nil,
                 entrySpread: Double? = nil, structuralRisk: Double? = nil,
+                entryQuoteCandleStart: Date? = nil, entryQuoteCandleEnd: Date? = nil,
+                entryBidClose: Double? = nil, entryAskClose: Double? = nil,
+                entryIndicativeSideClose: Double? = nil,
                 spreadToRiskRatio: Double? = nil,
                 firstTouchCandleStart: Date? = nil, firstTouchCandleEnd: Date? = nil,
                 coverageGapFrom: Date? = nil, coverageGapTo: Date? = nil,
@@ -41,6 +51,11 @@ public struct ORBArchiveStructuralResult: Codable, Sendable, Equatable {
         self.status = status
         self.entryTime = entryTime
         self.entrySpread = entrySpread
+        self.entryQuoteCandleStart = entryQuoteCandleStart
+        self.entryQuoteCandleEnd = entryQuoteCandleEnd
+        self.entryBidClose = entryBidClose
+        self.entryAskClose = entryAskClose
+        self.entryIndicativeSideClose = entryIndicativeSideClose
         self.structuralRisk = structuralRisk
         self.spreadToRiskRatio = spreadToRiskRatio
         self.firstTouchCandleStart = firstTouchCandleStart
@@ -69,16 +84,19 @@ public enum ORBArchiveStructuralReplay {
             return result(plan, status: .entryMissingQuote, risk: risk)
         }
         let spread = entry.askClose - entry.bidClose
+        let quoteEvidence = (start: entry.sourceTime, end: entry.sourceTime.addingTimeInterval(60),
+                             bid: entry.bidClose, ask: entry.askClose,
+                             indicative: plan.side == .long ? entry.askClose : entry.bidClose)
         guard spread.isFinite, spread >= 0, spread <= plan.maxSpread else {
             return result(plan, status: .entrySpreadExceeded, entryTime: plan.createdAt,
-                          spread: spread, risk: risk, quoteFeasible: false)
+                          spread: spread, risk: risk, quoteFeasible: false, quote: quoteEvidence)
         }
         var expectedStart = plan.createdAt
         for candle in ordered where candle.sourceTime >= plan.createdAt {
             if candle.sourceTime > expectedStart {
                 return result(plan, status: .unresolvedCoverageGap, entryTime: plan.createdAt,
                     spread: spread, risk: risk, gapFrom: expectedStart, gapTo: candle.sourceTime,
-                    quoteFeasible: true)
+                    quoteFeasible: true, quote: quoteEvidence)
             }
             guard candle.sourceTime == expectedStart else { continue }
             let stopTouched: Bool
@@ -96,22 +114,28 @@ public enum ORBArchiveStructuralReplay {
             let status: ORBArchiveStructuralStatus = stopTouched && targetTouched
                 ? .ambiguous : (stopTouched ? .stopTouched : .targetTouched)
             return result(plan, status: status, entryTime: plan.createdAt, spread: spread,
-                          risk: risk, touchStart: candle.sourceTime,
-                          touchEnd: candle.sourceTime.addingTimeInterval(60), quoteFeasible: true)
+                           risk: risk, touchStart: candle.sourceTime,
+                           touchEnd: candle.sourceTime.addingTimeInterval(60), quoteFeasible: true,
+                           quote: quoteEvidence)
         }
-        return result(plan, status: .unresolved, entryTime: plan.createdAt, spread: spread, risk: risk, quoteFeasible: true)
+        return result(plan, status: .unresolved, entryTime: plan.createdAt, spread: spread,
+                      risk: risk, quoteFeasible: true, quote: quoteEvidence)
     }
 
     private static func result(_ plan: V3TradePlan, status: ORBArchiveStructuralStatus,
                                entryTime: Date? = nil, spread: Double? = nil, risk: Double,
-                               touchStart: Date? = nil, touchEnd: Date? = nil,
-                               gapFrom: Date? = nil, gapTo: Date? = nil,
-                               quoteFeasible: Bool? = nil) -> ORBArchiveStructuralResult {
+                                touchStart: Date? = nil, touchEnd: Date? = nil,
+                                gapFrom: Date? = nil, gapTo: Date? = nil,
+                                quoteFeasible: Bool? = nil,
+                                quote: (start: Date, end: Date, bid: Double, ask: Double, indicative: Double)? = nil) -> ORBArchiveStructuralResult {
         let ratio: Double?
         if let spread, risk.isFinite && risk > 0 { ratio = spread / risk } else { ratio = nil }
         return ORBArchiveStructuralResult(planID: plan.id, sourceIdentity: plan.sourceObservationID,
             instrument: plan.instrument, status: status, entryTime: entryTime,
             entrySpread: spread, structuralRisk: risk.isFinite && risk > 0 ? risk : nil,
+            entryQuoteCandleStart: quote?.start, entryQuoteCandleEnd: quote?.end,
+            entryBidClose: quote?.bid, entryAskClose: quote?.ask,
+            entryIndicativeSideClose: quote?.indicative,
             spreadToRiskRatio: ratio,
             firstTouchCandleStart: touchStart, firstTouchCandleEnd: touchEnd,
             coverageGapFrom: gapFrom, coverageGapTo: gapTo,
