@@ -4,6 +4,10 @@ import Testing
 
 private let validationSignalTime = Date(timeIntervalSince1970: 2_000_000_000)
 
+private struct HistoricalEvaluatorReached: Error, LocalizedError {
+    var errorDescription: String? { "historical evaluator was called" }
+}
+
 private func validationInput(signalTime: Date = validationSignalTime) -> StrategyEngine.MarketInput {
     func bars(interval: Int, count: Int) -> [StrategyEngine.CandlePayload] {
         (0..<count).map { index in
@@ -35,6 +39,7 @@ private func validationCase(
     entryPrice: Double = 1.1000,
     expiryPrice: Double = 1.1010,
     payout: Double? = 0.80,
+    maximumSignalQuoteAgeSeconds: TimeInterval? = 5,
     recorded: RecordedValidationExecution? = nil,
     input: StrategyEngine.MarketInput? = nil,
     observationVenue: String = "OANDA",
@@ -46,6 +51,7 @@ private func validationCase(
         instrumentID: "oanda:EUR/USD", engineAsset: "EUR/USD", venueID: "OANDA",
         marketKind: .standard, signalTimestamp: validationSignalTime,
         engineSHA: EngineIdentity.pinnedSHA1, input: input ?? validationInput(),
+        maximumSignalQuoteAgeSeconds: maximumSignalQuoteAgeSeconds,
         signalPriceAuthority: signalPriceAuthority,
         observations: [
             ValidationPriceObservation(
@@ -164,6 +170,7 @@ private let highEvaluator: StrategyValidationEngine.Evaluator = { input in
         instrumentID: base.instrumentID, engineAsset: base.engineAsset, venueID: base.venueID,
         marketKind: base.marketKind, signalTimestamp: base.signalTimestamp,
         engineSHA: base.engineSHA, input: base.input,
+        maximumSignalQuoteAgeSeconds: base.maximumSignalQuoteAgeSeconds,
         observations: [
             ValidationPriceObservation(
                 instrumentID: base.instrumentID, venueID: base.venueID, observedAt: entry,
@@ -230,7 +237,7 @@ private let highEvaluator: StrategyValidationEngine.Evaluator = { input in
         instrumentID: "pocketoption:EURUSD_otc", engineAsset: "EUR/USD",
         venueID: "Pocket Option", marketKind: .otc,
         signalTimestamp: validationSignalTime, engineSHA: EngineIdentity.pinnedSHA1,
-        input: validationInput(), observations: [
+        input: validationInput(), maximumSignalQuoteAgeSeconds: 5, observations: [
             ValidationPriceObservation(
                 instrumentID: "pocketoption:EURUSD_otc", venueID: "Pocket Option",
                 observedAt: entry, price: 1.10, source: "oanda", authority: .oandaReference),
@@ -296,6 +303,7 @@ private let highEvaluator: StrategyValidationEngine.Evaluator = { input in
         id: base.id, stage: base.stage, instrumentID: base.instrumentID,
         engineAsset: base.engineAsset, venueID: base.venueID, marketKind: base.marketKind,
         signalTimestamp: base.signalTimestamp, engineSHA: base.engineSHA, input: base.input,
+        maximumSignalQuoteAgeSeconds: base.maximumSignalQuoteAgeSeconds,
         observations: Array(base.observations.prefix(1)), payoutRatio: base.payoutRatio,
         provenance: base.provenance)
     let unresolved = try await StrategyValidationEngine.replay(
@@ -338,6 +346,7 @@ private let highEvaluator: StrategyValidationEngine.Evaluator = { input in
             marketKind: .standard, source: "oanda-history", authority: .oandaReference,
             candles1m: input.candles1m, candles5m: input.candles5m,
             prices: [quote, future], evaluationTimes: [validationSignalTime],
+            maximumSignalQuoteAgeSeconds: 5,
             payoutRatio: 0.88, provenance: "historical fixture"),
         minimumM1: 2, minimumM5: 2)
     let item = try #require(built.cases.first)
@@ -348,6 +357,86 @@ private let highEvaluator: StrategyValidationEngine.Evaluator = { input in
     #expect(item.input.candles1m.allSatisfy {
         $0.time + 60_000 <= validationSignalTime.timeIntervalSince1970 * 1_000 + 1
     })
+}
+
+@Test func historicalBuilderRejectsQuoteOlderThanSourceFreshnessContract() throws {
+    let input = validationInput()
+    let stale = ValidationPriceObservation(
+        instrumentID: "oanda:EUR/USD", venueID: "OANDA",
+        observedAt: validationSignalTime.addingTimeInterval(-10), price: 1.101,
+        bid: 1.1009, ask: 1.1011, source: "oanda-history", authority: .oandaReference)
+    let built = HistoricalValidationCaseBuilder.build(series: .init(
+        instrumentID: "oanda:EUR/USD", engineAsset: "EUR/USD", venueID: "OANDA",
+        marketKind: .standard, source: "oanda-history", authority: .oandaReference,
+        candles1m: input.candles1m, candles5m: input.candles5m,
+        prices: [stale], evaluationTimes: [validationSignalTime],
+        maximumSignalQuoteAgeSeconds: 5, provenance: "historical fixture"),
+        minimumM1: 2, minimumM5: 2)
+
+    #expect(built.cases.isEmpty)
+    #expect(built.rejections.map(\.reason)
+        == ["Historical signal quote exceeds source freshness contract"])
+    #expect(stale.observedAt == validationSignalTime.addingTimeInterval(-10))
+}
+
+@Test func historicalBuilderRequiresSourceSpecificFreshnessContract() throws {
+    let input = validationInput()
+    let quote = ValidationPriceObservation(
+        instrumentID: "oanda:EUR/USD", venueID: "OANDA",
+        observedAt: validationSignalTime, price: 1.101,
+        bid: 1.1009, ask: 1.1011, source: "oanda-history", authority: .oandaReference)
+    let built = HistoricalValidationCaseBuilder.build(series: .init(
+        instrumentID: "oanda:EUR/USD", engineAsset: "EUR/USD", venueID: "OANDA",
+        marketKind: .standard, source: "oanda-history", authority: .oandaReference,
+        candles1m: input.candles1m, candles5m: input.candles5m,
+        prices: [quote], evaluationTimes: [validationSignalTime],
+        provenance: "historical fixture"), minimumM1: 2, minimumM5: 2)
+
+    #expect(built.cases.isEmpty)
+    #expect(built.rejections.map(\.reason)
+        == ["Source-specific signal quote freshness contract unavailable"])
+}
+
+@Test func replayRejectsStaleHistoricalQuoteBeforeCallingStrategy() async throws {
+    var input = validationInput()
+    input.quoteAsOfMs = validationSignalTime.addingTimeInterval(-10).timeIntervalSince1970 * 1_000
+    let item = validationCase(id: "stale-signal-quote", maximumSignalQuoteAgeSeconds: 5,
+                              input: input)
+    let records = try await StrategyValidationEngine.replay(
+        cases: [item], configuration: StrategyValidationConfiguration(entryDelaySeconds: 3),
+        evaluator: { _ in throw HistoricalEvaluatorReached() })
+
+    #expect(records.first?.rejectionReason
+        == "Historical signal quote exceeds source freshness contract")
+    #expect(records.first?.resolution == .unresolved)
+}
+
+@Test func replayRejectsFutureHistoricalSignalQuote() async throws {
+    var input = validationInput()
+    input.quoteAsOfMs = validationSignalTime.addingTimeInterval(1).timeIntervalSince1970 * 1_000
+    let item = validationCase(id: "future-signal-quote", maximumSignalQuoteAgeSeconds: 5,
+                              input: input)
+    let records = try await StrategyValidationEngine.replay(
+        cases: [item], configuration: StrategyValidationConfiguration(entryDelaySeconds: 3),
+        evaluator: { _ in throw HistoricalEvaluatorReached() })
+
+    #expect(records.first?.rejectionReason == "Future quote leaked into the signal")
+    #expect(records.first?.resolution == .unresolved)
+}
+
+@Test func legacyHistoricalCaseWithoutFreshnessContractDecodesButStaysUnresolved() async throws {
+    let encoded = try JSONEncoder().encode(validationCase(id: "legacy-missing-freshness"))
+    var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+    object.removeValue(forKey: "maximumSignalQuoteAgeSeconds")
+    let legacy = try JSONDecoder().decode(
+        StrategyValidationCase.self, from: JSONSerialization.data(withJSONObject: object))
+    let records = try await StrategyValidationEngine.replay(
+        cases: [legacy], configuration: StrategyValidationConfiguration(entryDelaySeconds: 3),
+        evaluator: { _ in throw HistoricalEvaluatorReached() })
+
+    #expect(records.first?.resolution == .unresolved)
+    #expect(records.first?.rejectionReason
+        == "Source-specific signal quote freshness contract unavailable")
 }
 
 @Test func syntheticSignalInputRemainsSyntheticWithIndependentSettlementPrices() async throws {
@@ -369,6 +458,7 @@ private let highEvaluator: StrategyValidationEngine.Evaluator = { input in
         marketKind: .standard, source: "synthetic-history", authority: .syntheticFixture,
         candles1m: input.candles1m, candles5m: input.candles5m,
         prices: [signalQuote, entry, expiry], evaluationTimes: [validationSignalTime],
+        maximumSignalQuoteAgeSeconds: 5,
         payoutRatio: 0.8, provenance: "test history"), minimumM1: 2, minimumM5: 2)
     let item = try #require(built.cases.first)
     let record = try #require(try await StrategyValidationEngine.replay(
@@ -410,6 +500,7 @@ private let highEvaluator: StrategyValidationEngine.Evaluator = { input in
         instrumentID: "oanda:EUR/USD", engineAsset: "EUR/USD", venueID: "OANDA",
         marketKind: .standard, signalTimestamp: signalTime,
         engineSHA: EngineIdentity.pinnedSHA1, input: input,
+        maximumSignalQuoteAgeSeconds: 5,
         observations: [
             ValidationPriceObservation(
                 instrumentID: "oanda:EUR/USD", venueID: "OANDA", observedAt: entry,
