@@ -243,6 +243,24 @@ public actor OandaRateLimit {
 }
 
 public enum OandaClient {
+    public static let historicalGranularities = ["M1", "M5", "M15", "H1"]
+
+    /// Returns an interval-aligned end that is at least one whole candle behind
+    /// `now`, so the requested range cannot include a forming candle.
+    public static func historicalClosedEnd(now: Date, granularity: String) -> Date? {
+        let seconds: TimeInterval
+        switch granularity {
+        case "M1": seconds = 60
+        case "M5": seconds = 5 * 60
+        case "M15": seconds = 15 * 60
+        case "H1": seconds = 60 * 60
+        default: return nil
+        }
+        let unix = now.timeIntervalSince1970
+        guard unix.isFinite else { return nil }
+        let boundary = floor(unix / seconds) * seconds - seconds
+        return Date(timeIntervalSince1970: boundary)
+    }
     private static let proofLock = NSLock()
     nonisolated(unsafe) private static var _loggedProof = false
     private static var loggedProof: Bool {
@@ -538,6 +556,7 @@ public enum OandaClient {
         let base = OandaHistoricalBidAskBatch(instrument: instrumentName,
             granularity: granularity, requestedFrom: from, requestedTo: to,
             candles: [], transport: .network)
+        guard historicalGranularities.contains(granularity) else { return base }
         guard session.isConfigured, session.environment == .practice,
               from.timeIntervalSince1970.isFinite, to > from else {
             return OandaHistoricalBidAskBatch(instrument: instrumentName,
@@ -587,10 +606,11 @@ public enum OandaClient {
             let decoded = try decoder.decode(CandlesResponse.self, from: data)
             let parsed = (decoded.candles ?? []).compactMap {
                 bidAskCandle(from: $0, instrument: instrumentName, granularity: granularity)
-            }
+            }.filter { $0.sourceTime >= from && $0.sourceTime <= to }
+            let ordered = parsed.sorted { $0.sourceTime < $1.sourceTime }
             return OandaHistoricalBidAskBatch(instrument: instrumentName, granularity: granularity,
                 requestedFrom: from, requestedTo: to,
-                candles: parsed, transport: .ok, httpStatus: http.statusCode)
+                candles: ordered, transport: .ok, httpStatus: http.statusCode)
         } catch let error as URLError where error.code == .timedOut {
             return OandaHistoricalBidAskBatch(instrument: instrumentName, granularity: granularity,
                 requestedFrom: from, requestedTo: to, candles: [], transport: .timeout)
