@@ -169,6 +169,9 @@ public struct ResearchFreshnessRequirement: Codable, Sendable, Equatable {
 public enum ResearchTriggerCadence: Codable, Sendable, Equatable { case barClose(resolutionID: String); case quoteEvent(name: String) }
 public enum ResearchExitSemantics: Codable, Sendable, Equatable {
     case fixedDuration(seconds: Double)
+    /// A configured choice among supported fixed outcome durations, not a
+    /// claim that every evaluation uses one particular duration.
+    case fixedDurationChoices(seconds: [Double])
     case structural(planName: String)
     case structuralWithSetupExpiry(planName: String, maximumSetupDurationSeconds: Double?)
 }
@@ -207,6 +210,10 @@ public struct ResearchRoleContract: Codable, Sendable, Equatable {
         if case .barClose(let id) = trigger { guard ids.contains(id) else { throw ResearchRoleContractError.missingResolutionID(id) } }
         if case .quoteEvent(let name) = trigger { guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ResearchRoleContractError.invalidName } }
         if case .fixedDuration(let s) = exit { guard s.isFinite, s > 0 else { throw ResearchRoleContractError.invalidFixedHorizon } }
+        if case .fixedDurationChoices(let values) = exit {
+            guard !values.isEmpty, values.allSatisfy({ $0.isFinite && $0 > 0 }),
+                  Set(values).count == values.count else { throw ResearchRoleContractError.invalidFixedHorizon }
+        }
         if case .structural(let p) = exit { guard !p.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ResearchRoleContractError.invalidName } }
         if case .structuralWithSetupExpiry(let p, let expiry) = exit { guard !p.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ResearchRoleContractError.invalidName }; if let expiry { guard expiry.isFinite, expiry > 0 else { throw ResearchRoleContractError.invalidDuration } } }
         guard !strategy.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !strategy.version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ResearchRoleContractError.invalidName }
