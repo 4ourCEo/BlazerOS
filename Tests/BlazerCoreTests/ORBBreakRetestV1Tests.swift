@@ -50,6 +50,7 @@ struct ORBBreakRetestV1Tests {
         #expect(decision.candidate?.plan.side == .long)
         #expect(decision.candidate?.plan.rewardRisk == 2)
         #expect(decision.candidate?.plan.validation().isEmpty == true)
+        #expect(decision.candidate?.plan.id.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" } == true)
     }
 
     @Test func confirmsShortBreakRetestWithExecutablePlanLevels() {

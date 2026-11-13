@@ -115,6 +115,55 @@ public actor ResearchStore {
         return named.map(\.1).sorted { $0.updatedAt > $1.updatedAt }
     }
 
+    /// Append-only Practice lifecycle evidence. IDs are immutable event identities: replaying
+    /// an identical event is safe, while reuse with different content is a conflict.
+    public func record(_ event: SpotFXPracticeLifecycleEvent) throws {
+        guard event.validation().isEmpty,
+              event.id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" }) else {
+            throw ScanError.failed("Invalid Spot FX Practice lifecycle event")
+        }
+        let existing = try spotFXPracticeLifecycleEvents().filter { $0.planID == event.planID }
+        if let sameID = existing.first(where: { $0.id == event.id }) {
+            guard sameID == event else {
+                throw ScanError.failed("Research record identity conflict: \(event.id)")
+            }
+            return
+        }
+        if let latest = existing.max(by: { $0.recordedAt < $1.recordedAt }), event.recordedAt < latest.recordedAt {
+            throw ScanError.failed("Out-of-order Spot FX Practice lifecycle event: \(event.id)")
+        }
+        if let latest = existing.max(by: { $0.recordedAt < $1.recordedAt }),
+           !Self.isAllowedLifecycleTransition(from: latest.state, to: event.state) {
+            throw ScanError.failed("Illegal Spot FX Practice lifecycle transition: \(latest.state.rawValue) -> \(event.state.rawValue)")
+        }
+        try writeOnceOrVerify(event, directory: "spot-fx-practice-lifecycle", name: event.id)
+    }
+
+    private static func isAllowedLifecycleTransition(from: SpotFXPracticeLifecycleState,
+                                                      to: SpotFXPracticeLifecycleState) -> Bool {
+        if from == to { return true }
+        switch from {
+        case .forming:
+            return [.actionable, .rejected, .invalidated, .expired, .unresolved].contains(to)
+        case .actionable:
+            return [.rejected, .invalidated, .expired, .manuallyConfirmed, .unresolved].contains(to)
+        case .unresolved:
+            return [.forming, .actionable, .rejected, .invalidated, .expired, .manuallyConfirmed, .brokerVerified].contains(to)
+        case .manuallyConfirmed:
+            return [.unresolved, .brokerVerified].contains(to)
+        case .rejected, .invalidated, .expired, .brokerVerified:
+            return false
+        }
+    }
+
+    public func spotFXPracticeLifecycleEvents() throws -> [SpotFXPracticeLifecycleEvent] {
+        let named = try loadNamed(SpotFXPracticeLifecycleEvent.self, directory: "spot-fx-practice-lifecycle")
+        for (_, event) in named where !event.validation().isEmpty {
+            throw ScanError.failed("Invalid Spot FX Practice lifecycle event: \(event.id)")
+        }
+        return named.map(\.1).sorted { $0.recordedAt < $1.recordedAt }
+    }
+
     public func record(_ entry: V3PlanEntryEvidence) throws {
         guard !entry.id.isEmpty, !entry.planID.isEmpty,
               entry.observation.validation(now: entry.observation.receivedAt).isEmpty else {
