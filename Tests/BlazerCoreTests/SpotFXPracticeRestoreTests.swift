@@ -89,15 +89,16 @@ import Testing
         asOf: session.addingTimeInterval(8 * 60))
     #expect(decision.stage == .setupConfirmed)
     let plan = try #require(decision.candidate?.plan)
+    let simulatedPlan = plan.withSourceEnvironment(.simulated)
     let created = plan.createdAt
     let event = SpotFXPracticeLifecycleEvent(id: "offline-integration-\(plan.id)-risk-missing",
-        planID: plan.id, instrument: plan.instrument, environment: .simulated,
+        planID: simulatedPlan.id, instrument: simulatedPlan.instrument, environment: .simulated,
         state: .unresolved, reason: "OFFLINE_INTEGRATION · deterministic ORB fixture · risk_missing",
         recordedAt: created, riskAccepted: nil, riskUnits: nil)
     let store = ResearchStore(root: root)
-    try await store.record(plan)
+    try await store.record(simulatedPlan)
     try await store.record(event)
-    #expect(try await store.v3TradePlans().contains(where: { $0.id == plan.id }))
+    #expect(try await store.v3TradePlans().contains(where: { $0.id == simulatedPlan.id && $0.sourceEnvironment == .simulated }))
     #expect(try await store.spotFXPracticeLifecycleEvents().contains(where: { $0.id == event.id }))
 }
 
@@ -114,6 +115,7 @@ import Testing
     #expect(decision.stage == .setupConfirmed)
     #expect(decision.candidate?.plan.id == plan.id)
     #expect(plan.strategyID == "ORB_BREAK_RETEST_V1")
+    #expect(plan.sourceEnvironment == .simulated)
     let research = ResearchStore(root: root.appendingPathComponent("Research", isDirectory: true)
         .appendingPathComponent("oanda-proxy", isDirectory: true))
     let storedPlans = try await research.v3TradePlans()
