@@ -6,6 +6,8 @@ import SwiftUI
 struct MacTradingWorkspace: View {
     @ObservedObject var model: LightningDeskModel
     @State private var destination = "Trade"
+    @State private var manualReportedUnits = ""
+    @State private var showingManualReportConfirmation = false
     private let ink = Color(red: 0.12, green: 0.19, blue: 0.29)
     private let muted = Color(red: 0.39, green: 0.48, blue: 0.59)
     private let blue = Color(red: 0.16, green: 0.42, blue: 0.78)
@@ -21,7 +23,7 @@ struct MacTradingWorkspace: View {
                 else { secondaryView }
             }
         }
-        .frame(minWidth: 1040, minHeight: 708)
+        .frame(minWidth: 1040, minHeight: 680)
         .background(canvas.ignoresSafeArea())
         .foregroundStyle(ink)
         .preferredColorScheme(.light)
@@ -29,6 +31,20 @@ struct MacTradingWorkspace: View {
             CredentialCover(model: model, practiceOnly: true)
                 .frame(width: 520, height: 590)
                 .preferredColorScheme(.light)
+        }
+        .confirmationDialog("Record a user-reported manual trade?", isPresented: $showingManualReportConfirmation,
+                            titleVisibility: .visible) {
+            Button("Save USER_REPORTED position") {
+                guard let units = Double(manualReportedUnits), units.isFinite, units > 0 else { return }
+                Task {
+                    if await model.reportManualSpotFXTrade(for: model.pair, units: units) {
+                        manualReportedUnits = ""
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This stores your report only. It does not submit an order, verify a broker position, record an entry price, or create a broker-confirmed outcome.")
         }
     }
 
@@ -111,9 +127,21 @@ struct MacTradingWorkspace: View {
                     }
                 } else { Text("Quote unavailable").font(.system(size: 11)).foregroundStyle(muted) }
             }
-            MiniCandleChart(candles: model.candles, currentPrice: model.currentPrice, pair: model.pair, visibleBars: 100)
-                .frame(maxWidth: .infinity, maxHeight: .infinity).padding(8)
-                .background(Color(red: 0.985, green: 0.99, blue: 0.998), in: RoundedRectangle(cornerRadius: 8))
+            Group {
+                if model.candles.isEmpty {
+                    VStack(spacing: 8) {
+                        Image(systemName: "chart.xyaxis.line").font(.system(size: 25)).foregroundStyle(blue.opacity(0.65))
+                        Text("No candle data loaded").font(.system(size: 13, weight: .medium)).foregroundStyle(ink)
+                        Text("Connect Practice, then press SCAN to request source candles.")
+                            .font(.system(size: 11)).foregroundStyle(muted)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    MiniCandleChart(candles: model.candles, currentPrice: model.currentPrice, pair: model.pair, visibleBars: 100)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity).padding(8)
+            .background(Color(red: 0.985, green: 0.99, blue: 0.998), in: RoundedRectangle(cornerRadius: 8))
             HStack {
                 Text("Source candle window · timeframe shown only when supplied by feed")
                 Spacer()
@@ -127,7 +155,8 @@ struct MacTradingWorkspace: View {
             HStack {
                 Text("TRADE SETUP").font(.system(size: 11, weight: .bold)).tracking(0.7)
                 Spacer()
-                Text("PRACTICE").font(.system(size: 9, weight: .bold)).foregroundStyle(blue)
+                Text(isOfflineFixture ? "OFFLINE INTEGRATION" : "PRACTICE")
+                    .font(.system(size: 9, weight: .bold)).foregroundStyle(blue)
                     .padding(.horizontal, 7).padding(.vertical, 4).background(blue.opacity(0.08), in: Capsule())
             }
             Button { Task { await model.scan() } } label: {
@@ -137,12 +166,48 @@ struct MacTradingWorkspace: View {
             let decision = model.orbDecision(for: model.pair)
             let plan = model.orbPlan(for: model.pair)
             let lifecycle = model.spotFXPracticeState(for: model.pair)
+            if isOfflineFixture {
+                Text("DETERMINISTIC FIXTURE · NOT LIVE PRACTICE")
+                    .font(.system(size: 9, weight: .bold)).foregroundStyle(blue)
+            }
             value("Status", lifecycle?.state.rawValue ?? decision?.stage.rawValue ?? "Waiting for scan")
             value("Direction", decision?.direction?.rawValue.uppercased() ?? "WAIT / NO TRADE")
             value("Entry", plan.map { PriceFormat.px($0.entryPrice) } ?? "—")
             value("Stop", plan.map { PriceFormat.px($0.stopPrice) } ?? "—")
             value("Target", plan.map { PriceFormat.px($0.targetPrice) } ?? "—")
             value("Risk", "risk_missing · units withheld")
+            if let plan,
+               let distances = ORBPlanRiskPresentation(plan: plan,
+                   bid: model.currentFXQuote?.bid, ask: model.currentFXQuote?.ask,
+                   quoteAsOfMs: model.currentFXQuote?.asOfMs) {
+                Text("Structural distance · stop \(distances.structuralStopPips.formatted(.number.precision(.fractionLength(1)))) pips · target \(distances.structuralTargetPips.formatted(.number.precision(.fractionLength(1)))) pips")
+                    .font(.system(size: 10, design: .monospaced)).foregroundStyle(muted)
+                if let side = distances.entrySide,
+                   let price = distances.hypotheticalEntryPrice,
+                   let pips = distances.hypotheticalStopRiskPips,
+                   let quoteTime = distances.quoteAsOf {
+                    Text("Hypothetical \(side) \(PriceFormat.px(price)) → stop \(pips.formatted(.number.precision(.fractionLength(1)))) pips · quote \(quoteTime.formatted(date: .omitted, time: .shortened))")
+                        .font(.system(size: 9, design: .monospaced)).foregroundStyle(muted).lineLimit(2)
+                    Text("Price distance only—not monetary loss, an order, or a fill.")
+                        .font(.system(size: 9)).foregroundStyle(muted)
+                }
+            }
+            if let plan, plan.sourceEnvironment == .oandaPractice,
+               model.userReportedSpotFXPosition(for: model.pair) == nil {
+                TextField("Manually reported base units", text: $manualReportedUnits)
+                    .textFieldStyle(.roundedBorder).font(.system(size: 10))
+                    .accessibilityIdentifier("mac.manual-report.units")
+                Button("Record Manual Trade (user-reported)") {
+                    if let units = Double(manualReportedUnits), units.isFinite, units > 0 {
+                        showingManualReportConfirmation = true
+                    }
+                }
+                .buttonStyle(.bordered).disabled(Double(manualReportedUnits).map { !$0.isFinite || $0 <= 0 } ?? true)
+                .accessibilityIdentifier("mac.manual-report.confirm")
+            } else if let report = model.userReportedSpotFXPosition(for: model.pair) {
+                Text("USER_REPORTED · \(report.units.formatted(.number.precision(.fractionLength(0)))) base units · NOT BROKER-CONFIRMED")
+                    .font(.system(size: 9, weight: .semibold)).foregroundStyle(muted).lineLimit(2)
+            }
             if let lifecycle { Text(lifecycle.reason).font(.system(size: 10)).foregroundStyle(muted).lineLimit(3) }
             else if let decision { Text(decision.reason).font(.system(size: 10)).foregroundStyle(muted).lineLimit(3) }
             if let issue = model.spotFXPracticeRestoreIssue { Text(issue).font(.system(size: 10)).foregroundStyle(.orange) }
@@ -200,6 +265,9 @@ struct MacTradingWorkspace: View {
     private func quoteFreshness(_ quote: LiveQuote) -> String {
         let age = max(0, Date().timeIntervalSince1970 - quote.asOfMs / 1_000)
         return age < 30 ? "fresh \(Int(age))s" : "stale \(Int(age))s"
+    }
+    private var isOfflineFixture: Bool {
+        model.spotFXPracticeState(for: model.pair)?.reason.contains("OFFLINE_INTEGRATION") == true
     }
 }
 #endif

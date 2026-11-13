@@ -212,6 +212,52 @@ struct LiveDeskMarketDataService: DeskMarketDataServing {
     }
 }
 
+/// Deterministic data adapter used only by `LightningDeskModel(offlineIntegrationRoot:)`.
+/// It cannot open a socket and its provenance is carried into the displayed lifecycle.
+struct OfflineIntegrationMarketDataService: DeskMarketDataServing {
+    func scan(market: DeskMarket, asset: String, session: OandaSession?) async throws -> MarketScanSnapshot {
+        guard market == .fx else { throw DeskMarketDataError.unavailable(asset) }
+        let bars = Self.bars(for: asset)
+        let date = Self.sessionStart.addingTimeInterval(8 * 60)
+        let signal = EngineSignal(asset: asset, cabinetSide: "WAIT", call: "WAIT",
+            why: "OFFLINE_INTEGRATION deterministic market fixture", price: asset == "GBP/JPY" ? 190 : 1.105,
+            asOfMs: date.timeIntervalSince1970 * 1_000, source: "OFFLINE_INTEGRATION")
+        return MarketScanSnapshot(signal: signal, candles: bars, m5Candles: [],
+            bid: nil, ask: nil, spread: nil, expirySeconds: 60,
+            engineSHA: "offline-integration-fixture", policy: "baseline",
+            source: "OFFLINE_INTEGRATION deterministic fixture", veto: nil)
+    }
+
+    func quotes(market: DeskMarket, assets: [String], session: OandaSession?) async -> MarketQuoteResult {
+        MarketQuoteResult(quotes: [], status: .missingCredentials)
+    }
+
+    func candles(market: DeskMarket, asset: String, session: OandaSession?, count: Int) async -> [Candle] {
+        []
+    }
+
+    private static func bars(for asset: String) -> [Candle] {
+        guard asset == "EUR/USD" else { return [] }
+        let session = sessionStart
+        let values: [(Double, Double, Double, Double)] = [
+            (1.102, 1.105, 1.100, 1.102), (1.102, 1.105, 1.100, 1.102),
+            (1.102, 1.105, 1.100, 1.102), (1.102, 1.105, 1.100, 1.102),
+            (1.102, 1.105, 1.100, 1.102), (1.104, 1.107, 1.103, 1.106),
+            (1.1055, 1.106, 1.1049, 1.1052), (1.1052, 1.107, 1.105, 1.106),
+        ]
+        return values.enumerated().map { index, bar in
+            Candle(time: session.addingTimeInterval(Double(index * 60)).timeIntervalSince1970 * 1_000,
+                open: bar.0, high: bar.1, low: bar.2, close: bar.3)
+        }
+    }
+
+    private static var sessionStart: Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/New_York")!
+        return calendar.date(from: DateComponents(year: 2026, month: 11, day: 6, hour: 9, minute: 30))!
+    }
+}
+
 /// Main-actor cache because its only consumer is the SwiftUI facade. It owns TTL decisions and
 /// in-flight deduplication; the facade owns only which cached result is visible.
 @MainActor

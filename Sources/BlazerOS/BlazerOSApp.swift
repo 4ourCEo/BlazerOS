@@ -41,8 +41,20 @@ struct BlazerOSMain: App {
     #if os(iOS)
     @UIApplicationDelegateAdaptor(IOSAppDelegate.self) var appDelegate
     #endif
-    @StateObject private var model = LightningDeskModel()
+    @StateObject private var model: LightningDeskModel
     @Environment(\.scenePhase) private var scenePhase
+
+    init() {
+        // Explicit, disposable off-session acceptance root. It is never selected implicitly and
+        // redirects both the trading ledger and research archive away from owner app-support data.
+        if let raw = ProcessInfo.processInfo.environment["BLAZER_OFFLINE_INTEGRATION_ROOT"],
+           raw.hasPrefix("/"), !raw.contains("\0") {
+            let root = URL(fileURLWithPath: raw, isDirectory: true).standardizedFileURL
+            _model = StateObject(wrappedValue: LightningDeskModel(offlineIntegrationRoot: root))
+        } else {
+            _model = StateObject(wrappedValue: LightningDeskModel())
+        }
+    }
 
     var body: some Scene {
         WindowGroup("BlazerOS — Lightning Desk") {

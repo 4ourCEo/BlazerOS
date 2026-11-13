@@ -8,18 +8,18 @@ struct CredentialCover: View {
 
     var body: some View {
         ZStack {
-            DeskInk.background.ignoresSafeArea()
+            backgroundColor.ignoresSafeArea()
             VStack(alignment: .leading, spacing: 16) {
                 HStack {
                     Text("Quote source")
                         .font(.system(size: 28, weight: .semibold))
-                        .foregroundStyle(DeskInk.ink)
+                        .foregroundStyle(primaryText)
                     Spacer()
                     Button("Close") {
                         model.showingCredentials = false
                     }
                     .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(DeskInk.slate)
+                    .foregroundStyle(secondaryText)
                     .frame(minHeight: 44)
                     .buttonStyle(.plain)
                 }
@@ -32,22 +32,22 @@ struct CredentialCover: View {
                     .textContentType(.password)
                     .textFieldStyle(.plain)
                     .padding(14)
-                    .background(DeskInk.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .foregroundStyle(DeskInk.ink)
+                    .background(fieldSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .foregroundStyle(primaryText)
 
                 TextField("Account", text: $model.draftAccount)
                     .textFieldStyle(.plain)
                     .padding(14)
-                    .background(DeskInk.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .foregroundStyle(DeskInk.ink)
+                    .background(fieldSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .foregroundStyle(primaryText)
 
                 VStack(alignment: .leading, spacing: 6) {
                     if practiceOnly {
                         Label("OANDA Practice", systemImage: "checkmark.circle.fill")
                             .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(DeskInk.electric)
+                            .foregroundStyle(practiceOnly ? Color(red: 0.16, green: 0.42, blue: 0.78) : DeskInk.electric)
                             .frame(maxWidth: .infinity, minHeight: 46)
-                            .background(DeskInk.indigo.opacity(0.22), in: RoundedRectangle(cornerRadius: 14))
+                            .background(practiceOnly ? Color(red: 0.91, green: 0.95, blue: 0.99) : DeskInk.indigo.opacity(0.22), in: RoundedRectangle(cornerRadius: 14))
                     } else {
                         HStack(spacing: 10) {
                             environmentChoice(.practice, title: "Practice")
@@ -59,13 +59,21 @@ struct CredentialCover: View {
                         ? "Practice connects to OANDA fxpractice (demo account)."
                         : "Live connects to OANDA fxtrade (real funded account).")
                         .font(.system(size: 13, weight: .regular))
-                        .foregroundStyle(DeskInk.slate)
+                        .foregroundStyle(secondaryText)
+                }
+
+                if practiceOnly && model.keychainState == .locked {
+                    Text("Keychain access was not authorized. This app uses its Mac-only OANDA service. If macOS asks, authorize the signed BlazerOS app once; repeated prompts usually indicate a signing-identity mismatch.")
+                        .font(.system(size: 12)).foregroundStyle(Color.orange)
+                } else if practiceOnly && model.keychainState == .missing {
+                    Text("No Practice credential is stored for this Mac app yet.")
+                        .font(.system(size: 12)).foregroundStyle(secondaryText)
                 }
 
                 if model.credentialSaveFailed {
                     Text("Could not save to the Keychain.")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(DeskInk.coral)
+                        .foregroundStyle(practiceOnly ? Color.red : DeskInk.coral)
                 }
 
                 Button {
@@ -81,11 +89,12 @@ struct CredentialCover: View {
                 } label: {
                     Text("Connect Account")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(DeskInk.ink)
+                        .foregroundStyle(primaryText)
                         .frame(maxWidth: .infinity)
                         .frame(height: 52)
                         .background(
-                            LinearGradient(colors: [DeskInk.indigo, DeskInk.electric], startPoint: .leading, endPoint: .trailing),
+                            practiceOnly ? AnyShapeStyle(Color(red: 0.16, green: 0.42, blue: 0.78))
+                                : AnyShapeStyle(LinearGradient(colors: [DeskInk.indigo, DeskInk.electric], startPoint: .leading, endPoint: .trailing)),
                             in: Capsule()
                         )
                 }
@@ -100,10 +109,10 @@ struct CredentialCover: View {
                 } label: {
                     Text("Explore Demo Desk (Simulated)")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(DeskInk.electric)
+                        .foregroundStyle(practiceOnly ? Color(red: 0.16, green: 0.42, blue: 0.78) : DeskInk.electric)
                         .frame(maxWidth: .infinity)
                         .frame(height: 48)
-                        .background(DeskInk.surface, in: Capsule())
+                    .background(fieldSurface, in: Capsule())
                 }
                 .buttonStyle(.plain)
 
@@ -143,4 +152,9 @@ struct CredentialCover: View {
         .buttonStyle(.plain)
         .accessibilityLabel(title)
     }
+
+    private var backgroundColor: Color { practiceOnly ? Color(red: 0.965, green: 0.977, blue: 0.99) : DeskInk.background }
+    private var fieldSurface: Color { practiceOnly ? .white : DeskInk.surface }
+    private var primaryText: Color { practiceOnly ? Color(red: 0.12, green: 0.19, blue: 0.29) : DeskInk.ink }
+    private var secondaryText: Color { practiceOnly ? Color(red: 0.39, green: 0.48, blue: 0.59) : DeskInk.slate }
 }

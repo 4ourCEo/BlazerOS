@@ -499,13 +499,16 @@ public struct V3TradePlan: Codable, Sendable, Equatable, Identifiable {
     public let maxSpread: Double
     public let riskFraction: Double
     public let evidenceIDs: [String]
+    /// Provider environment that produced this plan. Nil in historical records means unknown.
+    public let sourceEnvironment: V3ProviderEnvironment?
     public let createdAt: Date
 
     public init(id: String, instrument: String, strategyID: String, strategyVersion: String,
                 engineVersion: String, sourceObservationID: String, state: V3TradePlanState,
                 side: V3SpotSide, entryPrice: Double, stopPrice: Double, targetPrice: Double,
                 units: Double, maxSpread: Double, riskFraction: Double,
-                evidenceIDs: [String] = [], createdAt: Date) {
+                evidenceIDs: [String] = [], sourceEnvironment: V3ProviderEnvironment? = nil,
+                createdAt: Date) {
         self.id = id
         self.instrument = instrument
         self.strategyID = strategyID
@@ -521,7 +524,17 @@ public struct V3TradePlan: Codable, Sendable, Equatable, Identifiable {
         self.maxSpread = maxSpread
         self.riskFraction = riskFraction
         self.evidenceIDs = evidenceIDs
+        self.sourceEnvironment = sourceEnvironment
         self.createdAt = createdAt
+    }
+
+    public func withSourceEnvironment(_ sourceEnvironment: V3ProviderEnvironment) -> V3TradePlan {
+        V3TradePlan(id: id, instrument: instrument, strategyID: strategyID,
+            strategyVersion: strategyVersion, engineVersion: engineVersion,
+            sourceObservationID: sourceObservationID, state: state, side: side,
+            entryPrice: entryPrice, stopPrice: stopPrice, targetPrice: targetPrice,
+            units: units, maxSpread: maxSpread, riskFraction: riskFraction,
+            evidenceIDs: evidenceIDs, sourceEnvironment: sourceEnvironment, createdAt: createdAt)
     }
 
     public var rewardRisk: Double? {
