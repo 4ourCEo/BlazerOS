@@ -1,5 +1,13 @@
 > Current engineering status (2026-10-23): historical completion and TestFlight statements below are prior milestones, not verification of the current upgrade. Full Xcode, simulator/device gates and fresh venue-confirmed prospective evidence remain required. See [the current audit](reports/ENGINEERING_UPGRADE_2026-10-23.md).
 
+> **Superseded for FX 1.0:** this document contains the legacy Pocket Option,
+> fixed-expiry, iPhone-primary milestone plan and historical completion claims.
+> Use [`docs/product/FX_1_0_CONTRACT.md`](docs/product/FX_1_0_CONTRACT.md) and
+> [`docs/product/FX_1_0_ACCEPTANCE.md`](docs/product/FX_1_0_ACCEPTANCE.md) as the
+> current product direction and acceptance ledger. Legacy implementations remain
+> quarantined until their runtime consumers are migrated; this notice does not
+> claim those paths have already been removed.
+
 # BlazerOS Pipeline v1.0
 
 Do not begin the iPhone target until Persistence, Ledger, Snapshot, and Journal survive relaunch with passing tests.
