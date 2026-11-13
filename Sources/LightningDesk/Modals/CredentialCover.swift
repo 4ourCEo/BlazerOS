@@ -4,6 +4,7 @@ import SwiftUI
 /// Shown when Keychain has no OANDA credentials, or opened via Desk settings.
 struct CredentialCover: View {
     @ObservedObject var model: LightningDeskModel
+    var practiceOnly = false
 
     var body: some View {
         ZStack {
@@ -41,12 +42,20 @@ struct CredentialCover: View {
                     .foregroundStyle(DeskInk.ink)
 
                 VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 10) {
-                        environmentChoice(.practice, title: "Practice")
-                        environmentChoice(.live, title: "Live")
+                    if practiceOnly {
+                        Label("OANDA Practice", systemImage: "checkmark.circle.fill")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(DeskInk.electric)
+                            .frame(maxWidth: .infinity, minHeight: 46)
+                            .background(DeskInk.indigo.opacity(0.22), in: RoundedRectangle(cornerRadius: 14))
+                    } else {
+                        HStack(spacing: 10) {
+                            environmentChoice(.practice, title: "Practice")
+                            environmentChoice(.live, title: "Live")
+                        }
                     }
 
-                    Text(model.draftEnvironment == .practice
+                    Text(practiceOnly || model.draftEnvironment == .practice
                         ? "Practice connects to OANDA fxpractice (demo account)."
                         : "Live connects to OANDA fxtrade (real funded account).")
                         .font(.system(size: 13, weight: .regular))
@@ -63,7 +72,7 @@ struct CredentialCover: View {
                     let success = model.storeCredentials(
                         token: model.draftToken,
                         accountId: model.draftAccount,
-                        environment: model.draftEnvironment
+                        environment: practiceOnly ? .practice : model.draftEnvironment
                     )
                     model.credentialSaveFailed = !success
                     if success {

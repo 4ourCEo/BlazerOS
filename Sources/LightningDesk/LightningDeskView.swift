@@ -19,7 +19,7 @@ public struct LightningDeskView: View {
     public var body: some View {
         #if os(macOS)
         MacTradingWorkspace(model: model)
-            .preferredColorScheme(.dark)
+            .preferredColorScheme(.light)
             .task { await model.run() }
             .task { await model.settleLaunch() }
         #else

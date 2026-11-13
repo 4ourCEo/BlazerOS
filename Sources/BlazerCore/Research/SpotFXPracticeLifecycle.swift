@@ -175,6 +175,9 @@ public struct SpotFXPracticeLifecycleEvent: Codable, Sendable, Equatable, Identi
     public let id: String
     public let planID: String
     public let instrument: String
+    /// Provider environment under which this lifecycle evidence was produced. Optional only for
+    /// decoding pre-environment-tagged records; new native FX events always write Practice.
+    public let environment: V3ProviderEnvironment?
     public let state: SpotFXPracticeLifecycleState
     public let reason: String
     public let recordedAt: Date
@@ -191,14 +194,16 @@ public struct SpotFXPracticeLifecycleEvent: Codable, Sendable, Equatable, Identi
     public let riskUnits: Double?
     public let estimatedWorstCaseLossUSD: Double?
 
-    public init(id: String, planID: String, instrument: String, state: SpotFXPracticeLifecycleState,
+    public init(id: String, planID: String, instrument: String,
+                environment: V3ProviderEnvironment? = nil, state: SpotFXPracticeLifecycleState,
                 reason: String, recordedAt: Date, manualAcknowledged: Bool = false,
                 brokerEvidence: SpotFXBrokerExecutionEvidence? = nil, observationID: String? = nil,
                 sourceTime: Date? = nil, receivedAt: Date? = nil, spread: Double? = nil,
                 spreadPips: Double? = nil, pipScale: Double? = nil, expiresAt: Date? = nil,
                 riskAccepted: Bool? = nil, riskUnits: Double? = nil,
                 estimatedWorstCaseLossUSD: Double? = nil) {
-        self.id = id; self.planID = planID; self.instrument = instrument; self.state = state
+        self.id = id; self.planID = planID; self.instrument = instrument
+        self.environment = environment; self.state = state
         self.reason = reason; self.recordedAt = recordedAt; self.manualAcknowledged = manualAcknowledged
         self.brokerEvidence = brokerEvidence
         self.observationID = observationID; self.sourceTime = sourceTime; self.receivedAt = receivedAt
