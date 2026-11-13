@@ -112,7 +112,7 @@ struct DeskScreen: View {
         let lifecycle = model.spotFXPracticeState(for: model.pair)
         return VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("SPOT FX · PRACTICE PLAN")
+                Text("ORB BREAK · RETEST")
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .tracking(0.7)
                     .foregroundStyle(DeskInk.electric)
