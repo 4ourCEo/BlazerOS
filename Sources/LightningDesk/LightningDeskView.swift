@@ -17,6 +17,12 @@ public struct LightningDeskView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public var body: some View {
+        #if os(macOS)
+        MacTradingWorkspace(model: model)
+            .preferredColorScheme(.dark)
+            .task { await model.run() }
+            .task { await model.settleLaunch() }
+        #else
         ZStack {
             ZStack {
                 DeskInk.background
@@ -112,6 +118,7 @@ public struct LightningDeskView: View {
         }
         .task { await model.run() }
         .task { await model.settleLaunch() }
+        #endif
     }
 
     private var launchWord: String {

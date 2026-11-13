@@ -47,9 +47,6 @@ struct BlazerOSMain: App {
     var body: some Scene {
         WindowGroup("BlazerOS — Lightning Desk") {
             LightningDeskView(model: model)
-                #if os(macOS)
-                .frame(width: PhoneTarget.width, height: PhoneTarget.height)
-                #endif
                 .onChange(of: scenePhase) { _, phase in
                     switch phase {
                     case .active: model.handleAppForegrounded()
@@ -71,8 +68,8 @@ struct BlazerOSMain: App {
                 }
         }
         #if os(macOS)
-        .defaultSize(width: PhoneTarget.width, height: PhoneTarget.height)
-        .windowResizability(.contentSize)
+        .defaultSize(width: 1440, height: 900)
+        .windowResizability(.contentMinSize)
         .commands {
             CommandMenu("Desk") {
                 Button("Scan Now") {
