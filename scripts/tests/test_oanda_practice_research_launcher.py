@@ -127,8 +127,8 @@ class PracticeLauncherTests(unittest.TestCase):
             path = Path(temp) / "batch.json"
             path.write_text(json.dumps({
                 "transport": {"ok": {}}, "instrument": "EUR_USD", "granularity": "M1",
-                "requestedFrom": 100, "requestedTo": 200,
-                 "candles": [{"complete": True, "sourceTime": 100,
+                "requestedFrom": 815695140, "requestedTo": 815695260,
+                 "candles": [{"complete": True, "sourceTime": 815695200,
                               "instrument": "EUR_USD", "granularity": "M1",
                               "bidOpen": 1.0, "bidHigh": 1.1, "bidLow": 0.9, "bidClose": 1.05,
                               "askOpen": 1.01, "askHigh": 1.11, "askLow": 0.91, "askClose": 1.06}],
@@ -140,7 +140,7 @@ class PracticeLauncherTests(unittest.TestCase):
         self.assertEqual(granularity, "M1")
 
     def test_archive_verification_rejects_false_transport_and_incomplete_quotes(self):
-        candle = {"complete": True, "sourceTime": 100, "instrument": "EUR_USD", "granularity": "M1",
+        candle = {"complete": True, "sourceTime": 815695200, "instrument": "EUR_USD", "granularity": "M1",
                   "bidOpen": 1.0, "bidHigh": 1.1, "bidLow": 0.9, "bidClose": 1.05,
                   "askOpen": 1.01, "askHigh": 1.11, "askLow": 0.91, "askClose": 1.06}
         for transport, complete in (({"ok": False}, True), ({"ok": {}}, False)):
@@ -148,7 +148,7 @@ class PracticeLauncherTests(unittest.TestCase):
                 path = Path(temp) / "batch.json"
                 row = dict(candle, complete=complete)
                 path.write_text(json.dumps({"transport": transport, "instrument": "EUR_USD", "granularity": "M1",
-                                            "requestedFrom": 100, "requestedTo": 200, "candles": [row]}),
+                                            "requestedFrom": 815695140, "requestedTo": 815695260, "candles": [row]}),
                                 encoding="utf-8")
                 with self.assertRaises(MODULE.PreflightError) as error:
                     MODULE.verify_archive(path, "EUR/USD")
@@ -160,8 +160,8 @@ class PracticeLauncherTests(unittest.TestCase):
                 path = Path(temp) / "batch.json"
                 path.write_text(json.dumps({
                     "transport": "ok", "instrument": "GBP_JPY", "granularity": granularity,
-                    "requestedFrom": 100, "requestedTo": 200,
-                    "candles": [{"complete": True, "sourceTime": 100,
+                    "requestedFrom": 815695140, "requestedTo": 815695260,
+                    "candles": [{"complete": True, "sourceTime": 815695200,
                                  "instrument": "GBP_JPY", "granularity": granularity,
                                  "bidOpen": 1, "bidHigh": 2, "bidLow": 1, "bidClose": 2,
                                  "askOpen": 3, "askHigh": 4, "askLow": 3, "askClose": 4}],
@@ -169,21 +169,22 @@ class PracticeLauncherTests(unittest.TestCase):
                 self.assertEqual(MODULE.verify_archive(path, "GBP/JPY")[3], granularity)
 
     def test_verifies_foundation_date_values_and_rejects_out_of_range_candle(self):
-        # 815,692,800 is 2026-11-12 in Foundation-Date seconds; request bounds
-        # use the same Codable representation as the Swift archive.
-        candle = {"complete": True, "sourceTime": 815692800,
+        # 815,695,200 is 2026-11-12 in Foundation-Date seconds; request bounds
+        # use the same Codable representation as the Swift archive. The bar
+        # starts before requestedFrom but overlaps it, as OANDA can return.
+        candle = {"complete": True, "sourceTime": 815695200,
                   "instrument": "EUR_USD", "granularity": "H1",
                   "bidOpen": 1, "bidHigh": 2, "bidLow": 1, "bidClose": 2,
                   "askOpen": 3, "askHigh": 4, "askLow": 3, "askClose": 4}
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "batch.json"
             path.write_text(json.dumps({"transport": "ok", "instrument": "EUR_USD",
-                "granularity": "H1", "requestedFrom": 815692740, "requestedTo": 815692860,
+                "granularity": "H1", "requestedFrom": 815695230, "requestedTo": 815695260,
                 "candles": [candle]}), encoding="utf-8")
             self.assertEqual(MODULE.verify_archive(path, "EUR/USD")[2], 1)
             candle["sourceTime"] = 815693000
             path.write_text(json.dumps({"transport": "ok", "instrument": "EUR_USD",
-                "granularity": "H1", "requestedFrom": 815692740, "requestedTo": 815692860,
+                "granularity": "H1", "requestedFrom": 815695230, "requestedTo": 815695260,
                 "candles": [candle]}), encoding="utf-8")
             with self.assertRaises(MODULE.PreflightError):
                 MODULE.verify_archive(path, "EUR/USD")
@@ -200,7 +201,7 @@ class PracticeLauncherTests(unittest.TestCase):
 
     def test_collection_ignores_concurrent_other_instrument_archive(self):
         credentials = {"OANDA_API_TOKEN": "unused", "OANDA_ACCOUNT_ID": "id", "OANDA_ENV": "practice"}
-        candle = {"complete": True, "sourceTime": 815692800,
+        candle = {"complete": True, "sourceTime": 815695200,
                   "instrument": "EUR_USD", "granularity": "M15",
                   "bidOpen": 1, "bidHigh": 2, "bidLow": 1, "bidClose": 2,
                   "askOpen": 3, "askHigh": 4, "askLow": 3, "askClose": 4}
@@ -208,13 +209,18 @@ class PracticeLauncherTests(unittest.TestCase):
         def create_batches(command, **kwargs):
             archive = Path(command[command.index("--root") + 1]) / "historical-bid-ask"
             archive.mkdir(parents=True, exist_ok=True)
+            lines = []
             for instrument in ("EUR_USD", "GBP_JPY"):
                 payload = {"transport": "ok", "instrument": instrument, "granularity": "M15",
-                           "requestedFrom": 815692740, "requestedTo": 815692860,
+                           "requestedFrom": 815695140, "requestedTo": 815695260,
                            "candles": [{**candle, "instrument": instrument}]}
-                (archive / f"oanda-practice-{instrument}-M15-concurrent.json").write_text(
+                path = archive / f"oanda-practice-{instrument}-M15-concurrent.json"
+                path.write_text(
                     json.dumps(payload), encoding="utf-8")
-            return type("Completed", (), {"returncode": 0})()
+                digest = MODULE.hashlib.sha256(path.read_bytes()).hexdigest()
+                lines.append(f"HISTORICAL_ARCHIVE path={path} sha256={digest} status=immutable")
+            stdout = lines[0] + "\n"
+            return type("Completed", (), {"returncode": 0, "stdout": stdout, "stderr": ""})()
 
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "historical-bid-ask"

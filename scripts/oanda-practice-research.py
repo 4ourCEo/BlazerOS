@@ -25,6 +25,7 @@ INSTRUMENTS = {
     "EUR/JPY": "EUR_JPY", "GBP/JPY": "GBP_JPY", "XAU/USD": "XAU_USD",
 }
 ALLOWED_GRANULARITIES = ("M1", "M5", "M15", "H1")
+GRANULARITY_SECONDS = {"M1": 60, "M5": 300, "M15": 900, "H1": 3600}
 DEFAULT_GRANULARITIES = ("M1", "M5")
 SCRIPT_REPO = Path(__file__).resolve().parents[1]
 
@@ -173,30 +174,44 @@ def collect(repo, binary, credentials, asset, hours, offset, archive_root,
     if not granularities or any(granularity not in ALLOWED_GRANULARITIES for granularity in granularities):
         raise PreflightError("UNSUPPORTED_DATA_REQUEST", "Granularity must be one of M1, M5, M15, H1")
     archive_root.mkdir(parents=True, exist_ok=True)
-    instrument = INSTRUMENTS[asset]
-    archive_pattern = f"oanda-practice-{instrument}-*.json"
-    before = set(archive_root.glob(archive_pattern))
     child_env = research_child_environment(credentials)
+    reported_archives = {}
     for granularity in granularities:
         command = [str(binary), "--historical-bid-ask", "--asset", asset,
                    "--historical-granularity", granularity,
                    "--historical-hours", str(hours), "--historical-offset-hours", str(offset),
                    "--root", str(archive_root.parent)]
-        result = subprocess.run(command, cwd=repo, env=child_env, check=False)
+        result = subprocess.run(command, cwd=repo, env=child_env, check=False,
+                                capture_output=True, text=True)
+        if result.stdout:
+            print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
+        if result.stderr:
+            print(result.stderr, file=sys.stderr, end="" if result.stderr.endswith("\n") else "\n")
         if result.returncode:
             raise PreflightError("COLLECTION_FAILED", "ForwardTest historical collector failed")
-    # Filter by instrument so independent EUR/USD and GBP/JPY collections can
-    # safely share the archive directory without counting each other's files.
-    created = sorted(set(archive_root.glob(archive_pattern)) - before)
+        archive_lines = [line for line in result.stdout.splitlines()
+                         if line.startswith("HISTORICAL_ARCHIVE path=")]
+        if len(archive_lines) != 1:
+            raise PreflightError("PROVENANCE_VERIFICATION_FAILED", "Collector did not report exactly one archive")
+        path_text, separator, remainder = archive_lines[0][len("HISTORICAL_ARCHIVE path="):].partition(" sha256=")
+        digest, status_separator, _status = remainder.partition(" ")
+        if not separator or not status_separator or len(digest) != 64 or granularity in reported_archives:
+            raise PreflightError("PROVENANCE_VERIFICATION_FAILED", "Collector archive report was malformed")
+        reported_archives[granularity] = (Path(path_text), digest)
     expected = set(granularities)
-    if len(created) != len(expected):
-        raise PreflightError("PROVENANCE_VERIFICATION_FAILED", "Unexpected number of new archive batches")
-    verified = []
-    for path in created:
-        verified.append(verify_archive(path, asset))
-    if {granularity for _, _, _, granularity in verified} != expected:
-        raise PreflightError("PROVENANCE_VERIFICATION_FAILED", "Archive batches did not match requested granularities")
-    for name, digest, count, granularity in verified:
+    if set(reported_archives) != expected:
+        raise PreflightError("PROVENANCE_VERIFICATION_FAILED", "Archive reports did not match requested granularities")
+    for granularity in sorted(expected):
+        path, reported_digest = reported_archives[granularity]
+        try:
+            resolved_path = path.resolve(strict=True)
+            if resolved_path.parent != archive_root.resolve():
+                raise ValueError
+        except (OSError, ValueError):
+            raise PreflightError("PROVENANCE_VERIFICATION_FAILED", "Reported archive path is outside the archive root")
+        name, digest, count, actual_granularity = verify_archive(resolved_path, asset)
+        if actual_granularity != granularity or digest != reported_digest:
+            raise PreflightError("PROVENANCE_VERIFICATION_FAILED", "Archive bytes do not match collector provenance")
         print(f"OANDA_ARCHIVE status=VERIFIED granularity={granularity} candle_count={count} sha256={digest} file={name}")
 
 
@@ -208,14 +223,24 @@ def verify_archive(path, asset):
         candles = payload.get("candles")
         fields = ("bidOpen", "bidHigh", "bidLow", "bidClose", "askOpen", "askHigh", "askLow", "askClose")
         granularity = payload.get("granularity")
+        interval_seconds = GRANULARITY_SECONDS.get(granularity)
         requested_from = timestamp_seconds(payload["requestedFrom"])
         requested_to = timestamp_seconds(payload["requestedTo"])
+
+        def candle_overlaps_request(candle):
+            source_time = timestamp_seconds(candle.get("sourceTime"))
+            return (source_time == int(source_time)
+                    and int(source_time) % interval_seconds == 0
+                    # OANDA may return the bar that starts before `from` but overlaps it.
+                    and source_time < requested_to
+                    and source_time + interval_seconds > requested_from)
+
         if (not transport_ok or not isinstance(candles, list) or not candles
                 or payload.get("instrument") != INSTRUMENTS[asset]
-                or granularity not in ALLOWED_GRANULARITIES
+                or interval_seconds is None
                 or requested_from >= requested_to
                 or not all(isinstance(candle, dict) and candle.get("complete") is True
-                           and requested_from <= timestamp_seconds(candle.get("sourceTime")) <= requested_to
+                           and candle_overlaps_request(candle)
                            and candle.get("instrument") == INSTRUMENTS[asset]
                            and candle.get("granularity") == granularity
                            and all(math.isfinite(float(candle[field])) and float(candle[field]) > 0
