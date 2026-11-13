@@ -17,6 +17,32 @@ struct ORBBreakRetestV1Tests {
                                            hour: hour, minute: minute))!
     }
 
+    @Test func planRiskPresentationUsesExecutableQuoteSidesAndFailsClosedWhenStale() throws {
+        let plan = V3TradePlan(id: "risk-presentation", instrument: "EUR/USD",
+            strategyID: "ORB_BREAK_RETEST_V1", strategyVersion: "1", engineVersion: "test",
+            sourceObservationID: "fixture", state: .validated, side: .long,
+            entryPrice: 1.105, stopPrice: 1.100, targetPrice: 1.115,
+            units: 1, maxSpread: 0.0003, riskFraction: 0.01,
+            sourceEnvironment: .oandaPractice, createdAt: date(2026, 11, 6, 9, 30))
+        let now = date(2026, 11, 6, 9, 31)
+        let asOf = now.timeIntervalSince1970 * 1_000
+        let fresh = try #require(ORBPlanRiskPresentation(plan: plan, bid: 1.1048, ask: 1.1052,
+            quoteAsOfMs: asOf, now: now))
+        #expect(abs(fresh.structuralStopPips - 50) < 0.0001)
+        #expect(abs(fresh.structuralTargetPips - 100) < 0.0001)
+        #expect(fresh.entrySide == "ASK")
+        #expect(fresh.hypotheticalEntryPrice == 1.1052)
+        #expect(abs((fresh.hypotheticalStopRiskPips ?? 0) - 52) < 0.0001)
+        #expect(fresh.exitSide == "BID")
+        #expect(fresh.hypotheticalExitPrice == 1.1048)
+
+        let stale = try #require(ORBPlanRiskPresentation(plan: plan, bid: 1.1048, ask: 1.1052,
+            quoteAsOfMs: asOf - 30 * 60_000, now: now))
+        #expect(stale.entrySide == nil)
+        #expect(stale.hypotheticalStopRiskPips == nil)
+        #expect(stale.quoteToStopPips == nil)
+    }
+
     private func bar(_ id: String, _ start: Date, open: Double, high: Double,
                      low: Double, close: Double) -> ORBBar {
         ORBBar(id: id, instrument: "EUR/USD", sourceTime: start,

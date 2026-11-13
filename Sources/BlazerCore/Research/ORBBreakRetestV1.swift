@@ -138,6 +138,52 @@ public struct ORBDecision: Codable, Sendable, Equatable {
     }
 }
 
+/// Price-distance-only presentation of structural levels and a fresh two-sided quote.
+/// It is not monetary risk, sizing, an order, or a fill.
+public struct ORBPlanRiskPresentation: Sendable, Equatable {
+    public let structuralStopPips: Double
+    public let structuralTargetPips: Double
+    public let entrySide: String?
+    public let hypotheticalEntryPrice: Double?
+    public let hypotheticalStopRiskPips: Double?
+    public let exitSide: String?
+    public let hypotheticalExitPrice: Double?
+    public let quoteToStopPips: Double?
+    public let quoteAsOf: Date?
+
+    public init?(plan: V3TradePlan, bid: Double?, ask: Double?, quoteAsOfMs: Double?, now: Date = Date()) {
+        let pip = Assets.pipScale(for: plan.instrument)
+        guard pip.isFinite, pip > 0, plan.entryPrice.isFinite,
+              plan.stopPrice.isFinite, plan.targetPrice.isFinite else { return nil }
+        structuralStopPips = abs(plan.entryPrice - plan.stopPrice) / pip
+        structuralTargetPips = abs(plan.targetPrice - plan.entryPrice) / pip
+        guard let bid, let ask, let quoteAsOfMs,
+              bid.isFinite, ask.isFinite, bid > 0, ask > bid,
+              quoteAsOfMs.isFinite, quoteAsOfMs > 0 else {
+            entrySide = nil; hypotheticalEntryPrice = nil; hypotheticalStopRiskPips = nil
+            exitSide = nil; hypotheticalExitPrice = nil; quoteToStopPips = nil; quoteAsOf = nil
+            return
+        }
+        let nowMs = now.timeIntervalSince1970 * 1_000
+        guard nowMs >= quoteAsOfMs,
+              QuoteFreshness.isActionable(bid: bid, ask: ask, asOfMs: quoteAsOfMs, nowMs: nowMs) else {
+            entrySide = nil; hypotheticalEntryPrice = nil; hypotheticalStopRiskPips = nil
+            exitSide = nil; hypotheticalExitPrice = nil; quoteToStopPips = nil; quoteAsOf = nil
+            return
+        }
+        let isLong = plan.side == .long
+        let entry = isLong ? ask : bid
+        let exit = isLong ? bid : ask
+        entrySide = isLong ? "ASK" : "BID"
+        hypotheticalEntryPrice = entry
+        hypotheticalStopRiskPips = abs(entry - plan.stopPrice) / pip
+        exitSide = isLong ? "BID" : "ASK"
+        hypotheticalExitPrice = exit
+        quoteToStopPips = (exit - plan.stopPrice) * (isLong ? 1 : -1) / pip
+        quoteAsOf = Date(timeIntervalSince1970: quoteAsOfMs / 1_000)
+    }
+}
+
 public struct ORBNotification: Codable, Sendable, Equatable, Identifiable {
     public let id: String
     public let instrument: String

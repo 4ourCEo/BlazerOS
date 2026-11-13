@@ -35,18 +35,18 @@ public enum DeskCredentials {
         if let cached = cached() {
             return .ready(cached)
         }
-        // An explicitly injected secure context is the only non-Keychain path.
-        // Resolve it first so a CLI never probes an access-controlled item before
-        // honoring its approved credential provider.
+        // Environment injection is for explicitly authorized research collector commands, not
+        // the native Mac app. The app reads only its own device-Keychain service.
+#if os(iOS)
         if let environment = environmentSession() {
-            #if os(iOS)
             _ = store(token: environment.token, accountId: environment.accountId, environment: environment.environment)
-            #endif
             cache(environment)
             return .ready(environment)
         }
+#endif
         let context = LAContext()
         context.interactionNotAllowed = !allowPrompt
+#if os(iOS)
         switch read(service: phoneService, context: context) {
         case .ready(let session):
             cache(session)
@@ -56,7 +56,7 @@ public enum DeskCredentials {
         case .missing:
             break
         }
-        #if os(macOS)
+#elseif os(macOS)
         switch read(service: macService, context: context) {
         case .ready(let session):
             cache(session)
@@ -66,7 +66,7 @@ public enum DeskCredentials {
         case .missing:
             break
         }
-        #endif
+#endif
         return .missing
     }
 
@@ -148,9 +148,14 @@ public enum DeskCredentials {
         let trimmedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedAccount = accountId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedToken.isEmpty, !trimmedAccount.isEmpty else { return false }
-        let tokenSaved = write(service: phoneService, account: "token", value: trimmedToken)
-        let accountSaved = write(service: phoneService, account: "accountId", value: trimmedAccount)
-        let envSaved = write(service: phoneService, account: "env", value: environment.rawValue)
+#if os(macOS)
+        let service = macService
+#else
+        let service = phoneService
+#endif
+        let tokenSaved = write(service: service, account: "token", value: trimmedToken)
+        let accountSaved = write(service: service, account: "accountId", value: trimmedAccount)
+        let envSaved = write(service: service, account: "env", value: environment.rawValue)
         return tokenSaved && accountSaved && envSaved
     }
 

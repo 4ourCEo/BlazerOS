@@ -6,14 +6,25 @@ import BlazerCrypto
 /// One-screen desk state. The frame is derived from the frozen commit. Quotes never rescore it.
 @MainActor
 public final class LightningDeskModel: ObservableObject {
-    public convenience init(storageRoot: URL? = nil) {
-        self.init(storageRoot: storageRoot, marketData: LiveDeskMarketDataService())
+    public convenience init(storageRoot: URL? = nil, researchRoot: URL? = nil) {
+        self.init(storageRoot: storageRoot, marketData: LiveDeskMarketDataService(), researchRoot: researchRoot)
+    }
+
+    /// Explicit local acceptance fixture. Uses the production scan coordinator and ORB path, but
+    /// substitutes deterministic data, a simulated environment and an isolated storage root.
+    public convenience init(offlineIntegrationRoot: URL) {
+        let research = offlineIntegrationRoot.appendingPathComponent("Research", isDirectory: true)
+            .appendingPathComponent("oanda-proxy", isDirectory: true)
+        self.init(storageRoot: offlineIntegrationRoot, marketData: OfflineIntegrationMarketDataService(),
+                  researchRoot: research, offlineIntegrationMode: true)
     }
 
     init(
         storageRoot: URL?,
         marketData: any DeskMarketDataServing,
         candleCache: CandleCache = CandleCache(),
+        researchRoot: URL? = nil,
+        offlineIntegrationMode: Bool = false,
         otcArchive: (any DeskOTCResearchServing)? = nil,
         otcResearchServiceFactory: (@Sendable (String) -> any DeskOTCResearchServing)? = nil,
         pocketOptionResearchServiceFactory: (@Sendable (String) -> any DeskOTCResearchServing)? = nil
@@ -24,6 +35,8 @@ public final class LightningDeskModel: ObservableObject {
         let root = storageRoot ?? FileLocations.applicationSupport()
         self.marketData = marketData
         self.candleCache = candleCache
+        self.researchRoot = researchRoot ?? ResearchStore.defaultRoot()
+        self.offlineIntegrationMode = offlineIntegrationMode
         let otcRoot = root.appendingPathComponent("Research", isDirectory: true)
             .appendingPathComponent("otc-validation", isDirectory: true)
         self.otcArchive = otcArchive ?? LiveOTCResearchService(root: otcRoot)
@@ -77,6 +90,8 @@ public final class LightningDeskModel: ObservableObject {
     @Published public private(set) var orbPlans: [String: V3TradePlan] = [:]
     /// Practice-only spot-FX lifecycle projection, separate from the legacy HIGH/LOW desk.
     @Published public private(set) var spotFXPracticeStates: [String: SpotFXPracticeLifecycleResult] = [:]
+    @Published public private(set) var spotFXPracticeRestoreIssue: String?
+    @Published public private(set) var userReportedSpotFXPositions: [String: V3PositionRecord] = [:]
     /// Latest adaptive research decision projected for native presentation.
     /// This is intentionally separate from the executable desk frame.
     @Published public private(set) var adaptiveResearchProjection: AdaptiveResearchProjection?
@@ -93,10 +108,19 @@ public final class LightningDeskModel: ObservableObject {
         if let quote, quote.asset == pair { return quote.mid }
         return nil
     }
+    /// Current pair-matched FX bid/ask evidence for native, read-only presentation.
+    /// This does not refresh the quote or make it eligible for an entry.
+    public var currentFXQuote: LiveQuote? {
+        guard marketMode == .fx, quote?.asset == pair else { return nil }
+        return quote
+    }
     public func orbDecision(for asset: String) -> ORBDecision? { orbDecisions[asset] }
     public func orbPlan(for asset: String) -> V3TradePlan? { orbPlans[asset] }
     public func spotFXPracticeState(for asset: String) -> SpotFXPracticeLifecycleResult? {
         spotFXPracticeStates[asset]
+    }
+    public func userReportedSpotFXPosition(for asset: String) -> V3PositionRecord? {
+        userReportedSpotFXPositions[asset]
     }
     public var lastScanAt: Date? { commit?.scannedAt }
     /// Last successful market observation for the selected desk feed. Display-only.
@@ -882,6 +906,8 @@ public final class LightningDeskModel: ObservableObject {
     /// Networking, normalization, freshness and caching stay outside the SwiftUI facade.
     private let marketData: any DeskMarketDataServing
     private let candleCache: CandleCache
+    private let researchRoot: URL
+    private let offlineIntegrationMode: Bool
     /// One bounded worker serializes scan ingress; only its latest pending request is retained.
     private let scanCoordinator = ScanOperationCoordinator()
     /// Per-asset cache of the last committed scan for that pair.
@@ -903,17 +929,22 @@ public final class LightningDeskModel: ObservableObject {
         invalidateScanRequests()
         pair = next
 
-        // Restore cached bars immediately so chart is never blank
+        // Restore cached bars immediately so chart is never blank. macOS defers any fresh
+        // credential-backed fetch until the user explicitly presses SCAN.
         let cacheKey = CandleCache.Key(market: marketMode, asset: next)
         let cached = candleCache.cached(cacheKey)
         if !cached.isEmpty {
             candles = cached
+#if !os(macOS)
             if !candleCache.isFresh(cacheKey) {
                 Task { await loadCandles(for: next, force: true) }
             }
+#endif
         } else {
             candles = []
+#if !os(macOS)
             Task { await loadCandles(for: next) }
+#endif
         }
 
         if let cachedCommit = commitsByAsset[next] {
@@ -1020,7 +1051,7 @@ public final class LightningDeskModel: ObservableObject {
     /// Restores only the latest persisted adaptive research decision. This is
     /// display state and never feeds the executable desk frame or entry gate.
     public func restoreAdaptiveResearchProjection(now: Date = Date()) async {
-        let store = ResearchStore(root: ResearchStore.defaultRoot())
+        let store = ResearchStore(root: researchRoot)
         guard let records = try? await store.adaptiveRehearsals(),
               let latest = records.max(by: { $0.receivedAt < $1.receivedAt }) else {
             adaptiveResearchProjection = nil
@@ -1106,11 +1137,15 @@ public final class LightningDeskModel: ObservableObject {
         // queued before launch is consumed once, without being overwritten by a second scan.
         let consumedPendingScan = await consumePendingScanIfReady()
         if !consumedPendingScan {
+#if os(iOS)
             if marketMode == .crypto {
                 await scanCrypto()
             } else if candles.isEmpty {
                 Task { await self.loadCandles(for: self.pair) }
             }
+#else
+            if marketMode == .crypto { await scanCrypto() }
+#endif
         }
         if marketMode == .crypto {
             await remeasureExchangeClock()
@@ -1312,7 +1347,7 @@ public final class LightningDeskModel: ObservableObject {
             return
         }
         let clock = Date()
-        if !FxSession.isOpen(clock) {
+        if !offlineIntegrationMode && !FxSession.isOpen(clock) {
             feed = .disconnected
             notice = FxSession.label(clock)
             return
@@ -1334,10 +1369,22 @@ public final class LightningDeskModel: ObservableObject {
         book = scanAssets.map { BookRow(asset: $0, side: "—") }
         publishFrame()
         scanStep = "\(scanAssets[0]) 1/\(scanAssets.count)"
-        guard let session = await loadSession(allowPrompt: true, consumePendingScan: false) else {
+        let session: OandaSession?
+        if offlineIntegrationMode {
+            session = OandaSession(token: "OFFLINE_INTEGRATION", accountId: "fixture-only", environment: .practice)
+        } else {
+            session = await loadSession(allowPrompt: true, consumePendingScan: false)
+        }
+        guard let session else {
             guard isCurrentScan(request) else { return }
             feed = .error
             notice = "OANDA token missing"
+            return
+        }
+        guard session.environment == .practice else {
+            guard isCurrentScan(request) else { return }
+            feed = .error
+            notice = "This FX workspace only scans OANDA Practice. Select a Practice account in Credentials."
             return
         }
         guard isCurrentScan(request) else { return }
@@ -1359,11 +1406,13 @@ public final class LightningDeskModel: ObservableObject {
                 let orb = evaluateORB(asset: asset, bars: bars,
                                       asOf: Self.evaluationDate(signal.asOfMs, fallback: Date()))
                 orbDecisions[asset] = orb
-                if let plan = orb.candidate?.plan {
+                let plan = orb.candidate?.plan.withSourceEnvironment(
+                    offlineIntegrationMode ? .simulated : .oandaPractice)
+                if let plan {
                     orbPlans[asset] = plan
                 }
                 await evaluateSpotFXPracticeLifecycle(
-                    decision: orb, snapshot: snapshot, signal: signal,
+                    decision: orb, plan: plan, snapshot: snapshot, signal: signal,
                     environment: session.environment, asset: asset, request: request
                 )
                 guard isCurrentScan(request) else { return }
@@ -1486,6 +1535,7 @@ public final class LightningDeskModel: ObservableObject {
     /// intentionally supplies no sizing result and fails closed as UNRESOLVED.
     private func evaluateSpotFXPracticeLifecycle(
         decision: ORBDecision,
+        plan: V3TradePlan?,
         snapshot: MarketScanSnapshot,
         signal: EngineSignal,
         environment: OandaEnvironment,
@@ -1508,7 +1558,6 @@ public final class LightningDeskModel: ObservableObject {
                 bid: bid, ask: ask, sourceTime: sourceTime, receivedAt: now
             )
         }()
-        let plan = decision.candidate?.plan
         let expiry = decision.sessionStart?.addingTimeInterval(120 * 60) ?? now.addingTimeInterval(120 * 60)
         let result = SpotFXPracticeLifecycle.evaluate(.init(
             decision: decision, plan: plan, observation: observation, risk: nil,
@@ -1519,7 +1568,7 @@ public final class LightningDeskModel: ObservableObject {
         spotFXPracticeStates[asset] = result
         guard let plan else { return }
 
-        let store = ResearchStore(root: ResearchStore.defaultRoot())
+        let store = ResearchStore(root: researchRoot)
         do {
             try await store.record(plan)
             let safeState = result.state.rawValue
@@ -1528,11 +1577,14 @@ public final class LightningDeskModel: ObservableObject {
             let eventID = "\(plan.id)-\(safeState)-\(Int(now.timeIntervalSince1970 * 1_000))"
             let event = SpotFXPracticeLifecycleEvent(
                 id: eventID, planID: plan.id, instrument: asset,
-                state: result.state, reason: result.reason, recordedAt: now,
+                environment: offlineIntegrationMode ? .simulated : .oandaPractice,
+                state: result.state,
+                reason: offlineIntegrationMode ? "OFFLINE_INTEGRATION · \(result.reason)" : result.reason,
+                recordedAt: now,
                 observationID: observation?.id, sourceTime: observation?.sourceTime,
                 receivedAt: observation?.receivedAt, spread: observation?.spread,
                 spreadPips: result.spreadPips, pipScale: Assets.pipScale(for: asset),
-                expiresAt: expiry, riskAccepted: nil, riskUnits: plan.units,
+                expiresAt: expiry, riskAccepted: nil, riskUnits: nil,
                 estimatedWorstCaseLossUSD: nil
             )
             try await store.record(event)
@@ -1548,15 +1600,27 @@ public final class LightningDeskModel: ObservableObject {
     /// Restores only durable plan/event pairs. Historical quote values restore as evidence,
     /// never as a current quote or proof of execution.
     public func restoreSpotFXPracticeLifecycle() async {
-        let store = ResearchStore(root: ResearchStore.defaultRoot())
-        guard let plans = try? await store.v3TradePlans(),
-              let events = try? await store.spotFXPracticeLifecycleEvents() else {
-            spotFXPracticeStates = [:]
+        let store = ResearchStore(root: researchRoot)
+        let plans: [V3TradePlan]
+        let events: [SpotFXPracticeLifecycleEvent]
+        let positions: [V3PositionRecord]
+        do {
+            plans = try await store.v3TradePlans()
+            events = try await store.spotFXPracticeLifecycleEvents()
+            positions = try await store.v3PositionRecords()
+        } catch {
+            spotFXPracticeRestoreIssue = "Saved Practice plan history could not be read. No plan was restored."
+            diagLog("SPOT_FX_LIFECYCLE_RESTORE_FAILED \(error.localizedDescription)")
             return
         }
+        spotFXPracticeRestoreIssue = nil
         let planIDs = Set(plans.map(\.id))
         let plansByID = Dictionary(uniqueKeysWithValues: plans.map { ($0.id, $0) })
-        let latestByInstrument = Dictionary(grouping: events.filter { planIDs.contains($0.planID) }, by: \.instrument)
+        let latestByInstrument = Dictionary(grouping: events.filter {
+            planIDs.contains($0.planID)
+                && ($0.environment == .oandaPractice
+                    || ($0.environment == .simulated && $0.reason.hasPrefix("OFFLINE_INTEGRATION")))
+        }, by: \.instrument)
         spotFXPracticeStates = latestByInstrument.compactMapValues { records in
             guard let event = records.max(by: { $0.recordedAt < $1.recordedAt }) else { return nil }
             if let plan = plansByID[event.planID] { orbPlans[event.instrument] = plan }
@@ -1565,6 +1629,12 @@ public final class LightningDeskModel: ObservableObject {
                 reason: event.reason + " · restored; quote must be refreshed",
                 spreadPips: event.spreadPips, planID: event.planID
             )
+        }
+        userReportedSpotFXPositions = Dictionary(grouping: positions.filter { position in
+            position.state == .userReported && position.provenance == .manualTradeReport
+                && position.planID.flatMap { plansByID[$0]?.sourceEnvironment } == .oandaPractice
+        }, by: \.instrument).compactMapValues { records in
+            records.max { $0.updatedAt < $1.updatedAt }
         }
     }
 
@@ -1576,11 +1646,12 @@ public final class LightningDeskModel: ObservableObject {
         let now = Date()
         let event = SpotFXPracticeLifecycleEvent(
             id: "\(plan.id)-manual-\(Int(now.timeIntervalSince1970 * 1_000))",
-            planID: plan.id, instrument: asset, state: .manuallyConfirmed,
+            planID: plan.id, instrument: asset, environment: .oandaPractice,
+            state: .manuallyConfirmed,
             reason: "user_acknowledged_plan_not_fill_evidence", recordedAt: now,
             manualAcknowledged: true
         )
-        let store = ResearchStore(root: ResearchStore.defaultRoot())
+        let store = ResearchStore(root: researchRoot)
         do {
             try await store.record(event)
             spotFXPracticeStates[asset] = .init(
@@ -1591,6 +1662,27 @@ public final class LightningDeskModel: ObservableObject {
         } catch {
             notice = "Practice acknowledgment was not saved"
             diagLog("SPOT_FX_MANUAL_ACK_FAILED \(error.localizedDescription)")
+        }
+    }
+
+    /// Records only the user's statement that a Practice plan was manually opened. It does not
+    /// submit an order, add execution prices, or certify broker execution.
+    @discardableResult
+    public func reportManualSpotFXTrade(for asset: String, units: Double, now: Date = Date()) async -> Bool {
+        guard let plan = orbPlans[asset], plan.sourceEnvironment == .oandaPractice,
+              units.isFinite, units > 0,
+              userReportedSpotFXPositions[asset]?.planID != plan.id else { return false }
+        let position = V3PositionRecord(id: "manual-\(UUID().uuidString)", planID: plan.id,
+            instrument: plan.instrument, state: .userReported, side: plan.side, units: units,
+            entryPrice: nil, exitPrice: nil, provenance: .manualTradeReport, updatedAt: now)
+        do {
+            try await ResearchStore(root: researchRoot).record(position)
+            userReportedSpotFXPositions[asset] = position
+            return true
+        } catch {
+            notice = "Manual trade report was not saved"
+            diagLog("SPOT_FX_MANUAL_REPORT_FAILED \(error.localizedDescription)")
+            return false
         }
     }
 
@@ -1625,7 +1717,7 @@ public final class LightningDeskModel: ObservableObject {
             expirySeconds: snapshot.expirySeconds, quoteAsOfMs: signal.asOfMs,
             evaluatedAtMs: receivedAt.timeIntervalSince1970 * 1_000,
             policy: ScanPolicy(rawValue: snapshot.policy))
-        let store = ResearchStore(root: ResearchStore.defaultRoot())
+        let store = ResearchStore(root: researchRoot)
         guard let result = try? await AdaptiveMarketRehearsal.evaluateSnapshot(
             input, observedAt: Self.evaluationDate(signal.asOfMs, fallback: receivedAt),
             receivedAt: receivedAt, store: store) else { return }
@@ -2474,6 +2566,7 @@ public final class LightningDeskModel: ObservableObject {
     }
 
     private func refreshQuote() async {
+        if offlineIntegrationMode { return }
         if notice == "Demo Desk (Offline)" {
             return
         }
@@ -2795,7 +2888,9 @@ public final class LightningDeskModel: ObservableObject {
         executionObservationIssue = executionLoadIssue
         manualBrokerObservations = restoredManualObservations
         if let manualLoadIssue { otcResearchIssue = manualLoadIssue }
+#if os(iOS)
         refreshOTCCredentialState()
+#endif
         refreshExecutionIntelligence()
         // Attribute restored bars by persisted engine identity, not the mutable live watchlist.
         let entryMarkets = Dictionary(
