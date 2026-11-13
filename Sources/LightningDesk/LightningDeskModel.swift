@@ -75,6 +75,8 @@ public final class LightningDeskModel: ObservableObject {
     /// never replaces the pinned V1 signal or authorizes an entry.
     @Published public private(set) var orbDecisions: [String: ORBDecision] = [:]
     @Published public private(set) var orbPlans: [String: V3TradePlan] = [:]
+    /// Practice-only spot-FX lifecycle projection, separate from the legacy HIGH/LOW desk.
+    @Published public private(set) var spotFXPracticeStates: [String: SpotFXPracticeLifecycleResult] = [:]
     /// Latest adaptive research decision projected for native presentation.
     /// This is intentionally separate from the executable desk frame.
     @Published public private(set) var adaptiveResearchProjection: AdaptiveResearchProjection?
@@ -93,6 +95,9 @@ public final class LightningDeskModel: ObservableObject {
     }
     public func orbDecision(for asset: String) -> ORBDecision? { orbDecisions[asset] }
     public func orbPlan(for asset: String) -> V3TradePlan? { orbPlans[asset] }
+    public func spotFXPracticeState(for asset: String) -> SpotFXPracticeLifecycleResult? {
+        spotFXPracticeStates[asset]
+    }
     public var lastScanAt: Date? { commit?.scannedAt }
     /// Last successful market observation for the selected desk feed. Display-only.
     public var lastMarketObservationAt: Date? { lastFreshPollAt }
@@ -1082,6 +1087,7 @@ public final class LightningDeskModel: ObservableObject {
         }
         await reloadFromDisk()
         await restoreAdaptiveResearchProjection()
+        await restoreSpotFXPracticeLifecycle()
         await refreshOTCValidationReport()
         Task { await assistant.refreshAvailability() }
         // Finish any settlement that was interrupted by a crash or a failed write.
@@ -1356,6 +1362,11 @@ public final class LightningDeskModel: ObservableObject {
                 if let plan = orb.candidate?.plan {
                     orbPlans[asset] = plan
                 }
+                await evaluateSpotFXPracticeLifecycle(
+                    decision: orb, snapshot: snapshot, signal: signal,
+                    environment: session.environment, asset: asset, request: request
+                )
+                guard isCurrentScan(request) else { return }
                 candleCache.store(bars, for: CandleCache.Key(market: .fx, asset: asset))
                 cabinetSideByAsset[asset] = signal.cabinetSide
                 var assetCommit = ScanKernel.commit(
@@ -1467,6 +1478,119 @@ public final class LightningDeskModel: ObservableObject {
                 notice = "Scan was not saved; scan again"
                 publishFrame()
             }
+        }
+    }
+
+    /// Projects the existing ORB decision through Practice/freshness/spread/risk gates.
+    /// No owner-approved account risk configuration exists yet, so this integration
+    /// intentionally supplies no sizing result and fails closed as UNRESOLVED.
+    private func evaluateSpotFXPracticeLifecycle(
+        decision: ORBDecision,
+        snapshot: MarketScanSnapshot,
+        signal: EngineSignal,
+        environment: OandaEnvironment,
+        asset: String,
+        request: ScanRequestScheduler.Request
+    ) async {
+        let now = Date()
+        let sourceTime: Date? = signal.asOfMs.flatMap { milliseconds in
+            guard milliseconds.isFinite, milliseconds > 0 else { return nil }
+            return Date(timeIntervalSince1970: milliseconds / 1_000)
+        }
+        let observation: V3MarketObservation? = {
+            guard let sourceTime,
+                  let bid = snapshot.bid, let ask = snapshot.ask,
+                  bid.isFinite, ask.isFinite, bid > 0, ask > bid else { return nil }
+            return V3MarketObservation(
+                id: "oanda-\(asset.replacingOccurrences(of: "/", with: "-"))-\(Int(sourceTime.timeIntervalSince1970 * 1_000))",
+                instrument: asset, provider: "OANDA",
+                environment: environment == .practice ? .oandaPractice : .oandaLive,
+                bid: bid, ask: ask, sourceTime: sourceTime, receivedAt: now
+            )
+        }()
+        let plan = decision.candidate?.plan
+        let expiry = decision.sessionStart?.addingTimeInterval(120 * 60) ?? now.addingTimeInterval(120 * 60)
+        let result = SpotFXPracticeLifecycle.evaluate(.init(
+            decision: decision, plan: plan, observation: observation, risk: nil,
+            hardRiskCapUSD: 0,
+            environment: environment == .practice ? .oandaPractice : .oandaLive,
+            expiresAt: expiry, now: now, pipScale: Assets.pipScale(for: asset)
+        ))
+        spotFXPracticeStates[asset] = result
+        guard let plan else { return }
+
+        let store = ResearchStore(root: ResearchStore.defaultRoot())
+        do {
+            try await store.record(plan)
+            let safeState = result.state.rawValue
+                .replacingOccurrences(of: "/", with: "-")
+                .replacingOccurrences(of: "_", with: "-")
+            let eventID = "\(plan.id)-\(safeState)-\(Int(now.timeIntervalSince1970 * 1_000))"
+            let event = SpotFXPracticeLifecycleEvent(
+                id: eventID, planID: plan.id, instrument: asset,
+                state: result.state, reason: result.reason, recordedAt: now,
+                observationID: observation?.id, sourceTime: observation?.sourceTime,
+                receivedAt: observation?.receivedAt, spread: observation?.spread,
+                spreadPips: result.spreadPips, pipScale: Assets.pipScale(for: asset),
+                expiresAt: expiry, riskAccepted: nil, riskUnits: plan.units,
+                estimatedWorstCaseLossUSD: nil
+            )
+            try await store.record(event)
+        } catch {
+            spotFXPracticeStates[asset] = .init(
+                state: .unresolved, reason: "lifecycle_persistence_failed", planID: plan.id
+            )
+            diagLog("SPOT_FX_LIFECYCLE_PERSIST_FAILED \(error.localizedDescription)")
+        }
+        guard isCurrentScan(request) else { return }
+    }
+
+    /// Restores only durable plan/event pairs. Historical quote values restore as evidence,
+    /// never as a current quote or proof of execution.
+    public func restoreSpotFXPracticeLifecycle() async {
+        let store = ResearchStore(root: ResearchStore.defaultRoot())
+        guard let plans = try? await store.v3TradePlans(),
+              let events = try? await store.spotFXPracticeLifecycleEvents() else {
+            spotFXPracticeStates = [:]
+            return
+        }
+        let planIDs = Set(plans.map(\.id))
+        let plansByID = Dictionary(uniqueKeysWithValues: plans.map { ($0.id, $0) })
+        let latestByInstrument = Dictionary(grouping: events.filter { planIDs.contains($0.planID) }, by: \.instrument)
+        spotFXPracticeStates = latestByInstrument.compactMapValues { records in
+            guard let event = records.max(by: { $0.recordedAt < $1.recordedAt }) else { return nil }
+            if let plan = plansByID[event.planID] { orbPlans[event.instrument] = plan }
+            return SpotFXPracticeLifecycleResult(
+                state: event.state,
+                reason: event.reason + " · restored; quote must be refreshed",
+                spreadPips: event.spreadPips, planID: event.planID
+            )
+        }
+    }
+
+    /// Records only that the user acknowledged the displayed Practice plan. This is
+    /// intentionally not connected to ActiveTrade, settlement, or broker execution.
+    public func acknowledgeSpotFXPracticePlan(for asset: String) async {
+        guard let current = spotFXPracticeStates[asset], current.state == .actionable,
+              let plan = orbPlans[asset] else { return }
+        let now = Date()
+        let event = SpotFXPracticeLifecycleEvent(
+            id: "\(plan.id)-manual-\(Int(now.timeIntervalSince1970 * 1_000))",
+            planID: plan.id, instrument: asset, state: .manuallyConfirmed,
+            reason: "user_acknowledged_plan_not_fill_evidence", recordedAt: now,
+            manualAcknowledged: true
+        )
+        let store = ResearchStore(root: ResearchStore.defaultRoot())
+        do {
+            try await store.record(event)
+            spotFXPracticeStates[asset] = .init(
+                state: .manuallyConfirmed,
+                reason: "user_acknowledged_plan_not_fill_evidence",
+                spreadPips: current.spreadPips, planID: plan.id
+            )
+        } catch {
+            notice = "Practice acknowledgment was not saved"
+            diagLog("SPOT_FX_MANUAL_ACK_FAILED \(error.localizedDescription)")
         }
     }
 

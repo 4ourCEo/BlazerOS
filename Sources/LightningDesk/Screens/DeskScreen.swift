@@ -109,6 +109,7 @@ struct DeskScreen: View {
     private var orbPlanCard: some View {
         let decision = model.orbDecision(for: model.pair)
         let plan = model.orbPlan(for: model.pair)
+        let lifecycle = model.spotFXPracticeState(for: model.pair)
         return VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("ORB BREAK · RETEST")
@@ -116,29 +117,42 @@ struct DeskScreen: View {
                     .tracking(0.7)
                     .foregroundStyle(DeskInk.electric)
                 Spacer()
-                Text(decision?.stage.rawValue.replacingOccurrences(of: "_", with: " ") ?? "UNAVAILABLE")
+                Text(lifecycle?.state.rawValue ?? decision?.setupState.rawValue.uppercased() ?? "UNAVAILABLE")
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .foregroundStyle(decision == nil ? DeskInk.slate : DeskInk.ink)
+                    .foregroundStyle(lifecycle?.state == .actionable ? DeskInk.electric : DeskInk.ink)
             }
             if let decision {
                 HStack(spacing: 12) {
                     orbLevel("RANGE HIGH", decision.rangeHigh)
                     orbLevel("RANGE LOW", decision.rangeLow)
                 }
-                if let plan {
-                    HStack(spacing: 12) {
-                        orbLevel("ENTRY", plan.entryPrice)
-                        orbLevel("STOP", plan.stopPrice)
-                        orbLevel("TARGET", plan.targetPrice)
-                    }
-                    Text("\(plan.strategyVersion) · \(plan.units, specifier: "%.0f") units · R:R \(plan.rewardRisk ?? 0, specifier: "%.1f") · research plan")
-                        .font(.system(size: 9, weight: .medium, design: .monospaced))
-                        .foregroundStyle(DeskInk.slate)
-                } else {
-                    Text(orbExplanation(decision))
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(DeskInk.slate)
+            }
+            if let plan {
+                HStack(spacing: 12) {
+                    orbLevel("ENTRY", plan.entryPrice)
+                    orbLevel("STOP", plan.stopPrice)
+                    orbLevel("TARGET", plan.targetPrice)
                 }
+                Text("\(plan.strategyVersion) · \(plan.units, specifier: "%.0f") proposed units · R:R \(plan.rewardRisk ?? 0, specifier: "%.1f")")
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundStyle(DeskInk.slate)
+                Text("\(lifecycle?.reason ?? "Awaiting Practice validation") · NOT AN ORDER OR FILL")
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(lifecycle?.state == .actionable ? DeskInk.electric : .orange)
+                Text(lifecycle?.spreadPips.map { "Spread \(String(format: "%.2f", $0)) pips" } ?? "Spread unavailable")
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundStyle(DeskInk.slate)
+                if lifecycle?.state == .actionable {
+                    Button("Acknowledge plan (not a fill)") {
+                        Task { await model.acknowledgeSpotFXPracticePlan(for: model.pair) }
+                    }
+                    .font(.system(size: 10, weight: .semibold))
+                    .accessibilityHint("Records your acknowledgment only. It does not confirm a broker order or fill.")
+                }
+            } else if let decision {
+                Text("\(orbExplanation(decision)) · \(lifecycle?.state.rawValue ?? "PRACTICE STATE PENDING")")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(DeskInk.slate)
             } else {
                 Text("Scan with completed OANDA M1 evidence to establish the opening range.")
                     .font(.system(size: 10, weight: .medium))

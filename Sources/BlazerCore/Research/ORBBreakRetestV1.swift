@@ -387,8 +387,11 @@ public enum ORBBreakRetestV1 {
             ? entry + risk * configuration.rewardRisk
             : entry - risk * configuration.rewardRisk
         let side: V3SpotSide = direction == .long ? .long : .short
+        let planIdentity = "orb-\(instrument)-\(confirmation.id)"
+            .map { $0.isLetter || $0.isNumber || $0 == "-" ? $0 : "-" }
+            .reduce(into: "") { $0.append($1) }
         let plan = V3TradePlan(
-            id: "orb-\(instrument.replacingOccurrences(of: "/", with: "-"))-\(confirmation.id)",
+            id: planIdentity,
             instrument: instrument, strategyID: "ORB_BREAK_RETEST_V1",
             strategyVersion: configuration.strategyVersion, engineVersion: configuration.engineVersion,
             sourceObservationID: confirmation.id, state: .validated, side: side,
