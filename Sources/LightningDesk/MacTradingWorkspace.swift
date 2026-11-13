@@ -100,7 +100,7 @@ struct MacTradingWorkspace: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 Text(model.pair).font(.system(size: 25, weight: .semibold))
-                Text("ORB · 5-minute source candles").font(.system(size: 11)).foregroundStyle(muted)
+                Text("ORB · source candles").font(.system(size: 11)).foregroundStyle(muted)
                 Spacer()
                 if let quote = model.currentFXQuote {
                     VStack(alignment: .trailing, spacing: 3) {
