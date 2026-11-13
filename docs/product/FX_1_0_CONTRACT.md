@@ -28,8 +28,9 @@ BlazerOS FX 1.0 is a **Mac-first hybrid forex trading-intelligence product**. It
 ## Runtime and session contract
 
 - Forex trading hours are not the NYSE cash-equity session. A New York-focused monitoring window is an **app policy**, not a declaration that forex opens at 9:30 AM ET.
-- A candidate schedule is weekdays 9:30 AM–4:00 PM `America/New_York` (06:30–13:00 Pacific, with DST handled by the named zone). It is **not accepted yet**. The owner must decide whether this or an overlap-focused window is intended, and whether holidays/early closes affect scanning.
-- An authenticated, fresh-data scan is on demand in the initial vertical slice. Automatic recurring scans, app-closed-but-Mac-awake monitoring, sleep/reboot recovery, and alerts are distinct requirements and must be demonstrated before they are claimed.
+- The owner wants the Mac monitor to continue when its app window is closed, provided the Mac is awake and connected. Monitoring while asleep, powered off, or offline is not promised in v1.
+- **Recommended v1 focus window:** weekdays 9:30 AM–4:00 PM `America/New_York` (06:30–13:00 Pacific, with DST handled by the named zone), matching the owner's stated routine and giving the ORB proving strategy a clear New York opening reference. The monitor may warm data before 9:30; no actionable plan is allowed from stale or incomplete context. This is a proposed app focus window for owner confirmation, not forex market open/close. Compare the earlier London–New York overlap only as a separately registered schedule experiment. Do not apply NYSE holiday/early-close rules to forex without an explicit policy decision.
+- Automatic recurring scans, app-window-closed local monitoring, sleep/reboot recovery, reconnect handling, and alerts are requirements, not accepted capabilities. They must be demonstrated before they are claimed.
 - No cloud relay is presumed. If alerts must arrive while Mac is off/asleep or when the iPhone is disconnected from the Mac, that is a separate availability/service requirement and needs an explicit owner decision.
 - Stale, incomplete, wrong-instrument, future-dated or invalidly ordered data cannot yield an actionable decision. Reconnect and relaunch must not resurrect stale plans.
 
