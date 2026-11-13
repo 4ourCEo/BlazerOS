@@ -151,6 +151,61 @@ public actor ResearchStore {
         try load(ResearchExperiment.self, directory: "experiments")
     }
 
+    /// Append one immutable experiment attempt. Attempt numbers are allocated by this actor
+    /// and cannot be reused, so rejected and superseded attempts remain in the audit trail.
+    public func record(_ attempt: ResearchExperimentAttempt) throws {
+        try validate(attempt)
+        guard try experiments().contains(where: { $0.id == attempt.experimentID }) else {
+            throw ScanError.failed("Research attempt references an unknown experiment")
+        }
+        let allExisting = try attempts()
+        if let sameID = allExisting.first(where: { $0.id == attempt.id }) {
+            guard sameID == attempt else {
+                throw ScanError.failed("Research attempt ID already exists with different content")
+            }
+            return
+        }
+        let existing = allExisting.filter { $0.experimentID == attempt.experimentID }
+        guard !existing.contains(where: { $0.attemptNumber == attempt.attemptNumber }),
+              attempt.attemptNumber == existing.count + 1 else {
+            throw ScanError.failed("Research attempt number must be the next immutable sequence")
+        }
+        if let supersedes = attempt.supersedesAttemptID,
+           !existing.contains(where: { $0.id == supersedes }) {
+            throw ScanError.failed("Superseded attempt must exist in the same experiment")
+        }
+        try writeOnce(attempt, directory: "experiment-attempts", name: attempt.id)
+    }
+
+    public func attempts(experimentID: String? = nil) throws -> [ResearchExperimentAttempt] {
+        let named = try loadNamed(ResearchExperimentAttempt.self, directory: "experiment-attempts")
+        for (url, attempt) in named where url.deletingPathExtension().lastPathComponent != attempt.id {
+            throw ScanError.failed("Research attempt identity does not match its archive name")
+        }
+        let all = named.map(\.1)
+        let knownExperiments = Set(try experiments().map(\.id))
+        for attempt in all {
+            try validate(attempt)
+            guard knownExperiments.contains(attempt.experimentID) else {
+                throw ScanError.failed("Research attempt references an unknown experiment")
+            }
+        }
+        let grouped = Dictionary(grouping: all, by: \.experimentID)
+        guard grouped.values.allSatisfy({ values in
+            let numbers = values.map(\.attemptNumber)
+            return Set(numbers).count == numbers.count
+                && numbers.sorted() == Array(1...numbers.count)
+        }) else {
+            throw ScanError.failed("Research attempt sequence is corrupt")
+        }
+        return all.filter { experimentID == nil || $0.experimentID == experimentID }
+            .sorted {
+                $0.experimentID == $1.experimentID
+                    ? $0.attemptNumber < $1.attemptNumber
+                    : $0.experimentID < $1.experimentID
+            }
+    }
+
     public func record(_ report: ResearchExperimentReport) throws {
         try writeOnce(report, directory: "reports", name: report.id)
     }
@@ -278,6 +333,54 @@ public actor ResearchStore {
             return
         }
         try AtomicFile.write(encoded, to: url)
+    }
+
+    private func validate(_ attempt: ResearchExperimentAttempt) throws {
+        let nonempty = [attempt.id, attempt.experimentID, attempt.strategyID,
+            attempt.strategyVersion, attempt.hypothesis, attempt.instrumentID,
+            attempt.exitContract, attempt.benchmark, attempt.decisionRationale]
+        let assumptions = [attempt.executionAssumptions.spread,
+            attempt.executionAssumptions.slippage, attempt.executionAssumptions.entryDelay,
+            attempt.executionAssumptions.financing, attempt.executionAssumptions.fillModel]
+        let evidence = attempt.outcomeEvidence
+        let countsValid = evidence.independentEligibleSetups >= 0 && evidence.resolved >= 0
+            && evidence.ambiguous >= 0 && evidence.unresolved >= 0
+            && evidence.resolved + evidence.ambiguous + evidence.unresolved
+                <= evidence.independentEligibleSetups
+        let expectationValid = [evidence.netExpectancyR, evidence.uncertaintyLowerR,
+            evidence.uncertaintyUpperR].compactMap { $0 }.allSatisfy(\.isFinite)
+        let boundsValid: Bool
+        switch (evidence.uncertaintyLowerR, evidence.uncertaintyUpperR) {
+        case (nil, nil): boundsValid = true
+        case let (lower?, upper?): boundsValid = lower <= upper
+        default: boundsValid = false
+        }
+        let uncertaintyMethodValid = evidence.uncertaintyLowerR == nil
+            || !(evidence.uncertaintyMethod ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let assumptionsValid = assumptions.allSatisfy {
+            !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        let archivesValid = !attempt.dataArchives.isEmpty
+            && attempt.dataArchives.allSatisfy {
+                !$0.sourceIdentity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    && $0.archiveSHA256.count == 64 && $0.archiveSHA256.allSatisfy(\.isHexDigit)
+            }
+        let archiveIDs = attempt.dataArchives.map { "\($0.sourceIdentity):\($0.archiveSHA256)" }
+        let rolesValid = !attempt.timeframeRoles.isEmpty && attempt.timeframeRoles.allSatisfy {
+            !$0.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        let parametersValid = !attempt.parameterVariations.isEmpty
+            && attempt.parameterVariations.allSatisfy {
+                !$0.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !$0.value.isEmpty
+            }
+        guard nonempty.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }),
+              attempt.attemptNumber > 0, attempt.createdAt.timeIntervalSince1970.isFinite,
+              assumptionsValid, archivesValid, Set(archiveIDs).count == archiveIDs.count,
+              rolesValid, parametersValid, countsValid, expectationValid, boundsValid,
+              uncertaintyMethodValid else {
+            throw ScanError.failed("Invalid research experiment attempt")
+        }
     }
 
     private func load<T: Decodable>(_ type: T.Type, directory: String) throws -> [T] {
