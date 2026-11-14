@@ -29,6 +29,7 @@ struct Options {
     var captureSeconds = 30
     var historicalHours = 15
     var historicalOffsetHours = 0
+    var historicalGranularity: String?
     var policyFunnel = false
     var asset: String?
 
@@ -57,7 +58,7 @@ struct Options {
             case "--daemon", "-d": daemon = true; continuous = true; primeOnly = true
             case "--prime-only", "--smart-schedule": primeOnly = true
             case "--all-policies": policies = ["control"] + ScanPolicy.allCases.map(\.rawValue)
-            case "--root", "--policy", "--max-events", "--as-of", "--asset", "--historical-hours", "--historical-offset-hours", "--capture-seconds":
+            case "--root", "--policy", "--max-events", "--as-of", "--asset", "--historical-hours", "--historical-offset-hours", "--historical-granularity", "--capture-seconds":
                 index += 1
                 guard index < arguments.count else { throw ScanError.failed("Missing value for \(arg)") }
                 let value = arguments[index]
@@ -91,6 +92,12 @@ struct Options {
                         throw ScanError.failed("Historical offset hours must be between 0 and 720")
                     }
                     historicalOffsetHours = offset
+                }
+                if arg == "--historical-granularity" {
+                    guard OandaClient.historicalGranularities.contains(value) else {
+                        throw ScanError.failed("Historical granularity must be one of M1, M5, M15, H1")
+                    }
+                    historicalGranularity = value
                 }
                 if arg == "--capture-seconds" {
                     guard let seconds = Int(value), (1...300).contains(seconds) else {
@@ -589,7 +596,7 @@ struct ForwardTestApp {
         do {
             let options = try Options(Array(CommandLine.arguments.dropFirst()))
             if options.help {
-                 print("ForwardTest [--orb-structural-archive --root SCRATCH_ROOT (scratch only; contains historical-bid-ask; report written under root) [--asset EUR/USD|GBP/JPY] | --edge-report --root DESK_PATH --as-of UNIX_SECONDS | --policy-funnel | --historical-bid-ask --historical-hours N --historical-offset-hours N | --forward-quotes --capture-seconds N | --authentic-replay | --benchmark | --stats | --bootstrap | --replay | --experiment | --adaptive | --adaptive-diagnostic] [--interactive-credentials] [--orb] [--root PATH] [--asset PAIR] [--policy baseline|continuation|reversal|regime|control | --all-policies] [--max-events N] [--prime-only] [--continuous | --daemon]")
+                 print("ForwardTest [--historical-bid-ask --historical-granularity M1|M5|M15|H1 --historical-hours N --historical-offset-hours N] ...")
                 return
             }
             if options.orbStructuralArchive {
@@ -618,15 +625,26 @@ struct ForwardTestApp {
                 guard session.environment == .practice else {
                     print("HISTORICAL_BID_ASK state=LIVE_REJECTED")
                     return
-                }
-                let asset = options.asset ?? "EUR/USD"
-                let to = Date().addingTimeInterval(-60 - Double(options.historicalOffsetHours) * 3600)
+                 }
+                 let asset = options.asset ?? "EUR/USD"
+                 let selectedGranularity = options.historicalGranularity ?? "M1"
+                 guard let closedEnd = OandaClient.historicalClosedEnd(now: Date(), granularity: selectedGranularity) else {
+                     throw ScanError.failed("Invalid historical granularity")
+                 }
+                 let to = closedEnd.addingTimeInterval(-Double(options.historicalOffsetHours) * 3600)
                 let from = to.addingTimeInterval(-Double(options.historicalHours) * 3600)
-                async let m1 = OandaClient.fetchHistoricalBidAskCandles(
-                    asset: asset, from: from, to: to, granularity: "M1", session: session)
-                async let m5 = OandaClient.fetchHistoricalBidAskCandles(
-                    asset: asset, from: from, to: to, granularity: "M5", session: session)
-                let batches = await [m1, m5]
+                let granularities = options.historicalGranularity.map { [$0] } ?? ["M1", "M5"]
+                let batches = await withTaskGroup(of: OandaHistoricalBidAskBatch.self) { group in
+                    for granularity in granularities {
+                        group.addTask {
+                            await OandaClient.fetchHistoricalBidAskCandles(
+                                asset: asset, from: from, to: to, granularity: granularity, session: session)
+                        }
+                    }
+                    var results: [OandaHistoricalBidAskBatch] = []
+                    for await batch in group { results.append(batch) }
+                    return results.sorted { $0.granularity < $1.granularity }
+                }
                 for batch in batches {
                     let first = batch.candles.first?.sourceTime.timeIntervalSince1970
                     let last = batch.candles.last?.sourceTime.timeIntervalSince1970

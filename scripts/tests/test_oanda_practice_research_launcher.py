@@ -60,13 +60,28 @@ class PracticeLauncherTests(unittest.TestCase):
     def test_preflight_checks_account_membership_and_m1_candle_access(self):
         credentials = {"OANDA_API_TOKEN": "never-printed", "OANDA_ACCOUNT_ID": "selected", "OANDA_ENV": "practice"}
         with patch.object(MODULE, "request_json", side_effect=[
-            {"accounts": [{"id": "selected"}]}, {"candles": [{"complete": True}]},
+            {"accounts": [{"id": "selected"}]}, {"candles": [
+                {"complete": True,
+                 "bid": {"o": "1", "h": "2", "l": "1", "c": "2"},
+                 "ask": {"o": "3", "h": "4", "l": "3", "c": "4"}},
+                {"complete": False},
+            ]},
         ]) as request:
             with patch("builtins.print"):
                 MODULE.preflight(credentials, "EUR/USD")
         self.assertEqual(request.call_count, 2)
         self.assertEqual(request.call_args_list[0].args[0], "/v3/accounts")
         self.assertEqual(request.call_args_list[1].args[0], "/v3/instruments/EUR_USD/candles")
+        self.assertEqual(request.call_args_list[1].args[2]["count"], 10)
+
+    def test_preflight_rejects_without_a_completed_candle(self):
+        credentials = {"OANDA_API_TOKEN": "unused", "OANDA_ACCOUNT_ID": "selected", "OANDA_ENV": "practice"}
+        with patch.object(MODULE, "request_json", side_effect=[
+            {"accounts": [{"id": "selected"}]}, {"candles": [{"complete": False}]},
+        ]):
+            with self.assertRaises(MODULE.PreflightError) as error:
+                MODULE.preflight(credentials, "EUR/USD")
+        self.assertEqual(error.exception.code, "UNSUPPORTED_DATA_REQUEST")
 
     def test_preflight_rejects_inaccessible_account_and_unknown_instrument(self):
         credentials = {"OANDA_API_TOKEN": "unused", "OANDA_ACCOUNT_ID": "not-listed", "OANDA_ENV": "practice"}
@@ -112,8 +127,8 @@ class PracticeLauncherTests(unittest.TestCase):
             path = Path(temp) / "batch.json"
             path.write_text(json.dumps({
                 "transport": {"ok": {}}, "instrument": "EUR_USD", "granularity": "M1",
-                "requestedFrom": 100, "requestedTo": 200,
-                 "candles": [{"complete": True, "sourceTime": 100,
+                "requestedFrom": 815695140, "requestedTo": 815695260,
+                 "candles": [{"complete": True, "sourceTime": 815695200,
                               "instrument": "EUR_USD", "granularity": "M1",
                               "bidOpen": 1.0, "bidHigh": 1.1, "bidLow": 0.9, "bidClose": 1.05,
                               "askOpen": 1.01, "askHigh": 1.11, "askLow": 0.91, "askClose": 1.06}],
@@ -125,7 +140,7 @@ class PracticeLauncherTests(unittest.TestCase):
         self.assertEqual(granularity, "M1")
 
     def test_archive_verification_rejects_false_transport_and_incomplete_quotes(self):
-        candle = {"complete": True, "sourceTime": 100, "instrument": "EUR_USD", "granularity": "M1",
+        candle = {"complete": True, "sourceTime": 815695200, "instrument": "EUR_USD", "granularity": "M1",
                   "bidOpen": 1.0, "bidHigh": 1.1, "bidLow": 0.9, "bidClose": 1.05,
                   "askOpen": 1.01, "askHigh": 1.11, "askLow": 0.91, "askClose": 1.06}
         for transport, complete in (({"ok": False}, True), ({"ok": {}}, False)):
@@ -133,11 +148,86 @@ class PracticeLauncherTests(unittest.TestCase):
                 path = Path(temp) / "batch.json"
                 row = dict(candle, complete=complete)
                 path.write_text(json.dumps({"transport": transport, "instrument": "EUR_USD", "granularity": "M1",
-                                            "requestedFrom": 100, "requestedTo": 200, "candles": [row]}),
+                                            "requestedFrom": 815695140, "requestedTo": 815695260, "candles": [row]}),
                                 encoding="utf-8")
                 with self.assertRaises(MODULE.PreflightError) as error:
                     MODULE.verify_archive(path, "EUR/USD")
                 self.assertEqual(error.exception.code, "PROVENANCE_VERIFICATION_FAILED")
+
+    def test_verifies_all_allowlisted_granularities(self):
+        for granularity in MODULE.ALLOWED_GRANULARITIES:
+            with tempfile.TemporaryDirectory() as temp:
+                path = Path(temp) / "batch.json"
+                path.write_text(json.dumps({
+                    "transport": "ok", "instrument": "GBP_JPY", "granularity": granularity,
+                    "requestedFrom": 815695140, "requestedTo": 815695260,
+                    "candles": [{"complete": True, "sourceTime": 815695200,
+                                 "instrument": "GBP_JPY", "granularity": granularity,
+                                 "bidOpen": 1, "bidHigh": 2, "bidLow": 1, "bidClose": 2,
+                                 "askOpen": 3, "askHigh": 4, "askLow": 3, "askClose": 4}],
+                }), encoding="utf-8")
+                self.assertEqual(MODULE.verify_archive(path, "GBP/JPY")[3], granularity)
+
+    def test_verifies_foundation_date_values_and_rejects_out_of_range_candle(self):
+        # 815,695,200 is 2026-11-12 in Foundation-Date seconds; request bounds
+        # use the same Codable representation as the Swift archive. The bar
+        # starts before requestedFrom but overlaps it, as OANDA can return.
+        candle = {"complete": True, "sourceTime": 815695200,
+                  "instrument": "EUR_USD", "granularity": "H1",
+                  "bidOpen": 1, "bidHigh": 2, "bidLow": 1, "bidClose": 2,
+                  "askOpen": 3, "askHigh": 4, "askLow": 3, "askClose": 4}
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "batch.json"
+            path.write_text(json.dumps({"transport": "ok", "instrument": "EUR_USD",
+                "granularity": "H1", "requestedFrom": 815695230, "requestedTo": 815695260,
+                "candles": [candle]}), encoding="utf-8")
+            self.assertEqual(MODULE.verify_archive(path, "EUR/USD")[2], 1)
+            candle["sourceTime"] = 815693000
+            path.write_text(json.dumps({"transport": "ok", "instrument": "EUR_USD",
+                "granularity": "H1", "requestedFrom": 815695230, "requestedTo": 815695260,
+                "candles": [candle]}), encoding="utf-8")
+            with self.assertRaises(MODULE.PreflightError):
+                MODULE.verify_archive(path, "EUR/USD")
+
+    def test_collection_rejects_non_allowlisted_granularity_before_build(self):
+        with self.assertRaises(MODULE.PreflightError) as error:
+            MODULE.collect(MODULE.SCRIPT_REPO, Path("/bin/true"), {}, "EUR/USD", 1, 0,
+                           Path(tempfile.gettempdir()), ("M30",))
+        self.assertEqual(error.exception.code, "UNSUPPORTED_DATA_REQUEST")
+
+    def test_runner_rejects_arbitrary_repo_option(self):
+        with self.assertRaises(SystemExit):
+            MODULE.main(["collect", "--repo", "/tmp/untrusted", "--asset", "EUR/USD"])
+
+    def test_collection_ignores_concurrent_other_instrument_archive(self):
+        credentials = {"OANDA_API_TOKEN": "unused", "OANDA_ACCOUNT_ID": "id", "OANDA_ENV": "practice"}
+        candle = {"complete": True, "sourceTime": 815695200,
+                  "instrument": "EUR_USD", "granularity": "M15",
+                  "bidOpen": 1, "bidHigh": 2, "bidLow": 1, "bidClose": 2,
+                  "askOpen": 3, "askHigh": 4, "askLow": 3, "askClose": 4}
+
+        def create_batches(command, **kwargs):
+            archive = Path(command[command.index("--root") + 1]) / "historical-bid-ask"
+            archive.mkdir(parents=True, exist_ok=True)
+            lines = []
+            for instrument in ("EUR_USD", "GBP_JPY"):
+                payload = {"transport": "ok", "instrument": instrument, "granularity": "M15",
+                           "requestedFrom": 815695140, "requestedTo": 815695260,
+                           "candles": [{**candle, "instrument": instrument}]}
+                path = archive / f"oanda-practice-{instrument}-M15-concurrent.json"
+                path.write_text(
+                    json.dumps(payload), encoding="utf-8")
+                digest = MODULE.hashlib.sha256(path.read_bytes()).hexdigest()
+                lines.append(f"HISTORICAL_ARCHIVE path={path} sha256={digest} status=immutable")
+            stdout = lines[0] + "\n"
+            return type("Completed", (), {"returncode": 0, "stdout": stdout, "stderr": ""})()
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "historical-bid-ask"
+            with patch.object(MODULE.subprocess, "run", side_effect=create_batches), \
+                    patch("builtins.print"):
+                MODULE.collect(MODULE.SCRIPT_REPO, Path("/bin/true"), credentials,
+                               "EUR/USD", 1, 0, root, ("M15",))
 
     def test_connection_failure_is_distinct(self):
         with patch.object(MODULE.urllib.request, "urlopen", side_effect=OSError("offline")):
