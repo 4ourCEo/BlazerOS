@@ -1,5 +1,12 @@
 # BlazerOS
 
+> **FX 1.0 direction:** Mac-first hybrid forex intelligence with an iPhone
+> companion. The authoritative product contract and evidence-based acceptance
+> ledger are [`docs/product/FX_1_0_CONTRACT.md`](docs/product/FX_1_0_CONTRACT.md)
+> and [`docs/product/FX_1_0_ACCEPTANCE.md`](docs/product/FX_1_0_ACCEPTANCE.md).
+> Existing Pocket Option/fixed-expiry descriptions below document legacy runtime
+> behavior; they are not evidence that the FX 1.0 spot-trading loop is complete.
+
 [![CI](https://github.com/4ourCEo/BlazerOS/actions/workflows/ci.yml/badge.svg)](https://github.com/4ourCEo/BlazerOS/actions/workflows/ci.yml)
 
 iPhone execution desk for the same deterministic scan BlazerMac already runs.

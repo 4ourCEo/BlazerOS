@@ -23,9 +23,9 @@ This is a source-control and generated-cache cleanup task over an already implem
 | ID | Owner | Allowed scope | Acceptance | Status |
 | --- | --- | --- | --- | --- |
 | C1 cache cleanup | Main agent | ignored `.build/`, generated `build/`, `.gitignore`, scratch `deliverables/` | disk usage and preserved export paths checked | DONE |
-| C2 consolidate changes | Main agent | current source, tests, scripts, docs, reports | staged paths reviewed; source/config whitespace check passes; one commit created | IN PROGRESS |
-| C3 synchronize | Main agent | current Git branch and merge metadata | merge refreshed `origin/main`; conflict review recorded | PENDING |
-| C4 verify and publish | Main agent | test/build evidence, remote branch/PR | checks recorded; push and merge result recorded | PENDING |
+| C2 consolidate changes | Main agent | current source, tests, scripts, docs, reports | staged paths reviewed; source/config whitespace check passes; initial commit created | DONE |
+| C3 synchronize | Main agent | current Git branch and merge metadata | merged refreshed `origin/main` (`8d9da00`); conflicts resolved and tests pass | DONE |
+| C4 verify and publish | Main agent | test/build evidence, remote branch/PR | 721 Swift tests and iOS Simulator build pass; push/PR/merge pending | IN PROGRESS |
 
 ## Preservation and exclusions
 
@@ -34,8 +34,14 @@ This is a source-control and generated-cache cleanup task over an already implem
 - `iPhone/build/` and `dist/` were deliberately preserved; they contain IPA/release artifacts.
 - No reset, stash, worktree pruning, or credential handling is part of this task.
 
+## Merge and verification record
+
+- Refreshed upstream main was `8d9da00` (48 commits newer than the original local base). The merge produced 27 file conflicts. The resolution preserved the later Nov 17 implementation where overlapping source had already been verified, retained upstream's newer authentic replay diagnostics, and brought in upstream's append-only research-attempt storage plus forward-quote classifier helpers needed by its test suite.
+- `swift test --scratch-path /tmp/blazer-merge-check`: **721/721 passed across 17 suites** after resolving the StrategyValidation overlap.
+- `xcodebuild -project iPhone/BlazerOS.xcodeproj -scheme BlazerOS -destination 'generic/platform=iOS Simulator' -derivedDataPath /tmp/blazer-ios-consolidation CODE_SIGNING_ALLOWED=NO build`: **BUILD SUCCEEDED**. Xcode emitted two expected AppIntents metadata-skip warnings because the app does not link AppIntents.
+- Focused source/config whitespace checks passed. The broad staged scan also reports intentional Markdown trailing spaces in reports/PRDs; these preserve hard line breaks and were kept.
+- Both temporary build roots were removed after verification. The repository is 1.1 GB including preserved iPhone release outputs and staged app bundles; approximately 26 GB of local build cache was reclaimed.
+
 ## Completion record
 
-The broad staged whitespace scan reports intentional Markdown trailing spaces in existing task/PRD reports; those spaces preserve Markdown hard line breaks and were not removed. Source/config whitespace is checked separately.
-
-To be updated with exact commit IDs, verification output, push/PR/merge results, and remaining blockers.
+Initial consolidation commit: `536480c`. Merge commit, push, PR, and final merge result will be recorded here.

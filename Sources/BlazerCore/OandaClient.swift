@@ -850,6 +850,50 @@ public enum OandaClient {
         }
     }
 
+    /// Classifies a completed stream without depending on URLSession. A normal
+    /// EOF before the requested interval is incomplete and cannot be archived
+    /// or reported as a successful capture. Delayed provider messages are not
+    /// rejected here; only the bounded capture interval is considered.
+    static func finalizeForwardStream(endedAt: Date, startedAt: Date,
+                                      duration: TimeInterval, quoteCount: Int,
+                                      maxQuotes: Int, termination: String)
+        -> (transport: OandaTransport, termination: String) {
+        if termination == "duration_reached"
+            || quoteCount >= maxQuotes {
+            return (.ok, termination == "duration_reached" ? termination : "quote_limit_reached")
+        }
+        if endedAt.timeIntervalSince(startedAt) < duration {
+            return (.network, "early_eof")
+        }
+        return (.ok, "duration_reached")
+    }
+
+    static func forwardHTTPTransport(statusCode: Int) -> OandaTransport {
+        if statusCode == 429 { return .rateLimited }
+        if statusCode == 401 || statusCode == 403 { return .unauthorized }
+        return statusCode >= 400 ? .network : .ok
+    }
+
+    static func classifyForwardError(_ error: Error)
+        -> (transport: OandaTransport, termination: String, errorCode: String?) {
+        if error is CancellationError {
+            return (.network, "cancelled", nil)
+        }
+        if let urlError = error as? URLError {
+            if urlError.code == .cancelled {
+                return (.network, "cancelled", urlError.code.rawValue.description)
+            }
+            if urlError.code == .timedOut {
+                return (.timeout, "timeout", urlError.code.rawValue.description)
+            }
+        }
+        return (.network, "network_failure", (error as NSError).code.description)
+    }
+
+    static func isValidForwardBidAsk(bid: Double, ask: Double) -> Bool {
+        bid.isFinite && ask.isFinite && bid > 0 && ask > 0 && ask > bid
+    }
+
     private struct CandleFetch: Sendable {
         var candles: [Candle]
         var transport: OandaTransport
