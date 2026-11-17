@@ -38,6 +38,33 @@ enum MarketTransportStatus: Sendable, Equatable {
 struct MarketQuoteResult: Sendable, Equatable {
     let quotes: [LiveQuote]
     let status: MarketTransportStatus
+    let receivedAt: Date
+
+    init(quotes: [LiveQuote], status: MarketTransportStatus, receivedAt: Date = Date()) {
+        self.quotes = quotes
+        self.status = status
+        self.receivedAt = receivedAt
+    }
+}
+
+struct MarketCandleResult: Sendable {
+    let candles: [Candle]
+    let status: MarketTransportStatus
+    let httpStatus: Int?
+    let environment: OandaEnvironment
+
+    var issue: String? {
+        switch status {
+        case .ok:
+            candles.isEmpty ? "OANDA returned no completed candles for this market" : nil
+        case .missingCredentials: "Add OANDA credentials to load candles"
+        case .unauthorized:
+            OandaClient.authorizationFailureMessage(environment: environment, httpStatus: httpStatus)
+        case .rateLimited: "OANDA is rate limiting candle requests; retry shortly"
+        case .timeout: "OANDA candle request timed out; retry the scan"
+        case .network: "Could not load OANDA candles; check the connection and retry"
+        }
+    }
 }
 
 /// Normalized, immutable input returned to scan orchestration. It contains everything needed
@@ -62,8 +89,26 @@ protocol MarketDataTransporting: Sendable {
     func fetchFXScan(asset: String, session: OandaSession) async throws -> ScanEnvelope
     func fetchFXQuotes(assets: [String], session: OandaSession) async -> OandaQuoteBatch
     func fetchFXCandles(asset: String, session: OandaSession, count: Int) async -> [Candle]
+    func fetchFXCandleBatch(asset: String, session: OandaSession, count: Int) async -> OandaCandleBatch
+    func fetchFXCandleBatch(asset: String, session: OandaSession,
+                            granularity: String, count: Int) async -> OandaCandleBatch
     func fetchCryptoBundle(asset: String) async throws -> CryptoCandleBatch?
     func fetchCryptoQuote(asset: String) async -> LiveQuote?
+}
+
+extension MarketDataTransporting {
+    func fetchFXCandleBatch(asset: String, session: OandaSession,
+                            granularity: String, count: Int) async -> OandaCandleBatch {
+        guard granularity == "M1" else {
+            return OandaCandleBatch(candles: [], transport: .network)
+        }
+        return await fetchFXCandleBatch(asset: asset, session: session, count: count)
+    }
+
+    func fetchFXCandleBatch(asset: String, session: OandaSession, count: Int) async -> OandaCandleBatch {
+        let candles = await fetchFXCandles(asset: asset, session: session, count: count)
+        return OandaCandleBatch(candles: candles, transport: candles.isEmpty ? .network : .ok)
+    }
 }
 
 struct LiveMarketDataTransport: MarketDataTransporting {
@@ -84,6 +129,16 @@ struct LiveMarketDataTransport: MarketDataTransporting {
         )
     }
 
+    func fetchFXCandleBatch(asset: String, session: OandaSession, count: Int) async -> OandaCandleBatch {
+        await OandaClient.fetchCandlesBatch(asset: asset, session: session, granularity: "M1", count: count)
+    }
+
+    func fetchFXCandleBatch(asset: String, session: OandaSession,
+                            granularity: String, count: Int) async -> OandaCandleBatch {
+        await OandaClient.fetchCandlesBatch(asset: asset, session: session,
+                                            granularity: granularity, count: count)
+    }
+
     func fetchCryptoBundle(asset: String) async throws -> CryptoCandleBatch? {
         try await BinanceClient.fetchCryptoBundle(asset: asset)
     }
@@ -97,6 +152,30 @@ protocol DeskMarketDataServing: Sendable {
     func scan(market: DeskMarket, asset: String, session: OandaSession?) async throws -> MarketScanSnapshot
     func quotes(market: DeskMarket, assets: [String], session: OandaSession?) async -> MarketQuoteResult
     func candles(market: DeskMarket, asset: String, session: OandaSession?, count: Int) async -> [Candle]
+    func candleResult(market: DeskMarket, asset: String, session: OandaSession?, count: Int) async -> MarketCandleResult
+    func candleResult(market: DeskMarket, asset: String, session: OandaSession?,
+                      granularity: String, count: Int) async -> MarketCandleResult
+}
+
+extension DeskMarketDataServing {
+    func candleResult(market: DeskMarket, asset: String, session: OandaSession?,
+                      granularity: String, count: Int) async -> MarketCandleResult {
+        guard granularity == "M1" else {
+            return MarketCandleResult(candles: [], status: .network, httpStatus: nil,
+                                      environment: session?.environment ?? .live)
+        }
+        return await candleResult(market: market, asset: asset, session: session, count: count)
+    }
+
+    func candleResult(market: DeskMarket, asset: String, session: OandaSession?, count: Int) async -> MarketCandleResult {
+        guard market != .fx || session != nil else {
+            return MarketCandleResult(candles: [], status: .missingCredentials, httpStatus: nil,
+                                      environment: session?.environment ?? .live)
+        }
+        let bars = await candles(market: market, asset: asset, session: session, count: count)
+        return MarketCandleResult(candles: bars, status: bars.isEmpty ? .network : .ok,
+                                  httpStatus: nil, environment: session?.environment ?? .live)
+    }
 }
 
 enum DeskMarketDataError: LocalizedError, Sendable {
@@ -181,7 +260,8 @@ struct LiveDeskMarketDataService: DeskMarketDataServing {
                 return MarketQuoteResult(quotes: [], status: .missingCredentials)
             }
             let batch = await transport.fetchFXQuotes(assets: assets, session: session)
-            return MarketQuoteResult(quotes: batch.quotes, status: MarketTransportStatus(batch.transport))
+            let receivedAt = Date()
+            return MarketQuoteResult(quotes: batch.quotes, status: MarketTransportStatus(batch.transport), receivedAt: receivedAt)
         case .crypto:
             var quotes: [LiveQuote] = []
             for asset in assets {
@@ -199,16 +279,44 @@ struct LiveDeskMarketDataService: DeskMarketDataServing {
         session: OandaSession?,
         count: Int
     ) async -> [Candle] {
+        await candleResult(market: market, asset: asset, session: session, count: count).candles
+    }
+
+    func candleResult(market: DeskMarket, asset: String, session: OandaSession?, count: Int) async -> MarketCandleResult {
         switch market {
         case .fx:
-            guard let session else { return [] }
-            return await transport.fetchFXCandles(asset: asset, session: session, count: count)
+            guard let session else { return MarketCandleResult(candles: [], status: .missingCredentials,
+                                                               httpStatus: nil, environment: .live) }
+            let batch = await transport.fetchFXCandleBatch(asset: asset, session: session, count: count)
+            return MarketCandleResult(candles: batch.candles,
+                status: MarketTransportStatus(batch.transport), httpStatus: batch.httpStatus,
+                environment: session.environment)
         case .crypto:
-            guard let batch = try? await transport.fetchCryptoBundle(asset: asset) else { return [] }
-            return batch.candles.map {
+            guard let batch = try? await transport.fetchCryptoBundle(asset: asset) else {
+                return MarketCandleResult(candles: [], status: .network, httpStatus: nil, environment: .live)
+            }
+            let bars = batch.candles.map {
                 Candle(time: $0.time, open: $0.open, high: $0.high, low: $0.low, close: $0.close)
             }
+            return MarketCandleResult(candles: bars, status: bars.isEmpty ? .network : .ok,
+                                      httpStatus: nil, environment: .live)
         }
+    }
+
+    func candleResult(market: DeskMarket, asset: String, session: OandaSession?,
+                      granularity: String, count: Int) async -> MarketCandleResult {
+        guard market == .fx else {
+            return await candleResult(market: market, asset: asset, session: session, count: count)
+        }
+        guard let session else {
+            return MarketCandleResult(candles: [], status: .missingCredentials,
+                                      httpStatus: nil, environment: .live)
+        }
+        let batch = await transport.fetchFXCandleBatch(asset: asset, session: session,
+                                                       granularity: granularity, count: count)
+        return MarketCandleResult(candles: batch.candles,
+            status: MarketTransportStatus(batch.transport), httpStatus: batch.httpStatus,
+            environment: session.environment)
     }
 }
 

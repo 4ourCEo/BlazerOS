@@ -23,12 +23,15 @@ struct Options {
     var adaptiveDiagnostic = false
     var interactiveCredentials = false
     var historicalBidAsk = false
+    var liveHistoricalBidAsk = false
+    var confirmLiveMarketDataRead = false
     var authenticReplay = false
-    var orbStructuralArchive = false
     var forwardQuotes = false
     var captureSeconds = 30
     var historicalHours = 15
     var historicalOffsetHours = 0
+    var historicalDays: Int?
+    var historicalOffsetDays = 0
     var policyFunnel = false
     var asset: String?
 
@@ -48,8 +51,9 @@ struct Options {
             case "--adaptive-diagnostic": adaptiveDiagnostic = true
             case "--interactive-credentials": interactiveCredentials = true
             case "--historical-bid-ask": historicalBidAsk = true
+            case "--live-historical-bid-ask": liveHistoricalBidAsk = true
+            case "--confirm-live-market-data-read": confirmLiveMarketDataRead = true
             case "--authentic-replay": authenticReplay = true
-            case "--orb-structural-archive": orbStructuralArchive = true
             case "--forward-quotes": forwardQuotes = true
             case "--policy-funnel": policyFunnel = true
             case "--replay": replay = true
@@ -57,7 +61,7 @@ struct Options {
             case "--daemon", "-d": daemon = true; continuous = true; primeOnly = true
             case "--prime-only", "--smart-schedule": primeOnly = true
             case "--all-policies": policies = ["control"] + ScanPolicy.allCases.map(\.rawValue)
-            case "--root", "--policy", "--max-events", "--as-of", "--asset", "--historical-hours", "--historical-offset-hours", "--capture-seconds":
+            case "--root", "--policy", "--max-events", "--as-of", "--asset", "--historical-hours", "--historical-offset-hours", "--capture-seconds", "--historical-days", "--historical-offset-days":
                 index += 1
                 guard index < arguments.count else { throw ScanError.failed("Missing value for \(arg)") }
                 let value = arguments[index]
@@ -91,6 +95,18 @@ struct Options {
                         throw ScanError.failed("Historical offset hours must be between 0 and 720")
                     }
                     historicalOffsetHours = offset
+                }
+                if arg == "--historical-days" {
+                    guard let days = Int(value), (1...3_650).contains(days) else {
+                        throw ScanError.failed("Historical days must be between 1 and 3650")
+                    }
+                    historicalDays = days
+                }
+                if arg == "--historical-offset-days" {
+                    guard let offset = Int(value), (0...3_650).contains(offset) else {
+                        throw ScanError.failed("Historical day offset must be between 0 and 3650")
+                    }
+                    historicalOffsetDays = offset
                 }
                 if arg == "--capture-seconds" {
                     guard let seconds = Int(value), (1...300).contains(seconds) else {
@@ -589,27 +605,78 @@ struct ForwardTestApp {
         do {
             let options = try Options(Array(CommandLine.arguments.dropFirst()))
             if options.help {
-                 print("ForwardTest [--orb-structural-archive --root SCRATCH_ROOT (scratch only; contains historical-bid-ask; report written under root) [--asset EUR/USD|GBP/JPY] | --edge-report --root DESK_PATH --as-of UNIX_SECONDS | --policy-funnel | --historical-bid-ask --historical-hours N --historical-offset-hours N | --forward-quotes --capture-seconds N | --authentic-replay | --benchmark | --stats | --bootstrap | --replay | --experiment | --adaptive | --adaptive-diagnostic] [--interactive-credentials] [--orb] [--root PATH] [--asset PAIR] [--policy baseline|continuation|reversal|regime|control | --all-policies] [--max-events N] [--prime-only] [--continuous | --daemon]")
-                return
-            }
-            if options.orbStructuralArchive {
-                guard let root = options.root else {
-                    throw ScanError.failed("--orb-structural-archive requires --root SCRATCH_ROOT")
-                }
-                try ORBArchiveReplayCommand.run(root: root, asset: options.asset)
-                return
+                 print("ForwardTest [--edge-report --root DESK_PATH --as-of UNIX_SECONDS | --policy-funnel | --historical-bid-ask --historical-hours N --historical-offset-hours N | --live-historical-bid-ask --confirm-live-market-data-read --interactive-credentials --historical-days N [--historical-offset-days N] --asset GBP/JPY | --forward-quotes --capture-seconds N | --authentic-replay | --benchmark | --stats | --bootstrap | --replay | --experiment | --adaptive | --adaptive-diagnostic] [--root PATH] [--policy baseline|continuation|reversal|regime|control | --all-policies] [--max-events N] [--prime-only] [--continuous | --daemon]")
+                 return
             }
             let runner = ResearchRunner(options: options)
             if options.edgeReport { try await runner.printEdgeReport(); return }
             if options.policyFunnel { try await runner.printPolicyFunnel(); return }
+            if options.liveHistoricalBidAsk {
+                guard options.confirmLiveMarketDataRead, options.interactiveCredentials,
+                      !options.historicalBidAsk, let dayCount = options.historicalDays,
+                      options.asset == "GBP/JPY" else {
+                    print("LIVE_HISTORICAL state=EXPLICIT_LIVE_CAPTURE_ARGUMENTS_REQUIRED")
+                    return
+                }
+                let credentialGate = DeskCredentials.session(allowPrompt: true)
+                guard case .ready(let session) = credentialGate else {
+                    print("LIVE_HISTORICAL state=KEYCHAIN_SESSION_UNAVAILABLE")
+                    return
+                }
+                guard session.environment == .live else {
+                    print("LIVE_HISTORICAL state=LIVE_ENVIRONMENT_REQUIRED")
+                    return
+                }
+                let utcDay = floor(Date().timeIntervalSince1970 / 86_400) * 86_400
+                let endExclusive = Date(timeIntervalSince1970: utcDay
+                    - Double(options.historicalOffsetDays) * 86_400)
+                guard let windows = LiveHistoricalResearchArchive.utcDayWindows(
+                    dayCount: dayCount, endExclusive: endExclusive) else {
+                    print("LIVE_HISTORICAL state=DATE_RANGE_INVALID")
+                    return
+                }
+                let archiveRoot = options.root ?? ResearchStore.defaultRoot()
+                var totalCandles = 0
+                var totalGaps = 0
+                for (index, window) in windows.enumerated() {
+                    if Task.isCancelled {
+                        print("LIVE_HISTORICAL state=CANCELLED completedDays=\(index)")
+                        return
+                    }
+                    let capture = await OandaClient.fetchLiveHistoricalCapture(
+                        asset: "GBP/JPY", from: window.start, to: window.end,
+                        granularity: "M1", includeFirst: window.includeFirst, session: session)
+                    let batch = capture.batch
+                    guard batch.transport == .ok, batch.httpStatus == 200 else {
+                        let status = batch.httpStatus.map { String($0) } ?? "none"
+                        print("LIVE_HISTORICAL state=REQUEST_FAILED environment=LIVE day=\(Int(window.start.timeIntervalSince1970)) transport=\(batch.transport) httpStatus=\(status)")
+                        return
+                    }
+                    do {
+                        let write = try LiveHistoricalResearchArchive.append(capture: capture,
+                            includeFirst: window.includeFirst, root: archiveRoot)
+                        totalCandles += write.candleCount
+                        totalGaps += write.gapCount
+                    } catch {
+                        print("LIVE_HISTORICAL state=ARCHIVE_REJECTED day=\(Int(window.start.timeIntervalSince1970))")
+                        return
+                    }
+                    if (index + 1).isMultiple(of: 100) || index + 1 == windows.count {
+                        print("LIVE_HISTORICAL progress=\(index + 1)/\(windows.count) candles=\(totalCandles) gaps=\(totalGaps)")
+                    }
+                }
+                print("LIVE_HISTORICAL state=COMPLETE environment=LIVE instrument=GBP_JPY granularity=M1 days=\(windows.count) candles=\(totalCandles) gaps=\(totalGaps) archive=historical-live-bid-ask")
+                return
+            }
             if options.historicalBidAsk {
                 let credentialGate: CredentialGate
                 if options.interactiveCredentials {
                     credentialGate = DeskCredentials.session(allowPrompt: true)
-                } else if let environmentSession = DeskCredentials.environmentSession() {
-                    credentialGate = .ready(environmentSession)
                 } else {
-                    credentialGate = .missing
+                    switch DeskCredentials.localPracticeFileSession() {
+                    case .success(let value): credentialGate = value.map(CredentialGate.ready) ?? .missing
+                    case .failure(let error): credentialGate = .invalid(error.message)
+                    }
                 }
                 guard case .ready(let session) = credentialGate else {
                     print("HISTORICAL_BID_ASK state=CREDENTIAL_CONTEXT_UNAVAILABLE")
@@ -662,10 +729,11 @@ struct ForwardTestApp {
                 let credentialGate: CredentialGate
                 if options.interactiveCredentials {
                     credentialGate = DeskCredentials.session(allowPrompt: true)
-                } else if let environmentSession = DeskCredentials.environmentSession() {
-                    credentialGate = .ready(environmentSession)
                 } else {
-                    credentialGate = .missing
+                    switch DeskCredentials.localPracticeFileSession() {
+                    case .success(let value): credentialGate = value.map(CredentialGate.ready) ?? .missing
+                    case .failure(let error): credentialGate = .invalid(error.message)
+                    }
                 }
                 guard case .ready(let session) = credentialGate else {
                     print("FORWARD_QUOTES state=CREDENTIAL_CONTEXT_UNAVAILABLE")
@@ -708,16 +776,19 @@ struct ForwardTestApp {
                 let credentialGate: CredentialGate
                 if options.interactiveCredentials {
                     credentialGate = DeskCredentials.session(allowPrompt: true)
-                } else if let environmentSession = DeskCredentials.environmentSession() {
-                    credentialGate = .ready(environmentSession)
                 } else {
-                    credentialGate = .missing
+                    switch DeskCredentials.localPracticeFileSession() {
+                    case .success(let value): credentialGate = value.map(CredentialGate.ready) ?? .missing
+                    case .failure(let error): credentialGate = .invalid(error.message)
+                    }
                 }
                 guard case .ready(let session) = credentialGate else {
                     let credentialMs = Double(DispatchTime.now().uptimeNanoseconds - credentialStart) / 1_000_000
                     let state: String
                     if case .locked = credentialGate {
                         state = "KEYCHAIN_AUTHORIZATION_REQUIRED"
+                    } else if case .invalid = credentialGate {
+                        state = "CREDENTIAL_CONFIGURATION_INVALID"
                     } else {
                         state = "CLI_CREDENTIAL_CONTEXT_MISSING"
                     }
@@ -731,7 +802,7 @@ struct ForwardTestApp {
                     print("PHASE process_termination state=COMPLETE")
                     return
                 }
-                print("PHASE credential_lookup state=KEYCHAIN_OR_SECURE_ENVIRONMENT environment=practice durationMs=\(String(format: "%.3f", credentialMs))")
+                print("PHASE credential_lookup state=OWNER_LOCAL_PRACTICE_FILE environment=practice durationMs=\(String(format: "%.3f", credentialMs))")
                 let asset = options.asset ?? "EUR/USD"
                 let diagnostic = await AdaptiveMarketRehearsal.runBounded(
                     asset: asset, session: session,
@@ -762,10 +833,11 @@ struct ForwardTestApp {
             let gate: CredentialGate
             if options.interactiveCredentials {
                 gate = DeskCredentials.session(allowPrompt: true)
-            } else if let environmentSession = DeskCredentials.environmentSession() {
-                gate = .ready(environmentSession)
             } else {
-                gate = .missing
+                switch DeskCredentials.localPracticeFileSession() {
+                case .success(let value): gate = value.map(CredentialGate.ready) ?? .missing
+                case .failure(let error): gate = .invalid(error.message)
+                }
             }
             let session: OandaSession
             switch gate {
@@ -774,7 +846,9 @@ struct ForwardTestApp {
             case .locked:
                 throw ScanError.failed("OANDA credentials require explicit authorization: rerun with --interactive-credentials")
             case .missing:
-                throw ScanError.failed("OANDA credentials missing: use the approved secure environment provider or --interactive-credentials")
+                throw ScanError.failed("OANDA Practice credentials missing: configure the owner-only local Practice file")
+            case .invalid(let message):
+                throw ScanError.failed(message)
             }
             try await runner.runLive(session: session)
         } catch {

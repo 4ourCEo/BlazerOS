@@ -60,7 +60,15 @@ SwiftUI rendering views (such as `CoachCard` and `CoachScreen` in `LightningDesk
 
 BlazerMac links this package. `BlazerMac/build.sh` builds BlazerCore, then compiles the desk against it. The OANDA token still comes from the Mac Keychain adapter. The script in the app bundle is the same bytes as `Sources/BlazerCore/scan-engine.js`.
 
-`swift run BlazerOS` opens the Lightning Desk as a macOS window. The native iPhone project uses the same `LightningDeskView`.
+The macOS app has its own SwiftPM executable target and entry point:
+
+```sh
+swift run BlazerOS
+```
+
+The iPhone app is a separate Xcode application in `iPhone/BlazerOS.xcodeproj` with its own `@main` entry point (`iPhone/App/iOSApp.swift`). It links the shared `BlazerCore`, `BlazerCrypto`, and `LightningDesk` libraries; it does not build or launch the macOS executable. Platform-specific app lifecycle, notifications, window behavior, and app packaging belong to their respective app targets.
+
+For repeatable macOS Keychain access across rebuilds, `scripts/bundle-mac-app.sh` uses the stable `BlazerOS Local Development` code-signing identity when installed. You can select another installed identity with `BLAZER_MAC_SIGNING_IDENTITY`. Ad-hoc signing remains a fallback when no stable identity is installed and may cause macOS to treat each rebuilt app as new. Touch ID can authorize a Keychain item only when that item is configured for biometric or user-presence access; it cannot replace macOS's request to trust a newly signed app.
 
 `EngineIdentity.pinnedSHA1` is the SHA-1 of `Sources/BlazerCore/scan-engine.js`. If that file changes, update the pin in the same commit on every app that ships the package.
 

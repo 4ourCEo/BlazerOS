@@ -91,15 +91,25 @@ public struct Candidate001Configuration: Codable, Sendable, Equatable {
     public let minimumFVGSize: Double
     public let expirationBars: Int
     public let requireM15Confirmation: Bool
+    /// TTL after the trigger bar closes. Nil on legacy config decodes and resolves
+    /// to the prior adapter default derived from the expiration horizon.
+    public let signalFreshnessSeconds: Int?
+
+    public var resolvedSignalFreshnessSeconds: Int {
+        if let signalFreshnessSeconds { return signalFreshnessSeconds }
+        let (seconds, overflow) = expirationBars.multipliedReportingOverflow(by: 60)
+        return overflow ? 0 : seconds
+    }
 
     public init(swingLeftBars: Int = 2, swingRightBars: Int = 2,
                 minimumFVGSize: Double = 0, expirationBars: Int = 5,
-                requireM15Confirmation: Bool = false) {
+                requireM15Confirmation: Bool = false, signalFreshnessSeconds: Int? = nil) {
         self.swingLeftBars = swingLeftBars
         self.swingRightBars = swingRightBars
         self.minimumFVGSize = minimumFVGSize
         self.expirationBars = expirationBars
         self.requireM15Confirmation = requireM15Confirmation
+        self.signalFreshnessSeconds = signalFreshnessSeconds
     }
 }
 
@@ -109,7 +119,24 @@ public enum Candidate001Error: Error, Sendable, Equatable {
 }
 
 public enum Candidate001Analyzer {
-    public static let version = "candidate-001-v1"
+    public static let version = "candidate-001-v2"
+
+    /// Latest epoch-aligned M15 interval fully closed by the supplied M1 close time.
+    /// A higher-timeframe candle is identified by its interval start, not its close.
+    static func expectedLatestCompletedM15Start(m1Close: Date) -> Date {
+        let interval = 900.0
+        let currentIntervalStart = floor(m1Close.timeIntervalSince1970 / interval) * interval
+        return Date(timeIntervalSince1970: currentIntervalStart - interval)
+    }
+
+    static func m15Confirms(_ direction: Candidate001Direction, atM1Close m1Close: Date,
+                            m15Candles: [Candidate001Candle]) -> Bool {
+        let expectedStart = expectedLatestCompletedM15Start(m1Close: m1Close)
+        guard let latest = m15Candles.first(where: {
+            $0.time == expectedStart && $0.time.addingTimeInterval(900) <= m1Close
+        }) else { return false }
+        return direction == .bullish ? latest.close >= latest.open : latest.close <= latest.open
+    }
 
     public static func analyze(
         candles: [Candidate001Candle],
@@ -118,7 +145,8 @@ public enum Candidate001Analyzer {
     ) throws -> [Candidate001Candidate] {
         guard configuration.swingLeftBars > 0, configuration.swingRightBars > 0,
               configuration.minimumFVGSize.isFinite, configuration.minimumFVGSize >= 0,
-              configuration.expirationBars > 0 else {
+              configuration.expirationBars > 0, configuration.expirationBars <= Int.max / 60,
+              configuration.signalFreshnessSeconds.map({ $0 > 0 }) ?? true else {
             throw Candidate001Error.invalidConfiguration
         }
         let bars = try validated(candles)
@@ -236,11 +264,8 @@ public enum Candidate001Analyzer {
             let terminalIndex = triggerIndex ?? invalidationIndex ?? window.last
             guard let terminalIndex else { continue }
             let triggerBar = bars[terminalIndex]
-            let completedM15 = m15.filter { $0.time <= triggerBar.time }
-            let m15Confirmed = !completedM15.isEmpty
-                && (direction == .bullish
-                    ? completedM15.last!.close >= completedM15.last!.open
-                    : completedM15.last!.close <= completedM15.last!.open)
+            let m1Close = triggerBar.time.addingTimeInterval(60)
+            let m15Confirmed = m15Confirms(direction, atM1Close: m1Close, m15Candles: m15)
             let terminalState: Candidate001State
             if triggerIndex != nil {
                 guard !configuration.requireM15Confirmation || m15Confirmed else { continue }

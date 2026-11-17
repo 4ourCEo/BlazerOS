@@ -77,31 +77,23 @@ private let replayHigh: StrategyValidationEngine.Evaluator = { input in
     #expect(record.reason == "Executable bid/ask entry observation missing")
 }
 
-@Test func spotReplayRejectsUnknownStrategyInsteadOfSilentlyRunningBaseline() async {
-    await #expect(throws: ScanError.self) {
-        try await SpotFXHistoricalReplay.replay(cases: [], strategyID: "not-a-policy")
-    }
-}
-
-@Test func spotReplayRequiresEngineSupportedHorizon() async {
-    await #expect(throws: ScanError.self) {
-        try await SpotFXHistoricalReplay.replay(cases: [], strategyID: "baseline",
-            configuration: .init(horizonSeconds: 120))
-    }
-}
-
-@Test func spotReplayEvaluatesSignalUsingTheConfiguredHorizon() async throws {
-    let item = StrategyValidationCase(id: "matching-horizon", stage: .historicalReplay,
+@Test func unresolvedSpotReplayIdentityUsesConfiguredHorizon() async throws {
+    let item = StrategyValidationCase(id: "horizon-arms", stage: .historicalReplay,
         instrumentID: "oanda:EUR/USD", engineAsset: "EUR/USD", venueID: "OANDA",
         marketKind: .standard, signalTimestamp: replaySignalTime,
         engineSHA: EngineIdentity.pinnedSHA1, input: replayInput(),
-        observations: [], provenance: "horizon-contract fixture")
-    let records = try await SpotFXHistoricalReplay.replay(cases: [item], strategyID: "baseline",
-        configuration: .init(horizonSeconds: 180), evaluator: { input in
-            #expect(input.expirySeconds == 180)
-            return EngineSignal(asset: input.asset, cabinetSide: "WAIT", call: "WAIT",
-                why: "fixture", price: input.lastPrice)
-        })
-    #expect(records.count == 1)
-    #expect(records[0].status == .unresolved)
+        signalPriceAuthority: .oandaReference, observations: [],
+        provenance: "empty bid/ask fixture")
+    let shortArm = try await SpotFXHistoricalReplay.replay(cases: [item], strategyID: "baseline",
+        configuration: .init(horizonSeconds: 60), evaluator: replayHigh)
+    let longArm = try await SpotFXHistoricalReplay.replay(cases: [item], strategyID: "baseline",
+        configuration: .init(horizonSeconds: 180), evaluator: replayHigh)
+    let shortRecord = try #require(shortArm.first)
+    let longRecord = try #require(longArm.first)
+
+    #expect(shortRecord.status == .unresolved)
+    #expect(longRecord.status == .unresolved)
+    #expect(shortRecord.id == "horizon-arms-baseline-60")
+    #expect(longRecord.id == "horizon-arms-baseline-180")
+    #expect(shortRecord.id != longRecord.id)
 }

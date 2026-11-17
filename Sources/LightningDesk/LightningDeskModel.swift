@@ -3,11 +3,86 @@ import Foundation
 import BlazerCore
 import BlazerCrypto
 
+private struct FXScanAttempt: Sendable {
+    let asset: String
+    let snapshot: MarketScanSnapshot?
+    let failure: String?
+}
+
+enum FXScanScope {
+    struct Request: Equatable {
+        let asset: String?
+        let assets: [String]
+    }
+
+    static func request(market: DeskMarket, selectedPair: String,
+                        availablePairs: [String], selectedOnly: Bool) -> Request? {
+        guard market == .fx else { return nil }
+        guard selectedOnly else { return Request(asset: nil, assets: availablePairs) }
+        guard availablePairs.contains(selectedPair) else { return nil }
+        return Request(asset: selectedPair, assets: [selectedPair])
+    }
+}
+
+private struct LiveStrategyEvaluation {
+    let selection: LiveStrategySelection
+    let candidates: [AdaptiveOpportunityCandidate]
+    let candidate001Failed: Bool
+    let candidate002Failed: Bool
+}
+
+#if os(macOS)
+public enum MacResearchSignalStatus: Equatable {
+    case awaitingFreshScan
+    case completedNoCandidate
+    case completedWithCandidates
+    case failed
+    case sourceAttestationUnavailable
+}
+#endif
+
+/// Gives each asset an independent, monotonic refresh identity so late async
+/// results from an older monitor/scan cannot replace a newer decision.
+struct LiveDecisionRefreshGeneration {
+    private var counter: UInt64 = 0
+    private var latestByAsset: [String: UInt64] = [:]
+
+    mutating func begin(for asset: String) -> UInt64 {
+        counter &+= 1
+        latestByAsset[asset] = counter
+        return counter
+    }
+
+    func isCurrent(_ generation: UInt64, for asset: String) -> Bool {
+        latestByAsset[asset] == generation
+    }
+
+    func latestGeneration(for asset: String) -> UInt64? { latestByAsset[asset] }
+}
+
+public enum LiveDecisionAgeLabel {
+    public static func text(observedAt: Date, now: Date = Date()) -> String {
+        let seconds = max(0, Int(now.timeIntervalSince(observedAt)))
+        if seconds < 5 { return "Evaluated just now" }
+        if seconds < 60 { return "Evaluated \(seconds)s ago" }
+        let minutes = seconds / 60
+        if minutes < 60 { return "Evaluated \(minutes)m ago" }
+        let hours = minutes / 60
+        return "Evaluated \(hours)h ago"
+    }
+}
+
 /// One-screen desk state. The frame is derived from the frozen commit. Quotes never rescore it.
 @MainActor
 public final class LightningDeskModel: ObservableObject {
-    public convenience init(storageRoot: URL? = nil) {
-        self.init(storageRoot: storageRoot, marketData: LiveDeskMarketDataService())
+    public convenience init(storageRoot: URL? = nil,
+                            liveStrategyProfiles: [StrategyResearchProfile] = StrategyResearchRegistry.profiles,
+                            strategyPromotionRecords: [StrategyPromotionRecord] = StrategyResearchRegistry.productionPromotionRecords,
+                            macResearchSourceAttestationVerified: Bool = false) {
+        self.init(storageRoot: storageRoot, marketData: LiveDeskMarketDataService(),
+                  liveStrategyProfiles: liveStrategyProfiles,
+                  strategyPromotionRecords: strategyPromotionRecords,
+                  macResearchSourceAttestationVerified: macResearchSourceAttestationVerified)
     }
 
     init(
@@ -16,14 +91,30 @@ public final class LightningDeskModel: ObservableObject {
         candleCache: CandleCache = CandleCache(),
         otcArchive: (any DeskOTCResearchServing)? = nil,
         otcResearchServiceFactory: (@Sendable (String) -> any DeskOTCResearchServing)? = nil,
-        pocketOptionResearchServiceFactory: (@Sendable (String) -> any DeskOTCResearchServing)? = nil
+        pocketOptionResearchServiceFactory: (@Sendable (String) -> any DeskOTCResearchServing)? = nil,
+        liveStrategyProfiles: [StrategyResearchProfile] = StrategyResearchRegistry.profiles,
+        strategyPromotionRecords: [StrategyPromotionRecord] = StrategyResearchRegistry.productionPromotionRecords,
+        macResearchSourceAttestationVerified: Bool = false
     ) {
         if storageRoot == nil {
-            FileLocations.migrateLegacyGroupStorageIfNeeded()
+            #if DEBUG && targetEnvironment(simulator)
+            let isReviewInsightUITest = ProcessInfo.processInfo.arguments
+                .contains("--ui-testing-review-insight")
+            #else
+            let isReviewInsightUITest = false
+            #endif
+            if !isReviewInsightUITest {
+                FileLocations.migrateLegacyGroupStorageIfNeeded()
+            }
         }
         let root = storageRoot ?? FileLocations.applicationSupport()
+        liveDecisionStoreRoot = root.appendingPathComponent("Research", isDirectory: true)
+            .appendingPathComponent("live-oanda", isDirectory: true)
         self.marketData = marketData
         self.candleCache = candleCache
+        self.liveStrategyProfiles = liveStrategyProfiles
+        self.strategyPromotionRecords = strategyPromotionRecords
+        self.macResearchSourceAttestationVerified = macResearchSourceAttestationVerified
         let otcRoot = root.appendingPathComponent("Research", isDirectory: true)
             .appendingPathComponent("otc-validation", isDirectory: true)
         self.otcArchive = otcArchive ?? LiveOTCResearchService(root: otcRoot)
@@ -62,6 +153,10 @@ public final class LightningDeskModel: ObservableObject {
     @Published public private(set) var exchangeClockOffset: ClockOffset?
     @Published public private(set) var exchangeClockDrift: ClockDrift?
     @Published var candles: [Candle] = []
+    @Published var candlesLoading = false
+    /// True when the chart is showing restored/cache data that has not yet been refreshed.
+    @Published var candlesAreStale = false
+    @Published var candleIssue: String?
     @Published var scanning = false
     /// Walk label, for example "GBP/USD 2/6". Nil when idle.
     @Published var scanStep: String?
@@ -75,6 +170,19 @@ public final class LightningDeskModel: ObservableObject {
     /// never replaces the pinned V1 signal or authorizes an entry.
     @Published public private(set) var orbDecisions: [String: ORBDecision] = [:]
     @Published public private(set) var orbPlans: [String: V3TradePlan] = [:]
+    @Published public private(set) var orbLifecycleStatuses: [String: ORBLifecycleEvidenceStatus] = [:]
+    @Published public private(set) var orbEntryObservationStatuses: [String: (planID: String, status: String)] = [:]
+    @Published public private(set) var liveStrategyDecisions: [String: LiveStrategyDecision] = [:]
+    /// Ephemeral, non-actionable shadow results from the latest successful Live FX
+    /// strategy evaluation. This is deliberately not stored in ResearchStore.
+    @Published public private(set) var liveStrategyResearchObservations: [LiveStrategyResearchObservation] = []
+#if os(macOS)
+    @Published public private(set) var macResearchSignals: [MacResearchSignal] = []
+    @Published public private(set) var macResearchEvaluationDiagnostics: [MacResearchEvaluationDiagnostic] = []
+    @Published public private(set) var macResearchSignalStatus: MacResearchSignalStatus = .awaitingFreshScan
+    private var macResearchExpiryTask: Task<Void, Never>?
+#endif
+    private let macResearchSourceAttestationVerified: Bool
     /// Latest adaptive research decision projected for native presentation.
     /// This is intentionally separate from the executable desk frame.
     @Published public private(set) var adaptiveResearchProjection: AdaptiveResearchProjection?
@@ -91,9 +199,96 @@ public final class LightningDeskModel: ObservableObject {
         if let quote, quote.asset == pair { return quote.mid }
         return nil
     }
+    /// Last bid/ask quote for the selected pair, exposed for the desktop market header.
+    public var currentFXQuote: LiveQuote? {
+        guard let quote, quote.asset == pair else { return nil }
+        return quote
+    }
     public func orbDecision(for asset: String) -> ORBDecision? { orbDecisions[asset] }
     public func orbPlan(for asset: String) -> V3TradePlan? { orbPlans[asset] }
+    public func orbLifecycleStatus(for asset: String) -> ORBLifecycleEvidenceStatus {
+        orbLifecycleStatuses[asset] ?? .notAttempted
+    }
+    public func orbEntryObservationStatus(for asset: String) -> String? {
+        guard let plan = orbPlans[asset], let state = orbEntryObservationStatuses[asset],
+              state.planID == plan.id else { return nil }
+        return state.status
+    }
+
+    static func safeQuoteTimestampMilliseconds(_ value: Double) -> Int64? {
+        guard value.isFinite, value > 0, value < Double(Int64.max) else { return nil }
+        return Int64(value)
+    }
+
+    static func isLiveEntryAppendEligible(isCurrent: Bool, selectedPair: String, asset: String,
+                                          marketMode: DeskMarket, scanning: Bool,
+                                          environment: OandaEnvironment?) -> Bool {
+        isCurrent && selectedPair == asset && marketMode == .fx && !scanning && environment == .live
+    }
+
+    /// Loads the current user-reported V3 position for one exact plan. This is
+    /// research evidence only and is intentionally separate from `activeTrade`.
+    public func userReportedPosition(forPlanID planID: String) async throws -> V3PositionRecord? {
+        let records = try await liveDecisionStore.v3PositionRecords()
+        var related = records.filter {
+            $0.planID == planID && $0.state == .userReported
+                && $0.provenance == .manualTradeReport
+        }
+        if related.contains(where: { $0.positionID == nil }) {
+            throw V3UserPositionReportError.legacyReportRequiresReview
+        }
+        related = related.filter { $0.positionID != nil }
+        let supersededIDs = Set(related.compactMap(\.supersedesRecordID))
+        return related.first { !supersededIDs.contains($0.id) }
+    }
+
+    public func terminalLifecycleSourceTime(forPlanID planID: String) async throws -> Date? {
+        let events = try await liveDecisionStore.v3SetupLifecycleEvents()
+        guard let confirmed = events.first(where: { $0.planID == planID }) else { return nil }
+        return events.filter {
+            $0.setupID == confirmed.setupID && [.invalidated, .setupExpired].contains($0.state)
+        }.compactMap(\.sourceTime).max()
+    }
+
+    /// Persists an explicit user statement about a position already opened outside
+    /// BlazerOS. It never changes the ORB plan/lifecycle or the legacy binary trade.
+    @discardableResult
+    public func recordUserReportedPosition(planID: String, units: Double,
+                                           entryPrice: Double? = nil,
+                                           enteredAt: Date? = nil,
+                                           supersedesRecordID: String? = nil) async throws
+        -> V3PositionRecord {
+        try await liveDecisionStore.recordUserReportedPosition(planID: planID, units: units,
+            entryPrice: entryPrice, userReportedEnteredAt: enteredAt,
+            updatedAt: Date(), supersedesRecordID: supersedesRecordID)
+    }
+
+    public func userReportedPositionCloses(forPlanID planID: String) async throws
+        -> [V3UserReportedPositionClose] {
+        try await liveDecisionStore.v3UserReportedPositionCloses().filter { $0.planID == planID }
+    }
+
+    public func userReportedPositionRevision(positionID: String, recordID: String) async throws
+        -> V3PositionRecord? {
+        try await liveDecisionStore.v3PositionRecords().first {
+            $0.positionID == positionID && $0.id == recordID
+        }
+    }
+
+    @discardableResult
+    public func recordUserReportedPositionClose(positionID: String, closedAt: Date?,
+                                                 exitPrice: Double?, supersedesCloseID: String? = nil) async throws
+        -> V3UserReportedPositionClose {
+        try await liveDecisionStore.recordUserReportedPositionClose(positionID: positionID,
+            closedAt: closedAt, exitPrice: exitPrice, supersedesCloseID: supersedesCloseID)
+    }
+    public func strategyDecision(for asset: String) -> LiveStrategyDecision? { liveStrategyDecisions[asset] }
+    public func strategyResearchObservations(for asset: String) -> [LiveStrategyResearchObservation] {
+        guard marketMode == .fx, pair == asset else { return [] }
+        return liveStrategyResearchObservations
+    }
     public var lastScanAt: Date? { commit?.scannedAt }
+    public var connectedOandaEnvironment: OandaEnvironment? { session?.environment }
     /// Last successful market observation for the selected desk feed. Display-only.
     public var lastMarketObservationAt: Date? { lastFreshPollAt }
     /// Brand cover. Dismisses on a real LIVE feed, otherwise after a short beat. Never invents LIVE.
@@ -107,7 +302,13 @@ public final class LightningDeskModel: ObservableObject {
     /// The visible watchlist is derived from `pairs`; `book` sides reset on the next scan.
     /// Never mutate other @Published state here — publishing from inside a SwiftUI view
     /// update crashes the app.
-    @Published public var marketMode: DeskMarket = .fx
+    @Published public var marketMode: DeskMarket = .fx {
+        didSet {
+#if os(macOS)
+            if marketMode != oldValue { clearLiveStrategyResearchObservations() }
+#endif
+        }
+    }
     /// True while the offline fixture is being shown. It suppresses the missing-credential cover
     /// without pretending a live Keychain session exists.
     @Published public private(set) var isDemoDesk = false
@@ -137,8 +338,16 @@ public final class LightningDeskModel: ObservableObject {
     /// Form drafts. Cleared when the Keychain write succeeds. Never synced.
     @Published var draftToken = ""
     @Published var draftAccount = ""
-    @Published var draftEnvironment = OandaEnvironment.practice
+    @Published var draftEnvironment: OandaEnvironment = {
+        #if os(macOS)
+        .live
+        #else
+        .practice
+        #endif
+    }()
+    @Published var isEditingCredentials = false
     @Published var credentialSaveFailed = false
+    @Published var credentialConfigurationError: String?
     /// Voice coach session for the open replay. One active session at a time.
     @Published var voiceSession = VoiceSession()
 
@@ -243,11 +452,32 @@ public final class LightningDeskModel: ObservableObject {
     // MARK: - App lifecycle (foreground resume)
 
     private var backgroundedAt: Date?
+#if DEBUG
+    public private(set) var liveStrategyNotificationScheduleAttemptsForTesting = 0
+#endif
+
+    private func noteLiveStrategyNotificationScheduleAttempt() {
+        #if DEBUG
+        liveStrategyNotificationScheduleAttemptsForTesting += 1
+        #endif
+    }
+
+    private func clearLiveStrategyResearchObservations() {
+        liveStrategyResearchObservations = []
+#if os(macOS)
+        macResearchExpiryTask?.cancel()
+        macResearchExpiryTask = nil
+        macResearchSignals = []
+        macResearchEvaluationDiagnostics = []
+        macResearchSignalStatus = .awaitingFreshScan
+#endif
+    }
     /// Increments each time the app returns to the foreground. Telemetry only.
     @Published public private(set) var foregroundResumeCount = 0
 
     public func handleAppBackgrounded(now: Date = Date()) {
         backgroundedAt = now
+        clearLiveStrategyResearchObservations()
         invalidateScanRequests()
         // A research stream does not survive suspension; stop it explicitly instead of
         // reconnecting invisibly when the app resumes.
@@ -876,6 +1106,16 @@ public final class LightningDeskModel: ObservableObject {
     private var historical = false
     /// Networking, normalization, freshness and caching stay outside the SwiftUI facade.
     private let marketData: any DeskMarketDataServing
+    private let liveStrategyProfiles: [StrategyResearchProfile]
+    private let strategyPromotionRecords: [StrategyPromotionRecord]
+    private let strategyDeliveredNotificationDefaultsKey = "blazer.strategy.deliveredNotificationIDs"
+    private let liveDecisionStoreRoot: URL
+    /// Monotonic per-instrument generation for Live strategy refreshes. This prevents an
+    /// older monitor or detached scan evaluation from winning after a newer attempt starts.
+    private var liveDecisionGeneration = LiveDecisionRefreshGeneration()
+    private var liveDecisionStore: ResearchStore {
+        ResearchStore(root: liveDecisionStoreRoot)
+    }
     private let candleCache: CandleCache
     /// One bounded worker serializes scan ingress; only its latest pending request is retained.
     private let scanCoordinator = ScanOperationCoordinator()
@@ -895,19 +1135,33 @@ public final class LightningDeskModel: ObservableObject {
             return
         }
         guard next != pair else { return }
+        let previousPair = pair
+        clearLiveStrategyResearchObservations()
+        for asset in [previousPair, next] where liveStrategyDecisions[asset]?.action != .wait
+            && liveStrategyDecisions[asset] != nil {
+            let generation = beginLiveDecisionRefresh(for: asset)
+            Task { [weak self] in
+                await self?.withdrawLiveStrategyDecision(for: asset,
+                    reason: "live_instrument_not_currently_monitored", generation: generation)
+            }
+        }
         invalidateScanRequests()
         pair = next
 
         // Restore cached bars immediately so chart is never blank
         let cacheKey = CandleCache.Key(market: marketMode, asset: next)
         let cached = candleCache.cached(cacheKey)
+        candlesLoading = false
+        candleIssue = nil
         if !cached.isEmpty {
             candles = cached
+            candlesAreStale = !candleCache.isFresh(cacheKey)
             if !candleCache.isFresh(cacheKey) {
                 Task { await loadCandles(for: next, force: true) }
             }
         } else {
             candles = []
+            candlesAreStale = false
             Task { await loadCandles(for: next) }
         }
 
@@ -1012,9 +1266,37 @@ public final class LightningDeskModel: ObservableObject {
         commitsByAsset[asset]?.strike
     }
 
+    private func restoreLiveStrategyDecisions(allowWithoutLiveSession: Bool = false) async {
+        clearLiveStrategyResearchObservations()
+        guard (allowWithoutLiveSession || session?.environment == .live),
+              let decisions = try? await liveDecisionStore.liveStrategyDecisions() else { return }
+        let latestByAsset = Dictionary(grouping: decisions, by: \.instrument).compactMapValues { $0.last }
+        for (asset, decision) in latestByAsset where decision.action != .wait {
+            let restoreReason = decision.plan == nil
+                ? "restored_actionable_decision_without_plan_requires_live_revalidation"
+                : "restored_plan_requires_live_revalidation"
+            liveStrategyDecisions[asset] = LiveStrategyDecision(
+                instrument: asset, action: .wait,
+                supportingStrategies: decision.supportingStrategies,
+                plan: nil,
+                reasons: [restoreReason],
+                sourceReferences: decision.sourceReferences,
+                observedAt: decision.observedAt)
+            // The saved plan remains in append-only history; it is never projected as
+            // current until a fresh Live evaluation revalidates it.
+            orbPlans.removeValue(forKey: asset)
+        }
+    }
+
     /// Restores only the latest persisted adaptive research decision. This is
     /// display state and never feeds the executable desk frame or entry gate.
     public func restoreAdaptiveResearchProjection(now: Date = Date()) async {
+        // AdaptiveMarketRehearsalRecord is explicitly Practice-only. Never project a
+        // Practice replay beside the Live OANDA feed as if it were today's Live analysis.
+        guard session?.environment == .practice else {
+            adaptiveResearchProjection = nil
+            return
+        }
         let store = ResearchStore(root: ResearchStore.defaultRoot())
         guard let records = try? await store.adaptiveRehearsals(),
               let latest = records.max(by: { $0.receivedAt < $1.receivedAt }) else {
@@ -1029,21 +1311,40 @@ public final class LightningDeskModel: ObservableObject {
     public func loadCandles(for asset: String, force: Bool = false) async {
         let market = marketMode
         let key = CandleCache.Key(market: market, asset: asset)
+        let session = market == .fx ? await loadSession(allowPrompt: false) : nil
+        let hasSession = market != .fx || session != nil
+        if marketMode == market, pair == asset {
+            candlesLoading = true
+            candleIssue = nil
+            if !candleCache.cached(key).isEmpty {
+                candles = candleCache.cached(key)
+                candlesAreStale = !candleCache.isFresh(key)
+            }
+        }
+        var feedResult: MarketCandleResult?
         let bars = await candleCache.load(key, force: force) { @MainActor [weak self] in
             guard let self else { return [] }
-            let session = market == .fx
-                ? await self.loadSession(allowPrompt: false)
-                : nil
-            return await self.marketData.candles(
+            let result = await self.marketData.candleResult(
                 market: market,
                 asset: asset,
                 session: session,
                 count: 80
             )
+            feedResult = result
+            return result.candles
         }
-        guard !bars.isEmpty else { return }
         if marketMode == market, pair == asset {
-            candles = bars
+            candlesLoading = false
+            if !bars.isEmpty {
+                candles = bars
+                candlesAreStale = false
+                candleIssue = nil
+            } else {
+                candlesAreStale = !candles.isEmpty
+                candleIssue = feedResult?.issue ?? (!hasSession
+                    ? "Add OANDA credentials to load candles"
+                    : "Candle feed unavailable; retry by switching markets or scanning")
+            }
         }
     }
 
@@ -1063,6 +1364,25 @@ public final class LightningDeskModel: ObservableObject {
     }
 
     public func run() async {
+        #if DEBUG && targetEnvironment(simulator)
+        if ProcessInfo.processInfo.arguments.contains("--ui-testing-review-insight") {
+            await seedReviewInsightUITestFixture()
+            return
+        }
+        // Explicit simulator-only accessibility fixture. Return before credential,
+        // market, strategy, settlement, or background startup effects can run.
+        if ProcessInfo.processInfo.arguments.contains("--ui-testing-user-close-correction") {
+            await seedUserReportedCloseCorrectionUITestFixture()
+            return
+        }
+        if ProcessInfo.processInfo.arguments.contains("--ui-testing-user-report") {
+            await seedUserReportedPositionUITestFixture()
+            return
+        }
+        #endif
+        // Resolve the saved OANDA account silently during startup, not only after
+        // a scan or when the credential settings cover is opened.
+        let startupSession = await loadSession(allowPrompt: false, consumePendingScan: false)
         #if DEBUG
         // Diagnostic: boot directly into a market mode to reproduce render issues headlessly.
         if ProcessInfo.processInfo.environment["BLAZER_START_MARKET"] == "fx" {
@@ -1081,6 +1401,7 @@ public final class LightningDeskModel: ObservableObject {
             diagLog("ENGINE_BOOT_OK \(StrategyEngine.engineHealth.sha?.prefix(12) ?? "?")")
         }
         await reloadFromDisk()
+        await restoreLiveStrategyDecisions()
         await restoreAdaptiveResearchProjection()
         await refreshOTCValidationReport()
         Task { await assistant.refreshAvailability() }
@@ -1096,14 +1417,37 @@ public final class LightningDeskModel: ObservableObject {
                 notice = "An outcome is waiting to be saved"
             }
         }
-        // Scan immediately on launch so the desk is never empty. A Siri request that was
-        // queued before launch is consumed once, without being overwritten by a second scan.
+        // A Siri request that was queued before launch is consumed once, without being
+        // overwritten by a second scan. The Mac desk starts with a fresh market scan so a
+        // restored signal is never presented as the current live recommendation.
         let consumedPendingScan = await consumePendingScanIfReady()
         if !consumedPendingScan {
             if marketMode == .crypto {
                 await scanCrypto()
-            } else if candles.isEmpty {
-                Task { await self.loadCandles(for: self.pair) }
+            } else {
+                #if os(macOS)
+                if startupSession != nil {
+                    await scan()
+                } else {
+                    // Startup and background recovery never raise Keychain UI.
+                    // The user can initiate one credential-authorized scan from the desk.
+                    scanning = false
+                    candlesLoading = false
+                    feed = .error
+                    if keychainState == .locked {
+                        candleIssue = "OANDA Live credentials are locked in Keychain"
+                        notice = "Select SCAN to authorize OANDA access, or manage credentials in Settings."
+                    } else {
+                        candleIssue = "OANDA Live credentials are not saved in this Mac’s Keychain"
+                        notice = "Connect OANDA Live credentials in Settings to load market data."
+                    }
+                    publishFrame()
+                }
+                #else
+                if candles.isEmpty {
+                    Task { await self.loadCandles(for: self.pair) }
+                }
+                #endif
             }
         }
         if marketMode == .crypto {
@@ -1124,8 +1468,112 @@ public final class LightningDeskModel: ObservableObject {
             group.addTask { await self.quoteLoop() }
             group.addTask { await self.beamLoop() }
             group.addTask { await self.cryptoQuoteLoop() }
+            group.addTask { await self.orbMonitorLoop() }
         }
     }
+
+    #if DEBUG && targetEnvironment(simulator)
+    private func seedReviewInsightUITestFixture() async {
+        let createdAt = Date(timeIntervalSince1970: 1_794_700_000)
+        let plan = V3TradePlan(id: "ui-test-review-insight-plan-v1", instrument: "EUR/USD",
+            strategyID: "ORB_BREAK_RETEST_V1", strategyVersion: "ORB_BREAK_RETEST_V1",
+            engineVersion: "V3_ORB_ENGINE_1", sourceObservationID: "ui-test-review-insight-observation-v1",
+            state: .validated, side: .long, entryPrice: 1.1002, stopPrice: 1.0992,
+            targetPrice: 1.1022, units: 10_000, maxSpread: 0.0003,
+            riskFraction: 0.005, createdAt: createdAt)
+        do {
+            try await liveDecisionStore.record(plan)
+            let opening = try await liveDecisionStore.recordUserReportedPosition(planID: plan.id,
+                units: 10_000, entryPrice: 1.1002,
+                userReportedEnteredAt: createdAt.addingTimeInterval(100),
+                updatedAt: createdAt.addingTimeInterval(200))
+            guard let positionID = opening.positionID else {
+                notice = "UI Review Insight fixture invalid: opening position ID missing"
+                return
+            }
+            _ = try await liveDecisionStore.recordUserReportedPositionClose(positionID: positionID,
+                closedAt: nil, exitPrice: nil, recordedAt: createdAt.addingTimeInterval(300))
+            pair = plan.instrument
+            marketMode = .fx
+            isDemoDesk = true
+            orbPlans[plan.instrument] = plan
+            orbDecisions[plan.instrument] = ORBDecision(stage: .setupConfirmed,
+                setupState: .confirmed, sessionStart: createdAt,
+                rangeHigh: 1.1010, rangeLow: 1.0990, direction: .long,
+                reason: "Process-isolated deterministic Review Insight UI fixture")
+            orbLifecycleStatuses[plan.instrument] = .recorded
+        } catch {
+            // The process-unique test archive must be empty. Any write conflict or
+            // persistence error aborts this fixture rather than showing partial facts.
+            notice = "UI Review Insight fixture could not be written; no partial fixture accepted"
+        }
+    }
+
+    private func seedUserReportedPositionUITestFixture() async {
+        let createdAt = Date(timeIntervalSince1970: 1_794_700_000)
+        let plan = V3TradePlan(id: "ui-test-user-report-plan", instrument: "EUR/USD",
+            strategyID: "ORB_BREAK_RETEST_V1", strategyVersion: "ORB_BREAK_RETEST_V1",
+            engineVersion: "V3_ORB_ENGINE_1", sourceObservationID: "ui-test-orb-observation",
+            state: .validated, side: .long, entryPrice: 1.1002, stopPrice: 1.0992,
+            targetPrice: 1.1022, units: 10_000, maxSpread: 0.0003,
+            riskFraction: 0.005, createdAt: createdAt)
+        do {
+            try await liveDecisionStore.record(plan)
+            pair = plan.instrument
+            marketMode = .fx
+            isDemoDesk = true
+            orbPlans[plan.instrument] = plan
+            orbDecisions[plan.instrument] = ORBDecision(stage: .setupConfirmed,
+                setupState: .confirmed, sessionStart: createdAt,
+                rangeHigh: 1.1010, rangeLow: 1.0990, direction: .long,
+                reason: "Deterministic UI test fixture")
+            orbLifecycleStatuses[plan.instrument] = .recorded
+        } catch {
+            notice = "UI report fixture unavailable"
+        }
+    }
+
+    private func seedUserReportedCloseCorrectionUITestFixture() async {
+        // Stable timestamps and a versioned plan ID make repeated simulator runs
+        // idempotent against the app-support archive.
+        let now = Date(timeIntervalSince1970: 1_794_867_000)
+        let createdAt = now.addingTimeInterval(-1_200)
+        let plan = V3TradePlan(id: "ui-test-close-correction-plan-v3", instrument: "EUR/USD",
+            strategyID: "ORB_BREAK_RETEST_V1", strategyVersion: "ORB_BREAK_RETEST_V1",
+            engineVersion: "V3_ORB_ENGINE_1", sourceObservationID: "ui-test-close-observation",
+            state: .validated, side: .long, entryPrice: 1.1002, stopPrice: 1.0992,
+            targetPrice: 1.1022, units: 10_000, maxSpread: 0.0003,
+            riskFraction: 0.005, createdAt: createdAt)
+        do {
+            try await liveDecisionStore.record(plan)
+            let opening = try await liveDecisionStore.recordUserReportedPosition(planID: plan.id,
+                units: 10_000, entryPrice: 1.1002,
+                userReportedEnteredAt: now.addingTimeInterval(-1_000),
+                updatedAt: now.addingTimeInterval(-900))
+            // The close must bind to the original opening revision. Record it
+            // before the later entry correction so its effective close time is
+            // valid against that immutable revision.
+            _ = try await liveDecisionStore.recordUserReportedPositionClose(
+                positionID: opening.positionID!, closedAt: now.addingTimeInterval(-700),
+                exitPrice: 1.101, recordedAt: now.addingTimeInterval(-600))
+            _ = try await liveDecisionStore.recordUserReportedPosition(planID: plan.id,
+                units: 9_900, entryPrice: 1.1003,
+                userReportedEnteredAt: now.addingTimeInterval(-500),
+                updatedAt: now.addingTimeInterval(-400), supersedesRecordID: opening.id)
+            pair = plan.instrument
+            marketMode = .fx
+            isDemoDesk = true
+            orbPlans[plan.instrument] = plan
+            orbDecisions[plan.instrument] = ORBDecision(stage: .setupConfirmed,
+                setupState: .confirmed, sessionStart: createdAt,
+                rangeHigh: 1.1010, rangeLow: 1.0990, direction: .long,
+                reason: "Deterministic close correction UI fixture")
+            orbLifecycleStatuses[plan.instrument] = .recorded
+        } catch {
+            notice = "UI close correction fixture unavailable"
+        }
+    }
+    #endif
 
     /// A fresh six-market walk. Nothing from the previous scan is reused.
     public func scan() async {
@@ -1133,12 +1581,30 @@ public final class LightningDeskModel: ObservableObject {
         isDemoDesk = false
         let market = marketMode
         let cryptoAsset = CTAssets.watchlist.contains(pair) ? pair : (CTAssets.watchlist.first ?? "BTC/USDT")
+        let fxRequest = FXScanScope.request(market: market, selectedPair: pair,
+                                            availablePairs: pairs, selectedOnly: false)
         await enqueueScan(
             market: market,
-            asset: market == .crypto ? cryptoAsset : nil,
-            assets: market == .crypto ? [cryptoAsset] : pairs
+            asset: market == .crypto ? cryptoAsset : fxRequest?.asset,
+            assets: market == .crypto ? [cryptoAsset] : (fxRequest?.assets ?? [])
         )
     }
+
+#if os(macOS)
+    /// Runs the normal FX scan and Trade decision pipeline for only the current watchlist pair.
+    /// The all-market Scan remains a separate action with its existing picker behavior.
+    public func scanSelectedFXPair(_ requestedPair: String) async {
+        guard marketMode == .fx, pair == requestedPair else { return }
+        entryIssue = nil
+        isDemoDesk = false
+        guard let request = FXScanScope.request(market: .fx, selectedPair: requestedPair,
+                                                availablePairs: pairs, selectedOnly: true) else {
+            notice = "Selected FX pair is unavailable"
+            return
+        }
+        await enqueueScan(market: .fx, asset: request.asset, assets: request.assets)
+    }
+#endif
 
     /// Crypto scan via the shared BlazerCrypto engine. No OANDA credential, no FX session gate.
     public func scanCrypto(asset: String = "BTC/USDT") async {
@@ -1146,6 +1612,7 @@ public final class LightningDeskModel: ObservableObject {
     }
 
     private func enqueueScan(market: DeskMarket, asset: String?, assets: [String]) async {
+        if market == .crypto { clearLiveStrategyResearchObservations() }
         guard activeTrade == nil, !awaitingOutcome, !settlementInFlight else {
             notice = "Resolve the current outcome before scanning"
             return
@@ -1187,6 +1654,7 @@ public final class LightningDeskModel: ObservableObject {
             return
         }
         scanning = true
+        feed = .connecting
         commit = nil
         cabinetSide = "WAIT"
         armedAt = nil
@@ -1199,17 +1667,33 @@ public final class LightningDeskModel: ObservableObject {
         predictedOutcome = nil
         armID = nil
         candles = []
+        candlesLoading = true
+        candleIssue = nil
         notice = nil
         book = CTAssets.watchlist.map { BookRow(asset: $0, side: "—") }
         publishFrame()
         scanStep = asset
 
         let started = Date()
-        let snapshot = try? await marketData.scan(market: .crypto, asset: asset, session: nil)
+        let snapshot: MarketScanSnapshot?
+        do {
+            snapshot = try await marketData.scan(market: .crypto, asset: asset, session: nil)
+        } catch {
+            guard isCurrentScan(request) else { return }
+            candlesLoading = false
+            candleIssue = error.localizedDescription
+            diagLog("CRYPTO_SCAN failed: \(error.localizedDescription)")
+            feed = .disconnected
+            notice = "Crypto scan failed: \(error.localizedDescription)"
+            publishFrame()
+            return
+        }
         guard isCurrentScan(request) else { return }
         guard let snapshot, !snapshot.candles.isEmpty else {
             diagLog("CRYPTO_SCAN failed: feed unavailable")
             feed = .disconnected
+            candlesLoading = false
+            candleIssue = "Crypto feed returned no candles"
             notice = "Crypto feed unavailable"
             publishFrame()
             return
@@ -1240,6 +1724,8 @@ public final class LightningDeskModel: ObservableObject {
         cabinetSide = cryptoSignal.cabinetSide
         selectedSignal = cryptoSignal
         candles = bars
+        candlesLoading = false
+        candleIssue = nil
         candleCache.store(bars, for: CandleCache.Key(market: .crypto, asset: asset))
         commitsByAsset[asset] = next
         cabinetSideByAsset[asset] = cryptoSignal.cabinetSide
@@ -1272,7 +1758,16 @@ public final class LightningDeskModel: ObservableObject {
     }
 
     private func evaluateORB(asset: String, bars: [Candle], asOf: Date) -> ORBDecision {
-        let orbBars = bars.compactMap { candle -> ORBBar? in
+        let orbBars = makeORBBarEvidence(asset: asset, bars: bars)
+        guard !orbBars.isEmpty else {
+            return ORBDecision(stage: .noData, setupState: .noData, sessionStart: nil,
+                               reason: "no_completed_oanda_m1_bars")
+        }
+        return ORBBreakRetestV1.evaluate(instrument: asset, bars: orbBars, asOf: asOf)
+    }
+
+    private func makeORBBarEvidence(asset: String, bars: [Candle]) -> [ORBBar] {
+        bars.compactMap { candle -> ORBBar? in
             guard let milliseconds = candle.time,
                   let open = candle.open, let high = candle.high, let low = candle.low else { return nil }
             let start = Date(timeIntervalSince1970: milliseconds / 1_000)
@@ -1280,11 +1775,386 @@ public final class LightningDeskModel: ObservableObject {
                           sourceTime: start, endTime: start.addingTimeInterval(60),
                           open: open, high: high, low: low, close: candle.close)
         }
-        guard !orbBars.isEmpty else {
-            return ORBDecision(stage: .noData, setupState: .noData, sessionStart: nil,
-                               reason: "no_completed_oanda_m1_bars")
+    }
+
+    private func publishORBDecision(_ decision: ORBDecision, bars: [ORBBar], asOf: Date,
+                                    asset: String, generation: UInt64) async {
+        guard isCurrentLiveDecisionRefresh(generation, for: asset) else { return }
+        guard marketMode == .fx else {
+            orbPlans.removeValue(forKey: asset)
+            orbLifecycleStatuses[asset] = .notApplicable
+            orbDecisions[asset] = ORBDecision(stage: .unavailable, setupState: .stale,
+                sessionStart: nil, reason: "orb_fx_only")
+            if pair == asset { publishFrame() }
+            return
         }
-        return ORBBreakRetestV1.evaluate(instrument: asset, bars: orbBars, asOf: asOf)
+        guard session?.environment == .live else {
+            guard isCurrentLiveDecisionRefresh(generation, for: asset) else { return }
+            orbPlans.removeValue(forKey: asset)
+            orbLifecycleStatuses[asset] = .notApplicable
+            orbDecisions[asset] = ORBDecision(stage: .unavailable, setupState: .stale,
+                sessionStart: nil, reason: "live_session_unavailable")
+            if pair == asset { publishFrame() }
+            return
+        }
+        if let plan = decision.candidate?.plan {
+            do {
+                try await liveDecisionStore.record(plan)
+            } catch {
+                guard isCurrentLiveDecisionRefresh(generation, for: asset) else { return }
+                orbPlans.removeValue(forKey: asset)
+                orbLifecycleStatuses[asset] = .unavailable
+                orbDecisions[asset] = ORBDecision(stage: .unavailable, setupState: .stale,
+                    sessionStart: nil, reason: "live_orb_plan_persistence_failed")
+                if pair == asset { publishFrame() }
+                return
+            }
+        }
+        guard isCurrentLiveDecisionRefresh(generation, for: asset) else { return }
+        let projectionResult = ORBBreakRetestLifecycleV1.project(decision: decision, bars: bars, asOf: asOf)
+        if case let .projected(projection) = projectionResult {
+            do {
+                let events = try await liveDecisionStore.v3SetupLifecycleEvents()
+                guard isCurrentLiveDecisionRefresh(generation, for: asset) else { return }
+                let stream = events.filter { $0.setupID == projection.setupID }
+                    .sorted { ($0.sourceTime ?? .distantPast) < ($1.sourceTime ?? .distantPast) }
+                let previous = stream.last
+                if previous?.state == projection.state {
+                    if let prior = previous, let priorTime = prior.sourceTime {
+                        if projection.sourceTime < priorTime
+                            || (projection.sourceTime == priorTime
+                                && (projection.inputDigest != prior.inputDigest
+                                    || projection.sourceObservationID != prior.sourceObservationID)) {
+                            orbLifecycleStatuses[asset] = .unavailable
+                        } else {
+                            orbLifecycleStatuses[asset] = .noTransition
+                        }
+                    } else {
+                        orbLifecycleStatuses[asset] = .unavailable
+                    }
+                } else {
+                    if let priorTime = previous?.sourceTime, projection.sourceTime <= priorTime {
+                        throw ScanError.failed("ORB lifecycle source time did not advance")
+                    }
+                    let event = ORBBreakRetestLifecycleV1.event(for: projection,
+                        previousState: previous?.state)
+                    guard isCurrentLiveDecisionRefresh(generation, for: asset) else { return }
+                    let appendResult = try await liveDecisionStore.record(event, shouldAppend: { [weak self] in
+                        guard let self else { return false }
+                        return await self.isCurrentLiveDecisionRefresh(generation, for: asset)
+                    })
+                    guard isCurrentLiveDecisionRefresh(generation, for: asset) else { return }
+                    switch appendResult {
+                    case .appended: orbLifecycleStatuses[asset] = .recorded
+                    case .duplicate: orbLifecycleStatuses[asset] = .noTransition
+                    case .generationSuperseded: orbLifecycleStatuses[asset] = .unavailable
+                    }
+                }
+            } catch ScanError.failed("ORB_STRUCTURE_SUPPRESSED") {
+                guard isCurrentLiveDecisionRefresh(generation, for: asset) else { return }
+                orbLifecycleStatuses[asset] = .structureSuppressed
+            } catch {
+                guard isCurrentLiveDecisionRefresh(generation, for: asset) else { return }
+                orbLifecycleStatuses[asset] = .unavailable
+            }
+        } else if projectionResult == .notApplicable {
+            orbLifecycleStatuses[asset] = .notApplicable
+        } else {
+            orbLifecycleStatuses[asset] = .unavailable
+        }
+        orbDecisions[asset] = decision
+        if let plan = decision.candidate?.plan {
+            orbPlans[asset] = plan
+            if orbEntryObservationStatuses[asset]?.planID != plan.id {
+                orbEntryObservationStatuses[asset] = (plan.id, "Awaiting an eligible fresh quote · hypothetical market entry reference")
+            }
+        } else {
+            orbPlans.removeValue(forKey: asset)
+            orbEntryObservationStatuses.removeValue(forKey: asset)
+        }
+    }
+
+    private func recordORBEntryObservation(quote: LiveQuote, receivedAt: Date,
+                                          asset: String, generation: UInt64) async {
+        guard let plan = orbPlans[asset], pair == asset, marketMode == .fx,
+              session?.environment == .live else { return }
+        orbEntryObservationStatuses[asset] = (plan.id, "Awaiting an eligible fresh Live OANDA quote · hypothetical market entry reference")
+        guard quote.source.lowercased() == "oanda", quote.asset == plan.instrument,
+              let sourceMilliseconds = Self.safeQuoteTimestampMilliseconds(quote.asOfMs) else {
+            orbEntryObservationStatuses[asset] = (plan.id, "Unavailable · hypothetical market entry reference")
+            return
+        }
+        let sourceTime = Date(timeIntervalSince1970: Double(sourceMilliseconds) / 1_000)
+        let observation = V3MarketObservation(id: "oanda-\(sourceMilliseconds)",
+            instrument: quote.asset, provider: "OANDA", environment: .oandaLive,
+            bid: quote.bid, ask: quote.ask, sourceTime: sourceTime, receivedAt: receivedAt)
+        let entrySide = plan.side == .long ? observation.ask : observation.bid
+        let inPlanBand = plan.maxEntryDeviation.map {
+            entrySide >= plan.entryPrice - $0 && entrySide <= plan.entryPrice + $0
+        } ?? false
+        let betweenLevels = entrySide > min(plan.stopPrice, plan.targetPrice)
+            && entrySide < max(plan.stopPrice, plan.targetPrice)
+        guard observation.validation(now: receivedAt, maxAge: 5).isEmpty,
+              observation.sourceTime >= plan.createdAt,
+              observation.spread <= plan.maxSpread, inPlanBand, betweenLevels else { return }
+        do {
+            let result = try await liveDecisionStore.recordLivePlanEntryObservation(
+                planID: plan.id, observation: observation, recordedAt: receivedAt,
+                shouldAppend: { [weak self] in
+                    guard let self else { return false }
+                    return await MainActor.run {
+                        Self.isLiveEntryAppendEligible(
+                            isCurrent: self.isCurrentLiveDecisionRefresh(generation, for: asset),
+                            selectedPair: self.pair, asset: asset, marketMode: self.marketMode,
+                            scanning: self.scanning, environment: self.session?.environment)
+                    }
+                })
+            guard isCurrentLiveDecisionRefresh(generation, for: asset), pair == asset,
+                  marketMode == .fx, !scanning, orbPlans[asset]?.id == plan.id else { return }
+            switch result {
+            case .appended, .alreadyRecorded:
+                orbEntryObservationStatuses[asset] = (plan.id, "Recorded · hypothetical market entry reference · not an order, fill, or position")
+            case .generationSuperseded:
+                break
+            }
+        } catch {
+            guard isCurrentLiveDecisionRefresh(generation, for: asset), pair == asset,
+                  orbPlans[asset]?.id == plan.id else { return }
+            orbEntryObservationStatuses[asset] = (plan.id, "Unavailable · hypothetical market entry reference")
+        }
+    }
+
+    private func recordORBShadowStructuralOutcome(quote: LiveQuote, receivedAt: Date,
+                                                   asset: String, generation: UInt64) async {
+        guard let plan = orbPlans[asset], pair == asset, marketMode == .fx,
+              session?.environment == .live, quote.source.lowercased() == "oanda",
+              quote.asset == plan.instrument,
+              let sourceMilliseconds = Self.safeQuoteTimestampMilliseconds(quote.asOfMs) else { return }
+        let observation = V3MarketObservation(id: "oanda-\(sourceMilliseconds)",
+            instrument: quote.asset, provider: "OANDA", environment: .oandaLive,
+            bid: quote.bid, ask: quote.ask,
+            sourceTime: Date(timeIntervalSince1970: Double(sourceMilliseconds) / 1_000),
+            receivedAt: receivedAt)
+        do {
+            _ = try await liveDecisionStore.recordLiveShadowStructuralOutcome(planID: plan.id,
+                exitObservation: observation, recordedAt: receivedAt,
+                shouldAppend: { [weak self] in
+                    guard let self else { return false }
+                    return await MainActor.run {
+                        Self.isLiveEntryAppendEligible(
+                            isCurrent: self.isCurrentLiveDecisionRefresh(generation, for: asset),
+                            selectedPair: self.pair, asset: asset, marketMode: self.marketMode,
+                            scanning: self.scanning, environment: self.session?.environment)
+                    }
+                })
+        } catch {
+            // Shadow outcome failures leave the plan, entry evidence, lifecycle,
+            // and position records unchanged; a later quote can retry.
+        }
+    }
+
+    private func beginLiveDecisionRefresh(for asset: String) -> UInt64 {
+        if pair == asset { clearLiveStrategyResearchObservations() }
+        return liveDecisionGeneration.begin(for: asset)
+    }
+
+    private func isCurrentLiveDecisionRefresh(_ generation: UInt64, for asset: String) -> Bool {
+        liveDecisionGeneration.isCurrent(generation, for: asset)
+    }
+
+    private func withdrawLiveStrategyDecision(for asset: String, reason: String,
+                                             generation: UInt64) async {
+        guard isCurrentLiveDecisionRefresh(generation, for: asset) else { return }
+        if pair == asset {
+            clearLiveStrategyResearchObservations()
+#if os(macOS)
+            macResearchSignalStatus = .failed
+#endif
+        }
+        let now = Date()
+        let decision = LiveStrategyDecision(instrument: asset, action: .wait,
+            supportingStrategies: liveStrategyDecisions[asset]?.supportingStrategies ?? [],
+            plan: nil, reasons: [reason],
+            sourceReferences: liveStrategyDecisions[asset]?.sourceReferences ?? [], observedAt: now)
+        // A failed Live refresh invalidates the current projection, while the immutable
+        // plan/decision events already written to ResearchStore remain available as history.
+        await publishLiveStrategyDecision(decision, asset: asset, generation: generation)
+        guard isCurrentLiveDecisionRefresh(generation, for: asset) else { return }
+        orbPlans.removeValue(forKey: asset)
+        orbLifecycleStatuses[asset] = session?.environment == .live ? .unavailable : .notApplicable
+        orbDecisions[asset] = ORBDecision(stage: .unavailable, setupState: .stale,
+            sessionStart: nil, reason: reason)
+        if pair == asset { publishFrame() }
+    }
+
+    /// A full-book Live scan strategy-evaluates only its selected instrument. Any
+    /// actionable decision for another attempted asset therefore has no current
+    /// strategy evaluation and must leave the current projection.
+    private func withdrawUnselectedLiveDecisions(scanAssets: [String], pickedAsset: String,
+                                                  generations: [String: UInt64]) async {
+        for asset in scanAssets where asset != pickedAsset {
+            guard liveStrategyDecisions[asset]?.action != .wait,
+                  liveStrategyDecisions[asset] != nil,
+                  let generation = generations[asset] else { continue }
+            await withdrawLiveStrategyDecision(for: asset,
+                reason: "live_instrument_not_currently_monitored", generation: generation)
+        }
+    }
+
+    private func publishLiveStrategyDecision(_ decision: LiveStrategyDecision, asset: String,
+                                             generation: UInt64) async {
+        guard isCurrentLiveDecisionRefresh(generation, for: asset) else { return }
+        let previous = liveStrategyDecisions[asset]
+        var published = decision
+        let changed = previous == nil || previous?.action != decision.action
+            || previous?.plan?.id != decision.plan?.id
+            || previous?.supportingStrategies != decision.supportingStrategies
+            || previous?.reasons != decision.reasons
+        if changed {
+            do {
+                if let plan = decision.plan {
+                    try await liveDecisionStore.record(plan)
+                }
+                try await liveDecisionStore.record(decision)
+            } catch {
+                published = LiveStrategyDecision(instrument: asset, action: .wait,
+                    supportingStrategies: decision.supportingStrategies, plan: nil,
+                    reasons: ["strategy_decision_persistence_failed"],
+                    sourceReferences: decision.sourceReferences, observedAt: Date())
+                notice = "Strategy decision could not be saved; waiting for the next Live scan"
+                // Fail closed in the UI even if persistence is unavailable. Make a best
+                // effort to persist the WAIT transition itself for restart recovery.
+                try? await liveDecisionStore.record(published)
+            }
+        }
+        guard isCurrentLiveDecisionRefresh(generation, for: asset) else { return }
+        liveStrategyDecisions[asset] = published
+        let planID = published.plan?.id ?? previous?.plan?.id
+        guard let planID else { return }
+        let newlyActionable = published.action != .wait
+            && (previous?.action != published.action || previous?.plan?.id != published.plan?.id)
+        let withdrawn = published.action == .wait && previous?.action != .wait
+        guard newlyActionable || withdrawn else { return }
+        let safeAsset = asset.replacingOccurrences(of: "/", with: "-")
+        let event = withdrawn ? "withdrawn" : "signal"
+        // The decision ID has millisecond precision. A second-level timestamp can
+        // collide for signal → withdrawal → signal transitions within one second.
+        let stableID = "blazer-strategy-\(safeAsset)-\(planID)-\(event)-\(published.id)"
+        var delivered = Set(UserDefaults.standard.stringArray(forKey: strategyDeliveredNotificationDefaultsKey) ?? [])
+        guard !delivered.contains(stableID) else { return }
+        guard isCurrentLiveDecisionRefresh(generation, for: asset) else { return }
+        noteLiveStrategyNotificationScheduleAttempt()
+        let scheduled = await MarketNotificationService.shared.scheduleLiveStrategyNotification(
+            identifier: stableID, decision: published, withdrawn: withdrawn)
+        guard isCurrentLiveDecisionRefresh(generation, for: asset) else { return }
+        guard scheduled else { return }
+        delivered.insert(stableID)
+        UserDefaults.standard.set(Array(delivered.suffix(256)), forKey: strategyDeliveredNotificationDefaultsKey)
+    }
+
+    /// Re-evaluate ORB from fresh completed OANDA M1 bars between manual scans.
+    /// This keeps setup state alive without using the short legacy action timer
+    /// as a setup expiry or an order authorization.
+    private func orbMonitorLoop() async {
+        while !Task.isCancelled {
+            if marketMode == .fx, !scanning {
+                if FxSession.isOpen(Date()) {
+                    await refreshORBMonitor()
+                } else {
+                    let asset = pair
+                    let generation = beginLiveDecisionRefresh(for: asset)
+                    await withdrawLiveStrategyDecision(for: asset, reason: "fx_market_closed",
+                                                       generation: generation)
+                }
+            }
+            try? await Task.sleep(nanoseconds: 60_000_000_000)
+        }
+    }
+
+    private func refreshORBMonitor() async {
+        let asset = pair
+        let generation = beginLiveDecisionRefresh(for: asset)
+        let session = await loadSession(allowPrompt: false)
+        guard isCurrentLiveDecisionRefresh(generation, for: asset), pair == asset,
+              marketMode == .fx, !scanning else { return }
+        guard let session, session.environment == .live else {
+            await withdrawLiveStrategyDecision(for: asset, reason: "live_session_unavailable",
+                                               generation: generation)
+            return
+        }
+        async let candleResult = marketData.candleResult(market: .fx, asset: asset,
+                                                           session: session, count: 500)
+        async let fiveMinuteResult = marketData.candleResult(market: .fx, asset: asset,
+            session: session, granularity: "M5", count: 120)
+        async let quoteResult = marketData.quotes(market: .fx, assets: [asset], session: session)
+        let (result, fiveMinute, quotes) = await (candleResult, fiveMinuteResult, quoteResult)
+        guard isCurrentLiveDecisionRefresh(generation, for: asset), pair == asset,
+              marketMode == .fx, !scanning else { return }
+        guard result.status == .ok, !result.candles.isEmpty else {
+            await withdrawLiveStrategyDecision(for: asset, reason: "live_m1_candles_unavailable",
+                                               generation: generation)
+            return
+        }
+        guard fiveMinute.status == .ok, !fiveMinute.candles.isEmpty else {
+            await withdrawLiveStrategyDecision(for: asset, reason: "live_m5_candles_unavailable",
+                                               generation: generation)
+            return
+        }
+        let receivedAt = Date()
+        let bars = result.candles
+        let orb = evaluateORB(asset: asset, bars: bars, asOf: receivedAt)
+        let orbBars = makeORBBarEvidence(asset: asset, bars: bars)
+        await publishORBDecision(orb, bars: orbBars, asOf: receivedAt,
+                                 asset: asset, generation: generation)
+        let visibleBars = Array(bars.suffix(120))
+        candleCache.store(visibleBars, for: CandleCache.Key(market: .fx, asset: asset))
+        candles = visibleBars
+        candlesAreStale = false
+        candleIssue = nil
+
+        guard quotes.status == .ok,
+              let quote = quotes.quotes.first(where: { $0.asset == asset }),
+              QuoteFreshness.isFresh(quote, now: quotes.receivedAt), quote.bid > 0, quote.ask > quote.bid else {
+            await withdrawLiveStrategyDecision(for: asset, reason: "fresh_live_quote_unavailable",
+                                               generation: generation)
+            return
+        }
+        await recordORBEntryObservation(quote: quote, receivedAt: quotes.receivedAt,
+                                        asset: asset, generation: generation)
+        await recordORBShadowStructuralOutcome(quote: quote, receivedAt: quotes.receivedAt,
+                                               asset: asset, generation: generation)
+        let payloads = bars.compactMap { candle -> StrategyEngine.CandlePayload? in
+            guard let time = candle.time, let open = candle.open,
+                  let high = candle.high, let low = candle.low else { return nil }
+            return StrategyEngine.CandlePayload(time: time, open: open, high: high,
+                                                low: low, close: candle.close)
+        }
+        let m5Payloads = fiveMinute.candles.compactMap { candle -> StrategyEngine.CandlePayload? in
+            guard let time = candle.time, let open = candle.open,
+                  let high = candle.high, let low = candle.low else { return nil }
+            return StrategyEngine.CandlePayload(time: time, open: open, high: high,
+                                                low: low, close: candle.close)
+        }
+        guard payloads.count >= 20, !m5Payloads.isEmpty else {
+            await withdrawLiveStrategyDecision(for: asset, reason: "live_candles_malformed_or_insufficient",
+                                               generation: generation)
+            return
+        }
+        let input = StrategyEngine.MarketInput(asset: asset, source: "oanda-live",
+            candles1m: payloads, candles5m: m5Payloads, lastPrice: quote.mid,
+            bid: quote.bid, ask: quote.ask, spread: quote.ask - quote.bid,
+            expirySeconds: Timing.expirySec, quoteAsOfMs: quote.asOfMs,
+            evaluatedAtMs: receivedAt.timeIntervalSince1970 * 1_000, policy: .baseline)
+        let evaluation = await selectLiveStrategySelection(input: input, asset: asset)
+        guard isCurrentLiveDecisionRefresh(generation, for: asset), pair == asset else { return }
+        await publishMacResearchSignals(evaluation, instrument: asset, generation: generation,
+            sourceInputIdentity: ScanInputSnapshot(pair: asset, m1: bars,
+                m5: fiveMinute.candles, bid: quote.bid, ask: quote.ask,
+                spread: quote.ask - quote.bid, quoteAsOfMs: quote.asOfMs,
+                expirySeconds: Timing.expirySec).identity,
+            quoteAsOfMs: quote.asOfMs)
+        await publishLiveStrategySelection(evaluation.selection, asset: asset, generation: generation)
+        publishFrame()
     }
 
     private func performFXScan(_ request: ScanRequestScheduler.Request) async {
@@ -1305,13 +2175,24 @@ public final class LightningDeskModel: ObservableObject {
             notice = "No markets are available to scan"
             return
         }
+        var liveGenerations: [String: UInt64] = [:]
+        for asset in scanAssets where liveGenerations[asset] == nil {
+            liveGenerations[asset] = beginLiveDecisionRefresh(for: asset)
+        }
         let clock = Date()
         if !FxSession.isOpen(clock) {
             feed = .disconnected
             notice = FxSession.label(clock)
+            for asset in scanAssets {
+                if let generation = liveGenerations[asset] {
+                    await withdrawLiveStrategyDecision(for: asset, reason: "fx_market_closed",
+                                                       generation: generation)
+                }
+            }
             return
         }
         scanning = true
+        feed = .connecting
         commit = nil
         cabinetSide = "WAIT"
         armedAt = nil
@@ -1323,7 +2204,9 @@ public final class LightningDeskModel: ObservableObject {
         activeEntryArmedAt = nil
         predictedOutcome = nil
         armID = nil
-        candles = []
+        candlesAreStale = !candles.isEmpty
+        candlesLoading = true
+        candleIssue = nil
         notice = nil
         book = scanAssets.map { BookRow(asset: $0, side: "—") }
         publishFrame()
@@ -1331,31 +2214,86 @@ public final class LightningDeskModel: ObservableObject {
         guard let session = await loadSession(allowPrompt: true, consumePendingScan: false) else {
             guard isCurrentScan(request) else { return }
             feed = .error
-            notice = "OANDA token missing"
+            candlesLoading = false
+            for asset in scanAssets {
+                if let generation = liveGenerations[asset] {
+                    await withdrawLiveStrategyDecision(for: asset, reason: "live_credentials_unavailable",
+                                                       generation: generation)
+                }
+            }
+            if keychainState == .locked {
+                candleIssue = "Saved OANDA Live credentials remain locked in Keychain. Unlock them before scanning."
+                notice = "Keychain authorization was canceled or unavailable"
+            } else if let credentialConfigurationError {
+                candleIssue = credentialConfigurationError
+                notice = "OANDA credentials could not be read from Keychain"
+            } else {
+                #if os(macOS)
+                candleIssue = "Connect an OANDA Live account to load market data"
+                #else
+                candleIssue = "Connect an OANDA account to load market data"
+                #endif
+                notice = "OANDA credentials are missing"
+            }
             return
         }
         guard isCurrentScan(request) else { return }
+        if session.environment != .live {
+            for asset in scanAssets {
+                if let generation = liveGenerations[asset] {
+                    await withdrawLiveStrategyDecision(for: asset, reason: "live_session_unavailable",
+                                                       generation: generation)
+                }
+            }
+        }
         var bag: [EngineSignal] = []
+        var firstScanFailure: String?
+        var scanFailures: [(asset: String, message: String)] = []
         var barsByAsset: [String: [Candle]] = [:]
+        var snapshotsByAsset: [String: MarketScanSnapshot] = [:]
         var rows = book
-        for (index, asset) in scanAssets.enumerated() {
+        let attempts = await withTaskGroup(of: FXScanAttempt.self, returning: [FXScanAttempt].self) { group in
+            for asset in scanAssets {
+                group.addTask { [marketData] in
+                    do {
+                        let snapshot = try await marketData.scan(market: .fx, asset: asset, session: session)
+                        return FXScanAttempt(asset: asset, snapshot: snapshot, failure: nil)
+                    } catch {
+                        return FXScanAttempt(asset: asset, snapshot: nil,
+                                             failure: error.localizedDescription)
+                    }
+                }
+            }
+            var completed: [FXScanAttempt] = []
+            for await attempt in group {
+                completed.append(attempt)
+                scanStep = "Markets returned \(completed.count)/\(scanAssets.count)"
+            }
+            return completed
+        }
+        guard isCurrentScan(request) else { return }
+        let order = Dictionary(uniqueKeysWithValues: scanAssets.enumerated().map { ($0.element, $0.offset) })
+        for attempt in attempts.sorted(by: { (order[$0.asset] ?? 0) < (order[$1.asset] ?? 0) }) {
             guard isCurrentScan(request) else { return }
+            let asset = attempt.asset
+            let index = order[asset] ?? 0
             scanStep = "\(asset) \(index + 1)/\(scanAssets.count)"
             let started = Date()
-            do {
-                let snapshot = try await marketData.scan(market: .fx, asset: asset, session: session)
-                guard isCurrentScan(request) else { return }
+            if let snapshot = attempt.snapshot {
+                snapshotsByAsset[asset] = snapshot
                 let signal = snapshot.signal
                 bag.append(signal)
-                let bars = snapshot.candles
+                let strategyBars = snapshot.candles
+                // Keep the larger session history for strategy evaluation, while
+                // the desk chart and journal retain a readable rolling window.
+                let bars = Array(strategyBars.suffix(120))
                 barsByAsset[asset] = bars
-                await evaluateAdaptiveSnapshot(snapshot, asset: asset, signal: signal, request: request)
-                let orb = evaluateORB(asset: asset, bars: bars,
-                                      asOf: Self.evaluationDate(signal.asOfMs, fallback: Date()))
-                orbDecisions[asset] = orb
-                if let plan = orb.candidate?.plan {
-                    orbPlans[asset] = plan
-                }
+                let orbAsOf = Self.evaluationDate(signal.asOfMs, fallback: Date())
+                let orbBars = makeORBBarEvidence(asset: asset, bars: strategyBars)
+                let orb = ORBBreakRetestV1.evaluate(instrument: asset, bars: orbBars, asOf: orbAsOf)
+                let generation = liveGenerations[asset] ?? 0
+                await publishORBDecision(orb, bars: orbBars, asOf: orbAsOf,
+                    asset: asset, generation: generation)
                 candleCache.store(bars, for: CandleCache.Key(market: .fx, asset: asset))
                 cabinetSideByAsset[asset] = signal.cabinetSide
                 var assetCommit = ScanKernel.commit(
@@ -1376,37 +2314,38 @@ public final class LightningDeskModel: ObservableObject {
                 if signal.cabinetSide == "WAIT" {
                     trapsAvoidedCount += 1
                 }
-            } catch let failure as DeskMarketDataError {
-                guard isCurrentScan(request) else { return }
-                if case .missingSession = failure {
-                    notice = failure.localizedDescription
-                    book = rows
-                    return
-                }
-                // `.unavailable` is a per-asset miss; the walk continues with the remaining pairs.
-            } catch {
-                let message = error.localizedDescription
-                guard isCurrentScan(request) else { return }
-                if message == "OANDA token missing" || message == "SCAN ENGINE OFFLINE" {
-                    notice = message
-                    book = rows
-                    return
+            } else {
+                let message = attempt.failure ?? "Unknown market data failure"
+                if firstScanFailure == nil { firstScanFailure = message }
+                scanFailures.append((asset, message))
+                if session.environment == .live, let generation = liveGenerations[asset] {
+                    await withdrawLiveStrategyDecision(for: asset, reason: "live_scan_failed",
+                                                       generation: generation)
                 }
             }
             book = rows
-            let hold = 1.1 - Date().timeIntervalSince(started)
-            if hold > 0 {
-                try? await Task.sleep(nanoseconds: UInt64(hold * 1_000_000_000))
-                guard isCurrentScan(request) else { return }
-            }
         }
         guard isCurrentScan(request) else { return }
         guard !bag.isEmpty else {
-            notice = "Scan missed the book"
+            candlesLoading = false
+            candleIssue = firstScanFailure
+            notice = firstScanFailure.map { "Scan failed: \($0)" } ?? "Scan missed the book"
+            feed = .error
             return
         }
         let picked = await pickedSignal(from: bag)
         guard isCurrentScan(request) else { return }
+        if session.environment == .live {
+            await withdrawUnselectedLiveDecisions(scanAssets: scanAssets,
+                pickedAsset: picked.asset, generations: liveGenerations)
+        }
+        if session.environment == .practice,
+           let snapshot = snapshotsByAsset[picked.asset] {
+            Task { [weak self] in
+                await self?.evaluateAdaptiveSnapshot(snapshot, asset: picked.asset,
+                                                     signal: picked, request: request)
+            }
+        }
         let bars = barsByAsset[picked.asset] ?? []
         var next: ScanCommit
         if picked.why == DeskPickPolicy.unavailableWhy {
@@ -1429,22 +2368,55 @@ public final class LightningDeskModel: ObservableObject {
         if EngineIdentity.loadedSHA1() != EngineIdentity.pinnedSHA1 {
             next.veto = "Engine pin"
         }
+        let quoteBatch = await marketData.quotes(market: .fx, assets: [picked.asset], session: session)
+        guard isCurrentScan(request) else { return }
+        let fresh = quoteBatch.status == .ok
+            ? quoteBatch.quotes.first(where: { $0.asset == picked.asset })
+            : nil
+        if let fresh {
+            quote = fresh
+            if QuoteFreshness.isFresh(fresh, now: Date()) {
+                lastFreshPollAt = Date()
+            }
+        }
         if (side == "HIGH" || side == "LOW"), next.veto == nil {
-            let batch = await marketData.quotes(market: .fx, assets: [picked.asset], session: session)
-            guard isCurrentScan(request) else { return }
-            let fresh = batch.status == .ok ? batch.quotes.first(where: { $0.asset == picked.asset }) : nil
             next.veto = EntryQuality.veto(signal: picked, quote: fresh)
-            if let fresh {
-                quote = fresh
-                if QuoteFreshness.isFresh(fresh, now: Date()) {
-                    lastFreshPollAt = Date()
+        }
+        if session.environment == .live {
+            if let fresh, let snapshot = snapshotsByAsset[picked.asset] {
+                let generation = liveGenerations[picked.asset] ?? 0
+                Task { [weak self] in
+                    await self?.evaluateLiveStrategyDecision(snapshot: snapshot, quote: fresh,
+                                                            asset: picked.asset, request: request,
+                                                            generation: generation)
+                }
+            } else {
+                if let generation = liveGenerations[picked.asset] {
+                    await withdrawLiveStrategyDecision(for: picked.asset,
+                        reason: "fresh_live_quote_unavailable", generation: generation)
                 }
             }
         }
+        feed = FeedStatusResolver.resolve(
+            marketOpen: true,
+            sessionReady: true,
+            transport: quoteBatch.status.oandaTransport,
+            quote: fresh,
+            lastFreshPollAt: lastFreshPollAt,
+            now: Date()
+        )
+        if pair != picked.asset { liveStrategyResearchObservations = [] }
         pair = picked.asset
         commit = next
         cabinetSide = side
-        candles = bars
+        candlesLoading = false
+        if !bars.isEmpty {
+            candles = bars
+            candlesAreStale = false
+        } else {
+            candlesAreStale = !candles.isEmpty
+        }
+        candleIssue = bars.isEmpty ? "The scan returned no candles for this market" : nil
         candleCache.store(bars, for: CandleCache.Key(market: .fx, asset: picked.asset))
         commitsByAsset[picked.asset] = next
         cabinetSideByAsset[picked.asset] = side
@@ -1453,7 +2425,13 @@ public final class LightningDeskModel: ObservableObject {
         armedAt = (side == "HIGH" || side == "LOW") && next.veto == nil
             ? armedClock.addingTimeInterval(-0.001)
             : nil
-        notice = nil
+        if !scanFailures.isEmpty {
+            let details = scanFailures.prefix(2)
+                .map { "\($0.asset): \($0.message)" }
+                .joined(separator: " · ")
+            let remainder = scanFailures.count > 2 ? " · +\(scanFailures.count - 2) more" : ""
+            notice = "Scan complete · \(scanFailures.count)/\(scanAssets.count) markets unavailable: \(details)\(remainder)"
+        }
         now = armedClock
         publishFrame()
         liftHero()
@@ -1516,6 +2494,212 @@ public final class LightningDeskModel: ObservableObject {
             _ = await MarketNotificationService.shared.scheduleAdaptiveNotification(notification,
                                                                                        now: receivedAt)
         }
+    }
+
+    /// Runs all existing V1 policy variants against the exact Live snapshot and
+    /// combines their directional votes with the structural ORB candidate.
+    /// This produces only a strategy decision; it never crosses the order API.
+    private func evaluateLiveStrategyDecision(snapshot: MarketScanSnapshot, quote: LiveQuote,
+                                             asset: String,
+                                             request: ScanRequestScheduler.Request,
+                                             generation: UInt64) async {
+        guard isCurrentLiveDecisionRefresh(generation, for: asset) else { return }
+        guard quote.asset == asset,
+              quote.bid.isFinite, quote.ask.isFinite, quote.ask > quote.bid,
+              quote.bid > 0, quote.mid.isFinite,
+              QuoteFreshness.isFresh(quote, now: Date()),
+              !snapshot.candles.isEmpty else {
+            await withdrawLiveStrategyDecision(for: asset,
+                reason: quote.asset == asset ? "fresh_live_quote_unavailable" : "live_strategy_snapshot_invalid",
+                generation: generation)
+            return
+        }
+        let payloads = snapshot.candles.compactMap { candle -> StrategyEngine.CandlePayload? in
+            guard let time = candle.time, let open = candle.open,
+                  let high = candle.high, let low = candle.low else { return nil }
+            return StrategyEngine.CandlePayload(time: time, open: open, high: high,
+                                                low: low, close: candle.close)
+        }
+        guard payloads.count >= 20 else {
+            await withdrawLiveStrategyDecision(for: asset,
+                reason: "insufficient_completed_candles", generation: generation)
+            return
+        }
+        let m5Payloads = snapshot.m5Candles.compactMap { candle -> StrategyEngine.CandlePayload? in
+            guard let time = candle.time, let open = candle.open,
+                  let high = candle.high, let low = candle.low else { return nil }
+            return StrategyEngine.CandlePayload(time: time, open: open, high: high,
+                                                low: low, close: candle.close)
+        }
+        guard !m5Payloads.isEmpty else {
+            await withdrawLiveStrategyDecision(for: asset,
+                reason: "live_m5_candles_unavailable", generation: generation)
+            return
+        }
+        let receivedAt = Date()
+        let input = StrategyEngine.MarketInput(asset: asset, source: "oanda-live",
+            candles1m: payloads, candles5m: m5Payloads,
+            lastPrice: quote.mid, bid: quote.bid, ask: quote.ask,
+            spread: quote.ask - quote.bid, expirySeconds: snapshot.expirySeconds,
+            quoteAsOfMs: quote.asOfMs, evaluatedAtMs: receivedAt.timeIntervalSince1970 * 1_000,
+            policy: .baseline)
+        let evaluation = await selectLiveStrategySelection(input: input, asset: asset)
+        guard isCurrentScan(request), isCurrentLiveDecisionRefresh(generation, for: asset) else { return }
+        await publishMacResearchSignals(evaluation, instrument: asset, generation: generation,
+            sourceInputIdentity: ScanInputSnapshot(pair: asset, m1: snapshot.candles,
+                m5: snapshot.m5Candles, bid: quote.bid, ask: quote.ask,
+                spread: quote.ask - quote.bid, quoteAsOfMs: quote.asOfMs,
+                expirySeconds: snapshot.expirySeconds,
+                engineSHA: snapshot.engineSHA, policy: snapshot.policy).identity,
+            quoteAsOfMs: quote.asOfMs)
+        await publishLiveStrategySelection(evaluation.selection, asset: asset, generation: generation)
+        publishFrame()
+    }
+
+    private func selectLiveStrategySelection(input: StrategyEngine.MarketInput,
+                                             asset: String) async -> LiveStrategyEvaluation {
+        let receivedAt = Date()
+        var candidates: [AdaptiveOpportunityCandidate] = []
+        var candidate001Failed = false
+        var candidate002Failed = false
+        for policy in ScanPolicy.allCases {
+            do {
+                candidates.append(try await AdaptiveOpportunityAdapters.evaluateEngine(input, policy: policy))
+            } catch {
+                continue
+            }
+        }
+        switch AdaptiveOpportunityAdapters.evaluateCandidate001Result(input, asOf: receivedAt,
+                                                                        startedAt: receivedAt) {
+        case .completed(let results): candidates.append(contentsOf: results)
+        case .failed:
+            candidate001Failed = true
+        }
+        switch AdaptiveOpportunityAdapters.evaluateCandidate002Result(input, asOf: receivedAt,
+                                                                        startedAt: receivedAt) {
+        case .completed(let results): candidates.append(contentsOf: results)
+        case .failed:
+            candidate002Failed = true
+        }
+        candidates.append(AdaptiveOpportunityAdapters.evaluateORB(input, asOf: receivedAt,
+                                                                   startedAt: receivedAt))
+        let selection = LiveStrategySelector.evaluate(instrument: asset, candidates: candidates,
+            now: Date(), profiles: liveStrategyProfiles, promotionRecords: strategyPromotionRecords)
+        return LiveStrategyEvaluation(selection: selection, candidates: candidates,
+            candidate001Failed: candidate001Failed, candidate002Failed: candidate002Failed)
+    }
+
+    private func publishMacResearchSignals(_ evaluation: LiveStrategyEvaluation,
+                                           instrument: String, generation: UInt64,
+                                           sourceInputIdentity: String,
+                                           quoteAsOfMs: Double?) async {
+#if os(macOS)
+        guard isCurrentLiveDecisionRefresh(generation, for: instrument), pair == instrument else { return }
+        macResearchExpiryTask?.cancel()
+        macResearchSignals = []
+        macResearchEvaluationDiagnostics = []
+        guard marketMode == .fx, pair == instrument else {
+            macResearchSignalStatus = .awaitingFreshScan
+            return
+        }
+        guard macResearchSourceAttestationVerified else {
+            macResearchSignalStatus = .sourceAttestationUnavailable
+            return
+        }
+        let signals = MacResearchSignalProjector.project(candidates: evaluation.candidates,
+            profiles: macResearchProfilesBound(to: instrument), instrument: instrument,
+            scanGeneration: Int(clamping: generation), sourceInputIdentity: sourceInputIdentity,
+            now: Date())
+        var failedFamilies = Set<MacResearchEvaluatorFamily>()
+        if evaluation.candidate001Failed { failedFamilies.insert(.candidate001) }
+        if evaluation.candidate002Failed { failedFamilies.insert(.candidate002) }
+        let diagnostics = MacResearchEvaluationDiagnosticProjector.project(
+            candidates: evaluation.candidates, failedFamilies: failedFamilies,
+            visibleSignalIDs: Set(signals.map(\.id)),
+            quoteAsOf: quoteAsOfMs.flatMap {
+                $0.isFinite ? Date(timeIntervalSince1970: $0 / 1_000) : nil
+            },
+            scanGeneration: Int(clamping: generation),
+            currentScanGeneration: Int(clamping: liveDecisionGeneration.latestGeneration(for: instrument) ?? 0),
+            sourceInputIdentity: sourceInputIdentity,
+            expectedSourceInputIdentity: sourceInputIdentity,
+            now: Date())
+        guard isCurrentLiveDecisionRefresh(generation, for: instrument), pair == instrument else { return }
+        macResearchSignals = signals
+        macResearchEvaluationDiagnostics = diagnostics
+        updateMacResearchSignalStatus()
+        scheduleMacResearchSignalExpiry()
+#endif
+    }
+
+#if os(macOS)
+    private func updateMacResearchSignalStatus() {
+        if !macResearchSignals.isEmpty
+            || macResearchEvaluationDiagnostics.contains(where: {
+                $0.state == .candidateShown || $0.state == .candidateWithheld
+            }) {
+            macResearchSignalStatus = .completedWithCandidates
+        } else if macResearchEvaluationDiagnostics.contains(where: { $0.state == .evaluationFailed }) {
+            macResearchSignalStatus = .failed
+        } else if macResearchEvaluationDiagnostics.isEmpty {
+            macResearchSignalStatus = .awaitingFreshScan
+        } else {
+            macResearchSignalStatus = .completedNoCandidate
+        }
+    }
+
+    private func scheduleMacResearchSignalExpiry() {
+        let deadline = (macResearchSignals.map(\.validUntil)
+            + macResearchEvaluationDiagnostics.map(\.validUntil)).min()
+        guard let deadline else { return }
+        let delay = max(0, deadline.timeIntervalSinceNow)
+        macResearchExpiryTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(min(delay, 86_400) * 1_000_000_000))
+            guard !Task.isCancelled, let self else { return }
+            self.macResearchSignals = self.macResearchSignals.filter { Date() <= $0.validUntil }
+            self.macResearchEvaluationDiagnostics = self.macResearchEvaluationDiagnostics.filter {
+                Date() <= $0.validUntil
+            }
+            self.updateMacResearchSignalStatus()
+            if !self.macResearchSignals.isEmpty || !self.macResearchEvaluationDiagnostics.isEmpty {
+                self.scheduleMacResearchSignalExpiry()
+            }
+        }
+    }
+
+    private func macResearchProfilesBound(to instrument: String) -> [StrategyResearchProfile] {
+        liveStrategyProfiles.map { profile in
+            guard profile.decisionRole == .shadow,
+                  profile.configurationSHA256ByInstrument?[instrument] == nil,
+                  let identity = profile.acceptedCandidateIdentities.first(where: {
+                      AdaptiveOpportunityAdapters.effectiveConfiguration(
+                          strategyID: $0.strategyID, instrument: instrument) != nil
+                  }),
+                  let digest = AdaptiveOpportunityAdapters.effectiveConfiguration(
+                      strategyID: identity.strategyID, instrument: instrument)?.sha256() else {
+                return profile
+            }
+            return StrategyResearchProfile(id: profile.id, version: profile.version,
+                family: profile.family, status: profile.status,
+                sourceReferences: profile.sourceReferences,
+                mayAuthorizeOrder: profile.mayAuthorizeOrder, decisionRole: profile.decisionRole,
+                acceptedCandidateIdentities: profile.acceptedCandidateIdentities,
+                configurationSHA256: profile.configurationSHA256,
+                configurationSHA256ByInstrument: [instrument: digest],
+                selectorPolicySHA256: profile.selectorPolicySHA256,
+                evaluatorCodeSHA256: profile.evaluatorCodeSHA256,
+                adapterCodeSHA256: profile.adapterCodeSHA256,
+                selectorCodeSHA256: profile.selectorCodeSHA256)
+        }
+    }
+#endif
+
+    private func publishLiveStrategySelection(_ selection: LiveStrategySelection,
+                                              asset: String, generation: UInt64) async {
+        guard isCurrentLiveDecisionRefresh(generation, for: asset), pair == asset,
+              marketMode == .fx else { return }
+        liveStrategyResearchObservations = selection.researchObservations
+        await publishLiveStrategyDecision(selection.decision, asset: asset, generation: generation)
     }
 
     /// Records the expired arm once, then leaves the hero. A second call does not append.
@@ -1837,12 +3021,16 @@ public final class LightningDeskModel: ObservableObject {
         case .missing:
             keychainState = .missing
             return nil
+        case .invalid(let message):
+            keychainState = .missing
+            credentialConfigurationError = message
+            return nil
         case .none:
             return nil
         }
     }
 
-    /// Saves the phone Keychain and drops the fields from the caller. Does not log the token.
+    /// Saves this device's Keychain and drops the fields from the caller. Does not log the token.
     public func storeCredentials(token: String, accountId: String, environment: OandaEnvironment) -> Bool {
         guard DeskCredentials.store(token: token, accountId: accountId, environment: environment) else {
             return false
@@ -1855,6 +3043,9 @@ public final class LightningDeskModel: ObservableObject {
         draftToken = ""
         draftAccount = ""
         credentialSaveFailed = false
+        isEditingCredentials = false
+        candleIssue = nil
+        Task { await loadCandles(for: pair, force: true) }
         Task { await consumePendingScanIfReady() }
         return true
     }
@@ -1867,6 +3058,9 @@ public final class LightningDeskModel: ObservableObject {
             keychainState = .locked
         case .missing:
             keychainState = .missing
+        case .invalid(let message):
+            keychainState = .missing
+            credentialConfigurationError = message
         }
     }
 
@@ -1919,7 +3113,7 @@ public final class LightningDeskModel: ObservableObject {
         case .staleFeed: return "Entry quote stale or unavailable"
         case .vetoed(let reason): return reason
         case .notDirectional: return "No directional setup"
-        case .historical: return "Historical scan; scan again before entry"
+        case .historical: return "Previous scan restored. SCAN for current market evidence before entry."
         case .activePositionExists: return "Resolve the current position before entry"
         case .noArmedBeam: return "No armed beam to enter"
         case .unsupportedExpiry: return "Unsupported expiry"
@@ -2375,10 +3569,14 @@ public final class LightningDeskModel: ObservableObject {
             return
         }
         let batch = await marketData.quotes(market: .fx, assets: [pair], session: session)
-        if batch.status == .ok, let fresh = batch.quotes.first(where: { $0.asset == pair }) {
+        let responseReceivedAt = Date()
+        let freshQuote = batch.status == .ok
+            ? batch.quotes.first(where: { $0.asset == pair })
+            : nil
+        if let fresh = freshQuote {
             quote = fresh
-            if QuoteFreshness.isFresh(fresh, now: clock) {
-                lastFreshPollAt = clock
+            if QuoteFreshness.isFresh(fresh, now: responseReceivedAt) {
+                lastFreshPollAt = responseReceivedAt
             }
             if let trade = activeTrade {
                 // A manual entry is bound to its own immutable pair. A browsing change or a
@@ -2400,9 +3598,12 @@ public final class LightningDeskModel: ObservableObject {
             marketOpen: true,
             sessionReady: true,
             transport: batch.status.oandaTransport,
-            quote: quote,
+            // Do not let an older displayed quote make an empty successful poll
+            // look live. The last known quote remains visible, while feed state
+            // reflects only this response and the age of the last good poll.
+            quote: freshQuote,
             lastFreshPollAt: lastFreshPollAt,
-            now: clock
+            now: responseReceivedAt
         )
         if candles.isEmpty && batch.status == .ok {
             await loadCandles(for: pair)
@@ -2694,6 +3895,7 @@ public final class LightningDeskModel: ObservableObject {
         let saved = candleCache.cached(selectedKey)
         if candles.isEmpty, !saved.isEmpty {
             candles = saved
+            candlesAreStale = true
         }
         if let issue = restored.issues.first, notice == nil {
             notice = issue.userMessage
@@ -2910,6 +4112,83 @@ public enum DeskTab: String, CaseIterable, Identifiable, Sendable {
 
 #if DEBUG
 extension LightningDeskModel {
+    /// Exercises the ORB persistence/projection boundary without credentials or network access.
+    public func publishORBDecisionForTesting(_ decision: ORBDecision, asset: String,
+                                             live: Bool, bars: [ORBBar] = [],
+                                             asOf: Date = Date(),
+                                             market: DeskMarket = .fx,
+                                             supersedeBeforePublish: Bool = false) async {
+        marketMode = market
+        session = live ? OandaSession(token: "test-only", accountId: "test-only", environment: .live) : nil
+        let generation = beginLiveDecisionRefresh(for: asset)
+        if supersedeBeforePublish { _ = beginLiveDecisionRefresh(for: asset) }
+        await publishORBDecision(decision, bars: bars, asOf: asOf,
+                                 asset: asset, generation: generation)
+    }
+
+    /// Test seam for the real selection publication path; no Keychain or broker call.
+    public func publishLiveStrategySelectionForTesting(_ selection: LiveStrategySelection) async {
+        let generation = beginLiveDecisionRefresh(for: selection.decision.instrument)
+        await publishLiveStrategySelection(selection, asset: selection.decision.instrument,
+                                           generation: generation)
+    }
+
+    /// Seeds only ephemeral research UI state to prove it is never persisted/restored.
+    public func clearLiveStrategyResearchObservationsForTesting() {
+        clearLiveStrategyResearchObservations()
+    }
+
+#if DEBUG && os(macOS)
+    func installMacResearchStateForTesting(signals: [MacResearchSignal],
+                                           diagnostics: [MacResearchEvaluationDiagnostic]) {
+        macResearchSignals = signals
+        macResearchEvaluationDiagnostics = diagnostics
+    }
+
+    func beginLiveDecisionRefreshForTesting(for asset: String) -> UInt64 {
+        beginLiveDecisionRefresh(for: asset)
+    }
+#endif
+
+    public func beginCryptoScanForTesting() {
+        if marketMode == .crypto { clearLiveStrategyResearchObservations() }
+    }
+
+    public func installLiveStrategyResearchObservationsForTesting(
+        _ observations: [LiveStrategyResearchObservation]
+    ) {
+        liveStrategyResearchObservations = observations
+    }
+
+    /// Test-only seam: seed an already-published Live decision without Keychain/network access.
+    public func installLiveStrategyDecisionForTesting(_ decision: LiveStrategyDecision) {
+        _ = beginLiveDecisionRefresh(for: decision.instrument)
+        liveStrategyDecisions[decision.instrument] = decision
+        if let plan = decision.plan { orbPlans[decision.instrument] = plan }
+    }
+
+    /// Test-only seam: exercise restore policy without reading credentials or opening a session.
+    public func restoreLiveStrategyDecisionsForTesting() async {
+        await restoreLiveStrategyDecisions(allowWithoutLiveSession: true)
+    }
+
+    /// Test-only seam: exercise the production fail-closed publication path in an isolated store.
+    public func withdrawLiveStrategyDecisionForTesting(_ asset: String, reason: String) async {
+        let generation = beginLiveDecisionRefresh(for: asset)
+        await withdrawLiveStrategyDecision(for: asset, reason: reason, generation: generation)
+    }
+
+    /// Test-only seam: exercise the post-pick full-book invalidation without a broker scan.
+    public func withdrawUnselectedLiveDecisionsForTesting(scanAssets: [String],
+                                                           pickedAsset: String) async {
+        var generations: [String: UInt64] = [:]
+        for asset in scanAssets where generations[asset] == nil {
+            generations[asset] = beginLiveDecisionRefresh(for: asset)
+        }
+        await withdrawUnselectedLiveDecisions(scanAssets: scanAssets,
+            pickedAsset: pickedAsset, generations: generations)
+    }
+
     /// Test-only seam: install a frozen armed scan without a network or Keychain.
     /// Compiled out of Release builds.
     public func installArmedScanForTesting(

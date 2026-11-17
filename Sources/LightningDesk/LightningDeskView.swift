@@ -17,6 +17,11 @@ public struct LightningDeskView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public var body: some View {
+#if os(macOS)
+        MacTradingWorkspace(model: model)
+            .task { await model.run() }
+            .task { await model.settleLaunch() }
+#else
         ZStack {
             ZStack {
                 DeskInk.background
@@ -96,6 +101,9 @@ public struct LightningDeskView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+#if os(macOS)
+        .frame(minWidth: 1040, minHeight: 708)
+#endif
         .preferredColorScheme(.dark)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.35), value: model.showingLaunch)
         .animation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.72), value: model.heroLift)
@@ -112,6 +120,7 @@ public struct LightningDeskView: View {
         }
         .task { await model.run() }
         .task { await model.settleLaunch() }
+#endif
     }
 
     private var launchWord: String {

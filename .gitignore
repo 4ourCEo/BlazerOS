@@ -1,4 +1,6 @@
 .build/
+deliverables/
+build/
 .swiftpm/
 .DS_Store
 *.xcuserstate

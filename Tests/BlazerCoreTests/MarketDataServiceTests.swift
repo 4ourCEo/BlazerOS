@@ -20,6 +20,39 @@ private struct FailingMarketTransport: MarketDataTransporting {
     func fetchCryptoQuote(asset: String) async -> LiveQuote? { nil }
 }
 
+private struct UnauthorizedCandleTransport: MarketDataTransporting {
+    func fetchFXScan(asset: String, session: OandaSession) async throws -> ScanEnvelope { throw StubFailure.provider }
+    func fetchFXQuotes(assets: [String], session: OandaSession) async -> OandaQuoteBatch {
+        OandaQuoteBatch(quotes: [], transport: .unauthorized, httpStatus: 401)
+    }
+    func fetchFXCandles(asset: String, session: OandaSession, count: Int) async -> [Candle] { [] }
+    func fetchFXCandleBatch(asset: String, session: OandaSession, count: Int) async -> OandaCandleBatch {
+        OandaCandleBatch(candles: [], transport: .unauthorized, httpStatus: 401)
+    }
+    func fetchCryptoBundle(asset: String) async throws -> CryptoCandleBatch? { nil }
+    func fetchCryptoQuote(asset: String) async -> LiveQuote? { nil }
+}
+
+@Test func marketDataServicePreservesOandaCandleAuthorizationStatusForDesk() async {
+    let service = LiveDeskMarketDataService(transport: UnauthorizedCandleTransport())
+    let result = await service.candleResult(market: .fx, asset: "EUR/USD",
+        session: OandaSession(token: "test", accountId: "test", environment: .live), count: 80)
+
+    #expect(result.status == .unauthorized)
+    #expect(result.httpStatus == 401)
+    #expect(result.issue?.contains("HTTP 401") == true)
+    #expect(result.issue?.contains("Live") == true)
+}
+
+@Test func marketDataServiceLabelsPracticeCandleAuthorizationFailureCorrectly() async {
+    let service = LiveDeskMarketDataService(transport: UnauthorizedCandleTransport())
+    let result = await service.candleResult(market: .fx, asset: "EUR/USD",
+        session: OandaSession(token: "test", accountId: "test", environment: .practice), count: 80)
+
+    #expect(result.issue?.contains("Practice") == true)
+    #expect(result.issue?.contains("HTTP 401") == true)
+}
+
 private actor ReorderedMarketTransport: MarketDataTransporting {
     private var continuations: [String: CheckedContinuation<ScanEnvelope, Error>] = [:]
 
@@ -70,9 +103,12 @@ private actor ReorderedMarketTransport: MarketDataTransporting {
     await #expect(throws: StubFailure.self) {
         _ = try await service.scan(market: .fx, asset: "EUR/USD", session: session)
     }
+    let requestedAt = Date()
     let quotes = await service.quotes(market: .fx, assets: ["EUR/USD"], session: session)
+    let returnedAt = Date()
     #expect(quotes.status == .timeout)
     #expect(quotes.quotes.isEmpty)
+    #expect(quotes.receivedAt >= requestedAt && quotes.receivedAt <= returnedAt)
     #expect(await service.candles(market: .fx, asset: "EUR/USD", session: session, count: 80).isEmpty)
 }
 

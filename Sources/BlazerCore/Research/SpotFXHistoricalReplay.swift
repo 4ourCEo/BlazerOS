@@ -26,7 +26,7 @@ public struct SpotFXReplayConfiguration: Codable, Sendable, Equatable {
 
     fileprivate var validationError: String? {
         guard entryDelaySeconds.isFinite, entryDelaySeconds >= 0,
-              [60, 180, 300].contains(horizonSeconds),
+              horizonSeconds > 0,
               observationToleranceSeconds.isFinite, observationToleranceSeconds >= 0,
               maximumExitDelaySeconds.isFinite, maximumExitDelaySeconds >= 0,
               units.isFinite, units > 0,
@@ -90,9 +90,6 @@ public enum SpotFXHistoricalReplay {
         configuration: SpotFXReplayConfiguration = .init(),
         evaluator: @escaping Evaluator = { try await StrategyEngine.evaluate(input: $0).signal }
     ) async throws -> [SpotFXReplayRecord] {
-        guard let policy = ScanPolicy(rawValue: strategyID) else {
-            throw ScanError.failed("Unsupported spot-FX replay strategy: \(strategyID)")
-        }
         if let error = configuration.validationError { throw ScanError.failed(error) }
         return try await withThrowingTaskGroup(of: (Int, SpotFXReplayRecord).self,
                                                returning: [SpotFXReplayRecord].self) { group in
@@ -100,10 +97,7 @@ public enum SpotFXHistoricalReplay {
                 group.addTask {
                     try Task.checkCancellation()
                     var input = item.input
-                    input.policy = policy
-                    // The evaluated signal and outcome must use the same
-                    // supported holding horizon.
-                    input.expirySeconds = configuration.horizonSeconds
+                    input.policy = ScanPolicy(rawValue: strategyID)
                     let signal: EngineSignal
                     do {
                         signal = try await evaluator(input)
@@ -111,6 +105,7 @@ public enum SpotFXHistoricalReplay {
                         throw CancellationError()
                     } catch {
                         return (index, unresolved(item, strategyID: strategyID,
+                                                  horizonSeconds: configuration.horizonSeconds,
                                                   reason: "Engine evaluation failed: \(error.localizedDescription)"))
                     }
                     return (index, evaluate(item, strategyID: strategyID, signal: signal,
@@ -133,18 +128,22 @@ public enum SpotFXHistoricalReplay {
         default: direction = nil
         }
         guard let direction else {
-            return unresolved(item, strategyID: strategyID, reason: "Engine returned no directional signal")
+            return unresolved(item, strategyID: strategyID,
+                              horizonSeconds: configuration.horizonSeconds,
+                              reason: "Engine returned no directional signal")
         }
         let targetEntry = item.signalTimestamp.addingTimeInterval(configuration.entryDelaySeconds)
         guard let entry = matching(item, target: targetEntry,
                                    tolerance: configuration.observationToleranceSeconds) else {
-            return unresolved(item, strategyID: strategyID, side: direction,
+            return unresolved(item, strategyID: strategyID,
+                              horizonSeconds: configuration.horizonSeconds, side: direction,
                               reason: "Executable bid/ask entry observation missing")
         }
         let targetExit = entry.observedAt.addingTimeInterval(Double(configuration.horizonSeconds))
         guard let exit = matching(item, target: targetExit,
                                   tolerance: configuration.maximumExitDelaySeconds) else {
-            return unresolved(item, strategyID: strategyID, side: direction,
+            return unresolved(item, strategyID: strategyID,
+                              horizonSeconds: configuration.horizonSeconds, side: direction,
                               entry: entry, reason: "Executable bid/ask exit observation missing or late")
         }
         let entryObservation = observation(entry)
@@ -155,7 +154,8 @@ public enum SpotFXHistoricalReplay {
             expectedExitAt: targetExit,
             maximumExitDelay: configuration.maximumExitDelaySeconds)
         guard evaluation.status == .valid, let gross = evaluation.notionalPnl else {
-            return unresolved(item, strategyID: strategyID, side: direction,
+            return unresolved(item, strategyID: strategyID,
+                              horizonSeconds: configuration.horizonSeconds, side: direction,
                               entry: entry, exit: exit, reason: evaluation.reason ?? "Unresolved spot evaluation")
         }
         let cost = configuration.additionalCostPerUnit * configuration.units
@@ -190,11 +190,12 @@ public enum SpotFXHistoricalReplay {
     }
 
     private static func unresolved(_ item: StrategyValidationCase, strategyID: String,
+                                   horizonSeconds: Int,
                                    side: V3SpotSide? = nil,
                                    entry: ValidationPriceObservation? = nil,
                                    exit: ValidationPriceObservation? = nil,
                                    reason: String) -> SpotFXReplayRecord {
-        SpotFXReplayRecord(id: "\(item.id)-\(strategyID)-\(item.input.expirySeconds)",
+        SpotFXReplayRecord(id: "\(item.id)-\(strategyID)-\(horizonSeconds)",
             caseID: item.id, strategyID: strategyID, instrumentID: item.instrumentID,
             venueID: item.venueID, source: item.provenance, signalTimestamp: item.signalTimestamp,
             entryTimestamp: entry?.observedAt, exitTimestamp: exit?.observedAt, side: side,

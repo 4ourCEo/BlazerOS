@@ -1,0 +1,32 @@
+Building for debugging...
+[Computing dependencies]
+[1 / 2] BlazerCore_BlazerCore
+Build complete! (0.50 sec)
+◇ Test run started.
+↳ Testing Library Version: 2403
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite AdaptiveMarketRehearsalTests started.
+◇ Test horizonIsNotPresentedAsSupportedWithoutEvidence() started.
+◇ Test adaptiveRehearsalPersistsAndReloadsDeterministically() started.
+◇ Test boundedDiagnosticFailsClosedWithoutCredentials() started.
+◇ Test selectedHorizonRequiresRecordedResearchEvidence() started.
+◇ Test nativeProjectionExpiresAStaleSelectedDecision() started.
+◇ Test decisionStateDoesNotTreatUnsafeCandidateAsForming() started.
+◇ Test decisionStateRetainsDevelopingSetup() started.
+◇ Test existingSnapshotEvaluationPersistsWithoutProviderRefetch() started.
+◇ Test unavailableCandidateProducesUnavailableNativeState() started.
+◇ Test rehearsalRecordPreservesDecisionStatesAndInputIdentity() started.
+◇ Test actionableStateRequiresSelectedCandidate() started.
+✔ Test unavailableCandidateProducesUnavailableNativeState() passed after 0.001 seconds.
+✔ Test decisionStateRetainsDevelopingSetup() passed after 0.001 seconds.
+✔ Test decisionStateDoesNotTreatUnsafeCandidateAsForming() passed after 0.001 seconds.
+✔ Test horizonIsNotPresentedAsSupportedWithoutEvidence() passed after 0.003 seconds.
+✔ Test selectedHorizonRequiresRecordedResearchEvidence() passed after 0.003 seconds.
+✔ Test nativeProjectionExpiresAStaleSelectedDecision() passed after 0.003 seconds.
+✔ Test actionableStateRequiresSelectedCandidate() passed after 0.004 seconds.
+✔ Test rehearsalRecordPreservesDecisionStatesAndInputIdentity() passed after 0.004 seconds.
+✔ Test boundedDiagnosticFailsClosedWithoutCredentials() passed after 0.004 seconds.
+✔ Test adaptiveRehearsalPersistsAndReloadsDeterministically() passed after 0.008 seconds.
+✔ Test existingSnapshotEvaluationPersistsWithoutProviderRefetch() passed after 0.018 seconds.
+✔ Suite AdaptiveMarketRehearsalTests passed after 0.018 seconds.
+✔ Test run with 11 tests in 1 suite passed after 0.019 seconds.

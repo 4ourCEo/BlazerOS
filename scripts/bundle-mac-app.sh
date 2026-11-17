@@ -5,7 +5,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 echo "==> Building BlazerOS (release)..."
-swift build -c release --target BlazerOS
+swift build -c release --target BlazerOSMac
 
 BUILD_DIR="$REPO_ROOT/.build/out/Products/Release"
 APP_NAME="BlazerOS"
@@ -65,7 +65,7 @@ cat <<EOF > "$CONTENTS/Info.plist"
     <key>CFBundleExecutable</key>
     <string>${APP_NAME}</string>
     <key>CFBundleIdentifier</key>
-    <string>com.blazer.BlazerOS</string>
+    <string>com.blazer.BlazerOS.mac</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
@@ -88,7 +88,19 @@ cat <<EOF > "$CONTENTS/Info.plist"
 </plist>
 EOF
 
-echo "==> Ad-hoc code signing $APP_DIR..."
-codesign --force --deep --sign - "$APP_DIR"
+DEFAULT_MAC_SIGNING_IDENTITY="BlazerOS Local Development"
+MAC_SIGNING_IDENTITY="${BLAZER_MAC_SIGNING_IDENTITY:-$DEFAULT_MAC_SIGNING_IDENTITY}"
+if security find-identity -v -p codesigning 2>/dev/null | grep -Fq "$MAC_SIGNING_IDENTITY"; then
+  echo "==> Signing $APP_DIR with stable identity: $MAC_SIGNING_IDENTITY..."
+  codesign --force --deep --sign "$MAC_SIGNING_IDENTITY" "$APP_DIR"
+  codesign --verify --deep --strict "$APP_DIR"
+elif [[ -n "${BLAZER_MAC_SIGNING_IDENTITY:-}" ]]; then
+  echo "No valid code-signing identity matches BLAZER_MAC_SIGNING_IDENTITY: $BLAZER_MAC_SIGNING_IDENTITY" >&2
+  exit 1
+else
+  echo "==> Ad-hoc code signing $APP_DIR (Keychain may ask again after rebuilds)..."
+  codesign --force --deep --sign - "$APP_DIR"
+  echo "    Install the 'BlazerOS Local Development' identity or set BLAZER_MAC_SIGNING_IDENTITY to a stable identity to stop repeated Keychain trust prompts."
+fi
 
 echo "==> BlazerOS.app successfully created at $APP_DIR!"

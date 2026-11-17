@@ -13,6 +13,7 @@ public struct ScanInputSnapshot: Sendable, Equatable, Codable {
     public var bid: Double?
     public var ask: Double?
     public var spread: Double?
+    public var quoteAsOfMs: Double?
     public var expirySeconds: Int
     public var engineSHA: String
     public var policy: String
@@ -24,6 +25,7 @@ public struct ScanInputSnapshot: Sendable, Equatable, Codable {
         bid: Double? = nil,
         ask: Double? = nil,
         spread: Double? = nil,
+        quoteAsOfMs: Double? = nil,
         expirySeconds: Int = Timing.expirySec,
         engineSHA: String = EngineIdentity.loadedSHA1() ?? "unverified",
         policy: String = "baseline"
@@ -34,6 +36,7 @@ public struct ScanInputSnapshot: Sendable, Equatable, Codable {
         self.bid = bid
         self.ask = ask
         self.spread = spread
+        self.quoteAsOfMs = quoteAsOfMs
         self.expirySeconds = expirySeconds
         self.engineSHA = engineSHA
         self.policy = policy
@@ -56,6 +59,7 @@ public struct ScanInputSnapshot: Sendable, Equatable, Codable {
         text += "bid:\(Self.number(bid))\n"
         text += "ask:\(Self.number(ask))\n"
         text += "spread:\(Self.number(spread))\n"
+        if let quoteAsOfMs { text += "quote_as_of_ms:\(Self.number(quoteAsOfMs))\n" }
         text += "m1:\(m1.count)\n"
         for bar in m1 { text += Self.line(bar) }
         text += "m5:\(m5.count)\n"

@@ -21,6 +21,7 @@
 		B2000000000000000000000C /* BlazerActivity.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F10000000000000000000005 /* BlazerActivity.framework */; };
 		B2000000000000000000000D /* LightningDesk in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000006 /* LightningDesk */; };
 		B2000000000000000000000E /* BlazerCore in Frameworks */ = {isa = PBXBuildFile; productRef = D20000000000000000000007 /* BlazerCore */; };
+		B2000000000000000000000F /* BlazerTestHostApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000009 /* BlazerTestHostApp.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -59,6 +60,13 @@
 			remoteGlobalIDString = A10000000000000000000001;
 			remoteInfo = BlazerOS;
 		};
+		P20000000000000000000006 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E10000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A10000000000000000000001;
+			remoteInfo = BlazerOS;
+		};
 		P20000000000000000000008 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = E10000000000000000000001 /* Project object */;
@@ -66,12 +74,12 @@
 			remoteGlobalIDString = A10000000000000000000001;
 			remoteInfo = BlazerOS;
 		};
-		P20000000000000000000006 /* PBXContainerItemProxy */ = {
+		P20000000000000000000009 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = E10000000000000000000001 /* Project object */;
 			proxyType = 1;
-			remoteGlobalIDString = A10000000000000000000001;
-			remoteInfo = BlazerOS;
+			remoteGlobalIDString = A10000000000000000000009;
+			remoteInfo = BlazerTestHost;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -110,6 +118,8 @@
 		F10000000000000000000005 /* BlazerActivity.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = BlazerActivity.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		F10000000000000000000006 /* BlazerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BlazerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F10000000000000000000007 /* BlazerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BlazerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F10000000000000000000008 /* BlazerTestHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BlazerTestHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F10000000000000000000009 /* BlazerTestHostApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlazerTestHostApp.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -145,6 +155,7 @@
 		G10000000000000000000006 /* Shared */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Shared; sourceTree = "<group>"; };
 		G10000000000000000000007 /* Tests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Tests; sourceTree = "<group>"; };
 		G10000000000000000000008 /* UITests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = UITests; sourceTree = "<group>"; };
+		G10000000000000000000012 /* TestHost */ = {isa = PBXGroup; children = (F10000000000000000000009 /* BlazerTestHostApp.swift */, ); path = TestHost; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -206,6 +217,12 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		H10000000000000000000008 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = ();
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -220,6 +237,7 @@
 				G10000000000000000000006 /* Shared */,
 				G10000000000000000000007 /* Tests */,
 				G10000000000000000000008 /* UITests */,
+				G10000000000000000000012 /* TestHost */,
 				G10000000000000000000011 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -234,6 +252,7 @@
 				F10000000000000000000005 /* BlazerActivity.framework */,
 				F10000000000000000000006 /* BlazerTests.xctest */,
 				F10000000000000000000007 /* BlazerUITests.xctest */,
+				F10000000000000000000008 /* BlazerTestHost.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -367,7 +386,7 @@
 			buildRules = (
 			);
 			dependencies = (
-				Y10000000000000000000007 /* PBXTargetDependency */,
+				Y10000000000000000000009 /* BlazerTestHost dependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				G10000000000000000000007 /* Tests */,
@@ -400,6 +419,21 @@
 			productName = BlazerUITests;
 			productReference = F10000000000000000000007 /* BlazerUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		A10000000000000000000009 /* BlazerTestHost */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = L10000000000000000000011 /* Build configuration list for PBXNativeTarget "BlazerTestHost" */;
+			buildPhases = (
+				S10000000000000000000008 /* Sources */,
+				H10000000000000000000008 /* Frameworks */,
+				R10000000000000000000008 /* Resources */,
+			);
+			buildRules = ();
+			dependencies = ();
+			name = BlazerTestHost;
+			productName = BlazerTestHost;
+			productReference = F10000000000000000000008 /* BlazerTestHost.app */;
+			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
 
@@ -440,6 +474,7 @@
 				A10000000000000000000005 /* BlazerActivity */,
 				A10000000000000000000006 /* BlazerTests */,
 				A10000000000000000000007 /* BlazerUITests */,
+				A10000000000000000000009 /* BlazerTestHost */,
 			);
 		};
 /* End PBXProject section */
@@ -464,6 +499,12 @@
 			buildActionMask = 2147483647;
 			files = (
 			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		R10000000000000000000008 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = ();
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
@@ -518,6 +559,12 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		S10000000000000000000008 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (B2000000000000000000000F /* BlazerTestHostApp.swift in Sources */, );
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -551,15 +598,20 @@
 			target = A10000000000000000000001 /* BlazerOS */;
 			targetProxy = P20000000000000000000005 /* PBXContainerItemProxy */;
 		};
+		Y10000000000000000000007 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A10000000000000000000001 /* BlazerOS */;
+			targetProxy = P20000000000000000000006 /* PBXContainerItemProxy */;
+		};
 		Y10000000000000000000008 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = A10000000000000000000001 /* BlazerOS */;
 			targetProxy = P20000000000000000000008 /* PBXContainerItemProxy */;
 		};
-		Y10000000000000000000007 /* PBXTargetDependency */ = {
+		Y10000000000000000000009 /* BlazerTestHost dependency */ = {
 			isa = PBXTargetDependency;
-			target = A10000000000000000000001 /* BlazerOS */;
-			targetProxy = P20000000000000000000006 /* PBXContainerItemProxy */;
+			target = A10000000000000000000009 /* BlazerTestHost */;
+			targetProxy = P20000000000000000000009 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -866,7 +918,6 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 5;
-				DISABLE_DIAMOND_PROBLEM_DIAGNOSTIC = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.7.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.blazer.os.tests;
@@ -874,7 +925,7 @@
 				SDKROOT = iphoneos;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 6.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BlazerOS.app/BlazerOS";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BlazerTestHost.app/BlazerTestHost";
 				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
@@ -885,7 +936,6 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 5;
-				DISABLE_DIAMOND_PROBLEM_DIAGNOSTIC = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.7.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.blazer.os.tests;
@@ -893,7 +943,7 @@
 				SDKROOT = iphoneos;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 6.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BlazerOS.app/BlazerOS";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BlazerTestHost.app/BlazerTestHost";
 				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
@@ -919,6 +969,36 @@
 				CURRENT_PROJECT_VERSION = 5;
 				GENERATE_INFOPLIST_FILE = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.blazer.os.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		K10000000000000000000081 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 5;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.blazer.os.testhost;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		K10000000000000000000082 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 5;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.blazer.os.testhost;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 6.0;
@@ -988,6 +1068,15 @@
 			buildConfigurations = (
 				K10000000000000000000071 /* Debug */,
 				K10000000000000000000072 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		L10000000000000000000011 /* Build configuration list for PBXNativeTarget "BlazerTestHost" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				K10000000000000000000081 /* Debug */,
+				K10000000000000000000082 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

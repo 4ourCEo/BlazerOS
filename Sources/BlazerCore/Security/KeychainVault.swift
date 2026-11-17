@@ -2,6 +2,9 @@ import Foundation
 #if canImport(Security)
 import Security
 #endif
+#if os(macOS)
+import LocalAuthentication
+#endif
 
 // MARK: - Keychain vault
 //
@@ -92,6 +95,14 @@ public struct SystemKeychainVault: KeychainVault {
         var query = baseQuery(key)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
+        #if os(macOS)
+        // Availability checks run in the background during desk startup. A locked
+        // optional API key must report unavailable instead of opening one Keychain
+        // password dialog per provider.
+        let context = LAContext()
+        context.interactionNotAllowed = true
+        query[kSecUseAuthenticationContext as String] = context
+        #endif
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         if status == errSecItemNotFound { return nil }

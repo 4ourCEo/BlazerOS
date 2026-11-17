@@ -27,6 +27,13 @@ public enum AdaptiveSpreadState: String, Codable, Sendable, Equatable {
     case unavailable = "UNAVAILABLE"
 }
 
+/// Distinguishes an analyzer that completed with no eligible candidates from one
+/// that failed before producing a result.
+public enum AdaptiveCandidateEvaluationBatch: Sendable, Equatable {
+    case completed([AdaptiveOpportunityCandidate])
+    case failed(String)
+}
+
 public struct AdaptiveOpportunityCandidate: Codable, Sendable, Equatable, Identifiable {
     public let id: String
     public let strategyID: String
@@ -37,6 +44,8 @@ public struct AdaptiveOpportunityCandidate: Codable, Sendable, Equatable, Identi
     public let regime: String?
     public let session: String?
     public let observedAt: Date?
+    /// Advisory observation deadline. Optional for backwards-compatible archives.
+    public let validUntil: Date?
     public let evaluationStartedAt: Date
     public let evaluationCompletedAt: Date
     public let state: AdaptiveCandidateState
@@ -51,25 +60,41 @@ public struct AdaptiveOpportunityCandidate: Codable, Sendable, Equatable, Identi
     public let spreadState: AdaptiveSpreadState
     /// Ranking input only. It is conviction/order information, never a probability.
     public let rankingScore: Double
+    /// Exact instrument/config/evaluator/adapter provenance. Nil on legacy archives
+    /// and non-adapted callers; such candidates cannot satisfy a promotion record.
+    public let effectiveConfigurationSHA256: String?
+    public let evaluatorCodeSHA256: String?
+    public let adapterCodeSHA256: String?
+    public let selectorCodeSHA256: String?
 
     public init(id: String, strategyID: String, strategyVersion: String,
                 instrument: String, provider: String, direction: AdaptiveDirection,
                 regime: String? = nil, session: String? = nil, observedAt: Date? = nil,
+                validUntil: Date? = nil,
                 evaluationStartedAt: Date, evaluationCompletedAt: Date,
                 state: AdaptiveCandidateState, rejectionReasons: [String] = [],
                 entryReference: Double? = nil, plan: V3TradePlan? = nil,
                  horizonsSeconds: [Int] = [],
                 evidenceReferences: [String] = [], provenance: String,
                 freshness: AdaptiveFreshnessState, spread: Double? = nil,
-                spreadState: AdaptiveSpreadState, rankingScore: Double = 0) {
+                spreadState: AdaptiveSpreadState, rankingScore: Double = 0,
+                effectiveConfigurationSHA256: String? = nil,
+                evaluatorCodeSHA256: String? = nil,
+                adapterCodeSHA256: String? = nil,
+                selectorCodeSHA256: String? = nil) {
         self.id = id; self.strategyID = strategyID; self.strategyVersion = strategyVersion
         self.instrument = instrument; self.provider = provider; self.direction = direction
         self.regime = regime; self.session = session; self.observedAt = observedAt
+        self.validUntil = validUntil
         self.evaluationStartedAt = evaluationStartedAt; self.evaluationCompletedAt = evaluationCompletedAt
         self.state = state; self.rejectionReasons = rejectionReasons; self.entryReference = entryReference
         self.plan = plan; self.horizonsSeconds = horizonsSeconds; self.evidenceReferences = evidenceReferences
         self.provenance = provenance; self.freshness = freshness; self.spread = spread
         self.spreadState = spreadState; self.rankingScore = rankingScore
+        self.effectiveConfigurationSHA256 = effectiveConfigurationSHA256?.lowercased()
+        self.evaluatorCodeSHA256 = evaluatorCodeSHA256?.lowercased()
+        self.adapterCodeSHA256 = adapterCodeSHA256?.lowercased()
+        self.selectorCodeSHA256 = selectorCodeSHA256?.lowercased()
     }
 }
 

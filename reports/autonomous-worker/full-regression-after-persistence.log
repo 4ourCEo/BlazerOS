@@ -1,0 +1,874 @@
+Building for debugging...
+[Computing dependencies]
+Build complete! (0.44 sec)
+Test Suite 'All tests' started at 2026-11-11 10:56:24.366.
+Test Suite 'All tests' passed at 2026-11-11 10:56:24.369.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.004) seconds
+◇ Test run started.
+↳ Testing Library Version: 2403
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Test buildRequestDeepSeekShape() started.
+◇ Test realAppleOnDeviceAcceptsAnActionableLowDecision() started.
+◇ Test malformedInputIsRejectedBeforeTheEngineSeesIt() started.
+◇ Test cryptoDirectionAndStrengthStayInsideTheContract() started.
+◇ Test legacyGroupStorageMigratesUnderLibrary() started.
+◇ Test candleCacheDoesNotCacheEmptyFetches() started.
+◇ Suite AdaptiveMarketRehearsalTests started.
+◇ Test snapshotArchiveKeepsDifferentFullInputsWithTheSameDisplayHash() started.
+◇ Test realEngineReportsExactTokenCountWhenAvailable() started.
+◇ Test cryptoAdapterFillsEveryEntryGateField() started.
+◇ Test breakevenEqualsEntryPlusFeeExactly() started.
+◇ Test invalidServerTimeSampleIsRejected() started.
+◇ Test cryptoRejectsNonFiniteCandleBeforeScoring() started.
+◇ Test directPocketOptionSessionStaysInTheVaultAndCanBeRemovedImmediately() started.
+◇ Test contextThatCannotFitReturnsContextFailure() started.
+◇ Test malformedInputFailsExplicitly() started.
+◇ Test persistedNominalAcceptanceFlagsCannotBypassEvidenceControls() started.
+◇ Test researchSurvivesRelaunchAndRetainsDistinctHorizons() started.
+◇ Test comparisonRejectsOfflineMissingAndStaleObservations() started.
+◇ Test candidate001M15ConfirmationUsesOnlyCompletedCandlesAtTriggerTime() started.
+◇ Suite ORBBreakRetestV1Tests started.
+◇ Test directPocketOptionAuthenticationAloneNeverReportsLive() started.
+◇ Test openAccumulatesExactEntryCost() started.
+◇ Test acceptanceUsesBreakEvenNotFiftyPercent() started.
+◇ Test v3TradePlanRequiresStructuralLevelsAndVersionedEvidence() started.
+◇ Test v3SpotEvaluationDoesNotInventLateResults() started.
+◇ Test assistantCountsFullArchiveBeforeBoundingItsContext() started.
+◇ Test extremeButSupportedValuesDoNotTrapScoreConversion() started.
+◇ Test incompleteCashInputsCannotLookLikeAContainedSession() started.
+◇ Test debriefRejectsUnknownCitation() started.
+◇ Test invalidCryptoQuoteAndChronologyFailClosed() started.
+◇ Test referenceAttributionRequiresTimelyProxyAtMatchingExpiry() started.
+◇ Test scanKernelUsesMillisecondCandleTimesAndRemovesFormingM5BeforeEngine() started.
+◇ Test selectionUsesConvictionAfterFreshnessGate() started.
+◇ Test ledgerHeaderUpgradeKeepsAPreV3Backup() started.
+◇ Test v3PlanLifecycleDoesNotResurrectTerminalPlans() started.
+◇ Test unresolvedEnteredTradeWithholdsPathStatisticsAndEqualTimesAreDeterministic() started.
+◇ Test candlesPreserveRawClockNormalizeAndMarkIncomplete() started.
+◇ Test promotionRequiresTheLowerBoundAboveBreakEven() started.
+◇ Test validationRecordDecodesArchivesWrittenBeforeTiePolicy() started.
+◇ Test syntheticFixturesRemainDocumentationOnly() started.
+◇ Test switchingMarketModeIsSafe() started.
+◇ Test comparisonAlwaysUsesDeterministicDifferences() started.
+◇ Test campaignFreezesSixtySecondRulesAndVersions() started.
+◇ Test v3RiskSizerRespectsRiskBudgetAndMargin() started.
+◇ Test manualBrokerObservationArchiveIsResearchOnlyAndCorruptionIsVisible() started.
+◇ Test referenceOutcomesNeverEnterTheMeasuredSample() started.
+◇ Suite V3StructuralOutcomeTests started.
+◇ Test driftClassifiesSkew() started.
+◇ Test assistantValidationSummariesAreBoundedToOnePerStage() started.
+◇ Test syntheticResearchRootIsIsolatedFromTheDeskRoot() started.
+◇ Suite AdaptiveOpportunitySelectorTests started.
+◇ Test uncorrectedSignificanceCannotPassARegisteredFamily() started.
+◇ Test candidateComparisonWithholdsCostExpectancyWhenCostOrPayoutMissing() started.
+◇ Test scanCoordinatorFiresIdleOnlyAfterOwnershipIsRelinquished() started.
+◇ Test duplicateEventIsIdempotent() started.
+◇ Test unverifiedSourceStillReportsTheLoadedHash() started.
+◇ Test oversizedContextRetriesOnceWithCompactedContext() started.
+◇ Test storeSurvivesRestart() started.
+◇ Test v3PersistenceKeepsMissingExitExplicitlyUnresolved() started.
+◇ Test cryptoIdentityIsStable() started.
+◇ Test flatTransitionsAreNotCountedAsDirectionalAgreement() started.
+◇ Test cancellingAResearchStreamEndsAConsumerWithoutAnotherYield() started.
+◇ Test sealedReplayWithoutOriginalScanIsHistoricalAndNonActionable() started.
+◇ Test ambiguousSweepIsRejected() started.
+◇ Test ledgerWritesDeclaredHeaderAndFixedWidthV3Rows() started.
+◇ Test frozenHoldoutDoesNotMoveWhenTheArchiveGrows() started.
+◇ Test streamRejectsOutOfOrderAndWrongInstrumentTicks() started.
+◇ Test partiallyLabelledBookIsMarkedMixed() started.
+◇ Test unresolvedOutcomeRoundTrips() started.
+◇ Suite "ClearStreetClientTests" started.
+◇ Test providerThrottlingAndReconnectAreControlled() started.
+◇ Test manualObservationCandleTimeMustNotPostDateTheObservation() started.
+◇ Test fullRecordedEvidenceStringIsAccepted() started.
+◇ Test tieSettledAsLossCountsInLossRateAndConfidenceSample() started.
+◇ Test moneynessClassification() started.
+◇ Test contractViolationsAreRejectedWithContractErrors() started.
+◇ Test availableEngineProducesModelOrigin() started.
+◇ Test auditReturnsAdviceThroughInjectedTransport() started.
+◇ Test v3RiskSizerRejectsInsufficientMarginAndMalformedInputs() started.
+◇ Test cryptoDecisionsAreSealed() started.
+◇ Test directPocketOptionProviderIsDisabledBeforeUsingTheSession() started.
+◇ Test interruptionIsExplicitAndFreshnessExpires() started.
+◇ Test breakEvenWinRateIsMathematicallyExact() started.
+◇ Test requestCarriesSystemComputedNumbersNotModelMath() started.
+◇ Test liveActivityExpiresWithoutAStaleFlag() started.
+◇ Test fxPipScalesUnchanged() started.
+◇ Test cryptoShapedSignalPassesEntryQuality() started.
+◇ Test v3PlansAreImmutableAndReloadable() started.
+◇ Test unknownTiePolicyWithholdsExpectancyAndRefundPolicyCountsStake() started.
+◇ Test candidate002TestsFibonacciLevelsIndependently() started.
+◇ Test unsupportedPercentageClaimIsRejected() started.
+◇ Test decodeRejectsMalformedOrEmpty() started.
+◇ Test ledgerPreservesOutcomeProvenanceAndArmID() started.
+◇ Test heartbeatOverdueDetection() started.
+◇ Test ledgerPersistsHandoffTiming() started.
+◇ Test positionSizingRejectsOverlappingHistoricalContracts() started.
+◇ Test corruptResearchArchiveIsAnExplicitError() started.
+◇ Test v3SpotEvaluationRejectsIdentityAndSourceOrderMismatches() started.
+◇ Test mixedPayoutBookUsesEveryRecordedRate() started.
+◇ Test decodeValidAdvice() started.
+◇ Test boundedCapturePersistsProviderSamplesWithoutEntryAuthority() started.
+◇ Test corruptPendingLineDoesNotBlockValidSettlements() started.
+◇ Test vaultStoresAndReadsBack() started.
+◇ Test staleClockSampleForcesRemeasure() started.
+◇ Test negativeExpectancyMandatesZeroStakeAndFlatPosture() started.
+◇ Test bothProviderParsersRejectFractionalAndOverflowingTradeCounts() started.
+◇ Test standardAndOTCEURUSDIdentitiesNeverAlias() started.
+◇ Test rejectsStaleAndInvalidOrOutsideEnvelopeQuotes() started.
+◇ Test goldGateUsesSwiftPipUnits() started.
+◇ Test scanSchedulerKeepsOneLatestPendingRequest() started.
+◇ Test corruptWebhookReplayLedgerFailsClosedOnEveryAttempt() started.
+◇ Test replayUsesOnlySourceMatchedObservationsAndExactlySixtySeconds() started.
+◇ Test legacyNineColumnLedgerDoesNotReadTheirPriceAsPayout() started.
+◇ Test malformedPocketOptionSessionIsNeverPersisted() started.
+◇ Test decayGateBlocksLateOutOfTheMoneyEntries() started.
+◇ Test syntheticSignalInputRemainsSyntheticWithIndependentSettlementPrices() started.
+◇ Test correctedNowAppliesSkew() started.
+◇ Test directPocketOptionProviderRequiresCurrentBrokerMetadataForEveryTick() started.
+◇ Test inventedEvidenceIsStillRejected() started.
+◇ Test streamAcceptsUnlabelledTicksAndTheOfficialCloseField() started.
+◇ Test morningPrimeLastMinuteStillCounts() started.
+◇ Test lowSignalIsNotExcludedFromResearchMeasurement() started.
+◇ Test reportUsesMixedPayoutExpectancyAndSeparatesSyntheticEvidence() started.
+◇ Test researchStorePersistsCampaignsAndGapRegister() started.
+◇ Test assessmentFlagsLateDecayedOutOfTheMoney() started.
+◇ Test concurrentRequestsAreSerialized() started.
+◇ Test fractionalPositionSizingSimulationUsesHistoricalPayoutAndFailsClosedOnMissingPayout() started.
+◇ Test scanRingRefusesTruncationAndReordering() started.
+◇ Test strategyValidationRecordsUseExistingImmutableResearchStore() started.
+◇ Test assistantReceivesOnlyBoundedConfirmedRiskFacts() started.
+◇ Test invalidCryptoDomainsAlwaysWait() started.
+◇ Test ledgerStillReadsLegacyV2RowsWrittenUnderTheOldHeader() started.
+◇ Test trendDecisionsAreSealed() started.
+◇ Test validationPipelineMeasuresSixtySecondsAndExcludesStaleWeekendReference() started.
+◇ Test webhookRejectsUnauthorizedStaleAndDuplicateAlerts() started.
+◇ Test validationDoesNotClaimLiveEvidenceWithoutAnOTCPrint() started.
+◇ Test settlementPaysContractValueOnWinAndZeroOnLoss() started.
+◇ Test comparisonHonorsTimestampSkewAndDirectionWithoutSignals() started.
+◇ Test v3PositionLifecycleSeparatesUserReportsFromBrokerConfirmation() started.
+◇ Test strategyCompetitionSeparatesCandidatesAndUnresolvedRecords() started.
+◇ Test chronologicalReportPurgesOverlappingExpiries() started.
+◇ Test unresolvedRowsAreExcludedFromConfirmedStats() started.
+◇ Test coachSynthesizesBasicMathAndExpectancyIntelligence() started.
+◇ Test v3SetupLifecycleRejectsResurrection() started.
+◇ Test cryptoFeedRequestsReconnectWhenNoTick() started.
+◇ Test realAppleOnDeviceEngineGenerates() started.
+◇ Test ageUsesSelectedWindowAndCannotResurrectAfterTwentySeconds() started.
+◇ Test millisecondServerSampleProducesOffset() started.
+◇ Test researchStoreRejectsDecodableCaseWhoseContentDoesNotMatchFilename() started.
+◇ Test newPendingCanBeQueuedAfterCorruption() started.
+◇ Test expectancyCalculatesPositiveAndNegativeEV() started.
+◇ Test cryptoFeedDoesNotDependOnFxSessions() started.
+◇ Test offPeakCountsToNextPrime() started.
+◇ Test reportIsReproducibleAndDoesNotPromoteNominalSuccess() started.
+◇ Test reproduceMixedPayoutFormulaReversesProfitability() started.
+◇ Test losingAdvertisedPayoutCannotChangeRealizedProfit() started.
+◇ Test unavailableModelReturnsLabelledFallback() started.
+◇ Test assistantContextCountsOnlyVenueConfirmedPerformance() started.
+◇ Test cryptoFeedStateMapsToDeskFeedStatus() started.
+◇ Test storageIdentityCoversBothTimeframes() started.
+◇ Test backgroundCancelsResearchCaptureAndInvalidatesSuspendedScan() started.
+◇ Test partialExitReducesQuantityAndConserves() started.
+◇ Test v3MarketObservationValidatesBidAskAndFreshness() started.
+◇ Test replayPropagatesCancellation() started.
+◇ Test tamperedEngineSourceIsRefusedBeforeAContextExists() started.
+◇ Test payoutCoverageFailureWithholdsExpectancyAndDrawdown() started.
+◇ Test securityGateStillRejectsCredentialShapedFreeText() started.
+◇ Test missingBrokerTimeIsUnknownNotCompliant() started.
+◇ Test weekendReportsMarketClosedInsteadOfNextPrime() started.
+◇ Test candleCacheJoinsInFlightFetchesEvenWhenForced() started.
+◇ Test futureOrIncompleteCandleIsRejectedBeforeEvaluation() started.
+◇ Test coachRejectsARestatedScoreThatDoesNotMatchTheSeal() started.
+◇ Test rollingRevalidationAcceptsResearchCandidateWithoutEntryAuthority() started.
+◇ Test unverifiedLabelsCannotCertifyAnEdge() started.
+◇ Test symbolsAcceptTheDocumentedCatalogueWithoutAVenueField() started.
+◇ Test assessmentBundlesDeterministicValues() started.
+◇ Test catalogPreservesIdentityAvailabilityAndPayout() started.
+◇ Test cannotSettleTwice() started.
+◇ Test cryptoFeedConnectingBeforeFirstTick() started.
+◇ Test executionReportUsesTheVerifiedReturnPathAfterStatisticalChecks() started.
+◇ Test cryptoFeedGoesStaleThenNoFeed() started.
+◇ Test syntheticVerificationCannotClaimProviderEvidence() started.
+◇ Test regimeRouterRoutesTrendToContinuation() started.
+◇ Test v3PersistenceRejectsConflictingReplay() started.
+◇ Test reconnectBackoffIsExponentialAndCapped() started.
+◇ Test proxiesDuplicatesAndFutureRowsCannotInflateVenueEvidence() started.
+◇ Test storeRejectsUnknownPosition() started.
+◇ Test timedOutGenerationFallsBack() started.
+◇ Test promptDemandsStrictJsonAndForbidsPriceTargets() started.
+◇ Test activePositionRoundTripsItsCompleteScanInput() started.
+◇ Test currentCryptoSpecMatchesAuthoritativeTerms() started.
+◇ Test slippageGateFailsClosedWithAReason() started.
+◇ Test briefBackgroundingWithFreshFeedNeedsNoReconnect() started.
+◇ Test advisoryLabelDefaultsToCautionNeverGreenLight() started.
+◇ Test scanCoordinatorRejectsCancellationIgnoringObsoleteResult() started.
+◇ Test acceptanceRejectsSmallSyntheticCohorts() started.
+◇ Test onlyFreshDirectionalSignalsAreActionable() started.
+◇ Test breakevenGeneralizesAcrossContractValue() started.
+◇ Test ledgerRetryDoesNotEraseUnreadableHistory() started.
+◇ Test longBackgroundingForcesFullResume() started.
+◇ Test legacyTenDollarTermsAreNotTheDefault() started.
+◇ Test refusedGenerationFallsBack() started.
+◇ Test invalidRiskPolicyCannotTriggerNumericallyUnboundedWarnings() started.
+◇ Test requestStateSeparatesCapabilityFromRequestFailure() started.
+◇ Test heterogeneousPayoutsWithoutOutcomeAlignmentAreUnavailable() started.
+◇ Test lateEntryExpiresAfterTenMinutes() started.
+◇ Test staleSignalIsRejectedWithoutReplacingTheSignal() started.
+◇ Test denseTicksReduceToNonOverlappingSixtySecondBuckets() started.
+◇ Test debriefRejectsModelNarratedRiskNumbersAndUsesDeterministicFacts() started.
+◇ Test directPocketOptionProviderRejectsOverlappingStreams() started.
+◇ Test candidate001RecordsTerminalLifecycleStateForUntriggeredSetups() started.
+◇ Test marketDataServiceKeepsOutOfOrderResponsesBoundToTheirAssets() started.
+◇ Test concurrentCorrelatedPairsCollapseIntoOneBlock() started.
+◇ Test boundedContextFitsTheModelWindow() started.
+◇ Test reversalRequiresARangeReclaimRatherThanTrendContinuation() started.
+◇ Test executionObservationStoreSurfacesCorruption() started.
+◇ Test actualExpectancyMatchesPayoutToWinningRows() started.
+◇ Test strategyCompetitionSortsReturnsAndRejectsMixedValidationStages() started.
+◇ Test positiveExpectancyCapsStakeAtRiskCeiling() started.
+◇ Test numericGuardsPreserveExplicitFiniteRiskConfiguration() started.
+◇ Test contradictoryScoreIsRejectedAndFallsBack() started.
+◇ Test cryptoFeedNoFeedAfterDisconnectWithHistory() started.
+◇ Test expiredPositionIsReportedAsExpiredRatherThanGuessed() started.
+◇ Test backgroundingExpiresActionableDeskStateWithoutRearming() started.
+◇ Test referenceOutcomeStoreIsBoundedAndDeduplicated() started.
+◇ Test marketDataServiceMapsProviderFailuresWithoutFabricatingData() started.
+◇ Test vaultOverwritesAndRemoves() started.
+◇ Test scanCommitRejectsInvalidOpportunityWithoutConversionTrap() started.
+◇ Test cachedScanCanNeverProduceAnActionableVerb() started.
+◇ Test cloudRecordRoundTripsV2MeasurementFields() started.
+◇ Test directPocketOptionTickNormalizesBrokerClockAndCannotAuthorizeEntry() started.
+◇ Test v3ProxyAndUnresolvedOutcomesDoNotBecomeVerifiedPerformance() started.
+◇ Test recordedPayoutReplacesTheAssumedRate() started.
+◇ Test pairIntervalsRespectExpiryOverlapAndMissingEntryTimes() started.
+◇ Test backgroundInvalidatesCancellationIgnoringScanAndForegroundDoesNotPublishIt() started.
+◇ Test missingDirectionIsUnavailable() started.
+◇ Test deteriorationIsResearchOnlyAndDoesNotPromoteOrReplace() started.
+◇ Test breakEvenMatchesCommonVenuePayouts() started.
+◇ Test restoreReportsDamageInsteadOfReturningEmptyHistory() started.
+◇ Test realModelCompactsAnOversizedContextOnce() started.
+◇ Test selectionNotesDescribeOmittedRecords() started.
+◇ Test stalePickerFallbackStaysWAIT() started.
+◇ Test capitalScenariosFailClosedForInvalidInputsAndMarkUnsuitableAccounts() started.
+◇ Test lateEntryRequiresDirectionAndAClearDesk() started.
+◇ Test bullishAndBearishConvictionAreSymmetric() started.
+◇ Test allTimeDrawdownCarriesAcrossSessionBoundaries() started.
+◇ Test revalidationCallsPinnedDeterministicEngineOnFreshInput() started.
+◇ Test unresolvedConfirmedTradeWithholdsSequenceAndCashConclusions() started.
+◇ Test challengersAreOptInAndStaleTriggersAreVetoed() started.
+◇ Test researchArchiveRetainsOnlyTheNewestSamples() started.
+◇ Test unconfirmedAndDuplicateCashResultsNeverEnterActualReturns() started.
+◇ Test zeroOrNegativeModelContextUsesBoundedFallbackCapacity() started.
+◇ Test v3SpotEvaluationUsesExecutableBidAskSides() started.
+◇ Test timestampMutationAndWrongVenueCannotBecomeHistoricalOutcome() started.
+◇ Test extractContentFromBothEnvelopes() started.
+◇ Test verificationMustBeTrustedBoundAndProspectivelyRegistered() started.
+◇ Test researchReportExcludesProxyDuplicateFutureAndUnclockedRecords() started.
+◇ Test cryptoCommitScoresConvictionNotAFraction() started.
+◇ Test validationTransitionsNeverBridgeProvidersOrASkewedStartingPair() started.
+◇ Test rollingCheckpointsPersistOnlyToResearchArchive() started.
+◇ Test cancellationStopsAProviderThatKeepsProducing() started.
+◇ Test bootstrapStressTestSimulatesExpectancyAndDrawdown() started.
+◇ Test researchEvidenceSurvivesRelaunchWithoutMutatingTheLedger() started.
+◇ Test legacyExperimentRecomputesAndSaysSo() started.
+◇ Test chronologicalExperimentIncludesBothDirectionsAndHeldOutCohort() started.
+◇ Test auditThrowsOnUnparseableAdviceSoCallerFallsBack() started.
+◇ Test coachRejectsPerformanceAndProbabilityClaims() started.
+◇ Test entryGateAllowsAFreshArmedBeam() started.
+◇ Test candleCacheAndOTCSamplesRemainSeparate() started.
+◇ Test failedPocketOptionSessionRemovalRemainsVisible() started.
+◇ Test missingPayoutCannotBecomeActualExpectancy() started.
+◇ Test directPocketOptionProviderHasNoHistoricalOrTradingSurface() started.
+◇ Test candidateComparisonRequiresMatchedIdentityAndKeepsPromotionDisabled() started.
+◇ Test intelWorkflowKeepsProviderSecretInVaultAndManualEvidenceSeparate() started.
+◇ Test detectsServerAheadAndBehind() started.
+◇ Test candleCacheOwnsFreshnessAndDeduplicatesInFlightFetches() started.
+◇ Test separatedObservationsRemainIndependent() started.
+◇ Test candlesAcceptTheDocumentedResponseWithoutATopLevelSymbol() started.
+◇ Test cryptoDeskGatesAreEnforced() started.
+◇ Test streamRejectsAnUnlabelledTickWhenSeveralInstrumentsAreRequested() started.
+◇ Test damagedLinesAreCountedWithoutDeletingTheFile() started.
+◇ Test sseDecoderDispatchesLineOrientedTicksWithoutBlankSeparators() started.
+◇ Test futureDatedTicksAreRejected() started.
+◇ Test missingMoneyMakesPnLUnknownNotZero() started.
+◇ Test lateEntryIsAvailableAfterTheBeamCloses() started.
+◇ Test staleSampleIsDetected() started.
+◇ Test candleValidationRejectsMalformedRelationsAndNegativeData() started.
+◇ Test referenceLabelsSuggestWithoutSettling() started.
+◇ Test savedTapBecomesHistoricalAfterTheBeam() started.
+◇ Test referenceSuggestionIsNeverAVenueConfirmation() started.
+◇ Test directPocketOptionCatalogDeclaresOnlyTheConfiguredResearchIdentity() started.
+◇ Test completeVerifiedContextIsSupported() started.
+◇ Test strikeStoreCreatesPositionAndOpeningEventInOneWrite() started.
+◇ Test qualityClassificationDoesNotChangeEngineDirection() started.
+◇ Test debriefDerivesStructuredFieldsFromContext() started.
+◇ Test morningPrimeCountdownEndsAtTenAM() started.
+◇ Test applicationSupportFallsBackToLegacyUntilMigration() started.
+◇ Test provenanceIsPreserved() started.
+◇ Test unlabelledPayoutFallsBackToTheAssumedRate() started.
+◇ Test demoBarsAreNeverCachedAsFreshTransportData() started.
+◇ Test invalidLedgerTimestampMakesRiskCoverageIncomplete() started.
+◇ Test countdownUsesTheSameWindowAsCurrent() started.
+◇ Test winAndLossAmountsAreExact() started.
+◇ Test providersMapToDistinctKeySlots() started.
+◇ Test duplicateCasesAndForgedOANDAOTCPricesCannotInflateEvidence() started.
+◇ Test symmetricSampleHasNoSkew() started.
+◇ Test cryptoFeedIsLiveWhenTickIsFresh() started.
+◇ Test sharedSignalIdentityCannotStampAnotherArmsOutcome() started.
+◇ Test coachDoesNotInventEvidenceWhenNoneWasRecorded() started.
+◇ Test webhookReplayStateSurvivesStoreRestart() started.
+◇ Test replayPreservesSignalTimeAndSimulatesExactSixtySecondExpiry() started.
+◇ Test engineBootsVerifiedAgainstPin() started.
+◇ Test pendingSiriFlagIsConsumedExactlyOnceWhileResearchCaptureIsActive() started.
+◇ Test unequalClustersAndClockBoundariesDoNotInflateEffectiveN() started.
+◇ Test entryGateRejectsStaleAndChasedPricesInBothDirections() started.
+◇ Test commitUsesFullInputIdentity() started.
+◇ Test corruptSnapshotLineCannotBeErasedByNextArchive() started.
+◇ Test failedSettlementSurvivesAndReconcilesOnceWithoutDuplicating() started.
+◇ Test replayRefusesMixedEntryAndExpiryProvenance() started.
+◇ Test candidate002RejectsIncompleteDataAndDoesNotFabricateOrderFlow() started.
+◇ Test disabledProviderAlwaysFailsClosed() started.
+◇ Test basisWarningWhenReferenceSitsTooCloseToStrike() started.
+◇ Test openPositionSurvivesRestartAndCanBeCleared() started.
+◇ Test candidate002FindsConfirmedPriceStructureFailure() started.
+◇ Test sharedRingKeepsEachConcurrentScanIsolated() started.
+◇ Test executionQualityDoesNotUseProfitToJudgeAdherence() started.
+◇ Test corruptPendingSettlementIsSurfacedNotDiscarded() started.
+◇ Test explicitlyReviewedPositiveControlClearsOnlyStatisticalQualification() started.
+◇ Test duplicateArmCannotAppendASecondOutcome() started.
+◇ Test validationAcceptsCallVocabularyForAHighSeal() started.
+◇ Test lowSignalGetsTheSameTelemetryTiersAsHigh() started.
+◇ Test experimentStoreRoundTripsVersionedRecords() started.
+◇ Test replayRejectsPreEntryAndMixedProvenanceObservations() started.
+◇ Test differentCorrelationGroupsStaySeparateInTheSameMinute() started.
+◇ Test validationAcceptsPutVocabularyForALowSeal() started.
+◇ Test candidate001FVGIsNotObservableBeforeThirdCompletedCandle() started.
+◇ Test lateNightCountdownCrossesMidnight() started.
+◇ Test missingIdentityAndUnresolvedOutcomeWithholdRiskConclusions() started.
+◇ Test realAppleOnDeviceServiceIsSafeOnLiveOutput() started.
+◇ Test reportExtensionPreservesLedgerBytesAndDecodesLegacyReports() started.
+◇ Test boundedAssistantDiagnosticsReportOmittedJournalNotes() started.
+◇ Test suspendedScanAndOTCCaptureProgressIndependently() started.
+◇ Test goldenDecisionIsSealed() started.
+◇ Test invalidConfigurationAndManualPricesFailClosedWithoutTrapping() started.
+◇ Test storageIdentityIncludesPairAndRejectsDisplayHashCollisions() started.
+◇ Test goldenControlIsPreserved() started.
+◇ Test cancelledGenerationFallsBack() started.
+◇ Test entryGateRefusesAVetoedCommit() started.
+◇ Test missingFeedOrClockForcesRebuild() started.
+◇ Test actualPayoutRatioHasNoInventedOneHundredPercentCeiling() started.
+◇ Test validationRejectsUnknownVocabulary() started.
+◇ Test validationRejectsTheOppositeDirection() started.
+◇ Test observationRejectsACandleFromAnotherInstrument() started.
+◇ Test v3MarketObservationRejectsFutureAndReceiptInversions() started.
+◇ Test tickPrintsThatShareASourceSecondAreRetained() started.
+◇ Test closedOnlyUntilSundayOpen() started.
+◇ Test controlArtifactIsPinnedAndEvaluates() started.
+◇ Test v3PersistenceSeparatesAndReloadsExecutableOutcomes() started.
+◇ Test cryptoPipScaleIsOneDollar() started.
+◇ Test allRecordIDsIncludesLocalEntryAndGapIDs() started.
+◇ Test pinnedHistoricalReplayIsDeterministic() started.
+◇ Test conflictingDuplicateOrderHasStableDigest() started.
+◇ Test otchartsIsDisabledBeforeTransportOrCredentialsAreUsed() started.
+◇ Test reproduceNominalCountWouldPassButVerifiedEffectiveCountFails() started.
+◇ Test storageIdentityCoversQuoteSpreadExpiryAndEngine() started.
+◇ Test highWinRateAtLowPayoutIsNotPromoted() started.
+◇ Test historicalBuilderCreatesOnlyPastCompletedSnapshots() started.
+◇ Test confirmedSessionRiskUsesActualStakesAndChronologicalLosses() started.
+◇ Test cryptoVetoBranchesAreSealed() started.
+◇ Test expiryDoesNotInventAResultFromOldOrLatePrices() started.
+◇ Test sessionLossThresholdLatchesAfterIntradayRecovery() started.
+◇ Test liveObservationRequiresManualExecutionAndVenueConfirmation() started.
+◇ Test failedObservedConstraintIsRejectedNotConditional() started.
+◇ Test missingLosingQuoteTermsDoNotEraseKnownExecutionReturns() started.
+◇ Test backgroundingStopsTheResearchCaptureAndClearsConnectionState() started.
+◇ Test checkpointIdentityIsDeterministicDistinctAndParentIsImmutable() started.
+◇ Test actionableStateRequiresSelectedCandidate() started.
+◇ Test duplicateVenueSettlementCannotCountUnderDifferentCaseIDs() started.
+◇ Test decisionStateDoesNotTreatUnsafeCandidateAsForming() started.
+◇ Test selectedHorizonRequiresRecordedResearchEvidence() started.
+◇ Test pairEvidenceExcludesConflictingUnresolvedOrCrossPairArms() started.
+◇ Test v3ForwardPathEvaluatesThenPersistsExecutableOutcome() started.
+◇ Test horizonIsNotPresentedAsSupportedWithoutEvidence() started.
+◇ Test v3PersistenceRejectsValidOutcomeWithoutExitAndCrossInstrumentEvidence() started.
+◇ Test researchStoreLinksRecordByCaseDigestWhenHumanCaseIDIsReused() started.
+◇ Test canonicalDecisionMapsBothVocabularies() started.
+◇ Test rehearsalRecordPreservesDecisionStatesAndInputIdentity() started.
+◇ Test candidate001RejectsIncompleteAndNonIncreasingBars() started.
+◇ Test boundedDiagnosticFailsClosedWithoutCredentials() started.
+◇ Test invalidSizingAndWilsonInputsFailClosed() started.
+◇ Test decisionStateRetainsDevelopingSetup() started.
+◇ Test directPocketOptionProviderRejectsWrongInstrumentAndFutureTicks() started.
+◇ Test buildRequestGeminiShape() started.
+◇ Test entryGateRefusesStaleHistoricalAndCrossPairEntries() started.
+◇ Test signalComparisonCannotAuthorizeExternalDirection() started.
+◇ Test exitCannotExceedOpenQuantity() started.
+◇ Test rejectsSideQualificationIdentityExpiryAndLocks() started.
+◇ Test cryptoRejectsNonFiniteQuotesBeforeScoring() started.
+◇ Test adaptiveRehearsalPersistsAndReloadsDeterministically() started.
+◇ Test confirmedStatsExcludeReferenceAndSyntheticRows() started.
+✔ Test cryptoAdapterFillsEveryEntryGateField() passed after 0.130 seconds.
+✔ Test invalidServerTimeSampleIsRejected() passed after 0.131 seconds.
+✔ Test breakevenEqualsEntryPlusFeeExactly() passed after 0.131 seconds.
+✔ Test cryptoRejectsNonFiniteCandleBeforeScoring() passed after 0.133 seconds.
+✔ Test cryptoDirectionAndStrengthStayInsideTheContract() passed after 0.138 seconds.
+✔ Test buildRequestDeepSeekShape() passed after 0.140 seconds.
+✔ Test legacyGroupStorageMigratesUnderLibrary() passed after 0.140 seconds.
+◇ Test remoteNotificationSignatureVerificationRejectsTampering() started.
+✔ Test comparisonRejectsOfflineMissingAndStaleObservations() passed after 0.139 seconds.
+✔ Test openAccumulatesExactEntryCost() passed after 0.140 seconds.
+✔ Test candidate001M15ConfirmationUsesOnlyCompletedCandlesAtTriggerTime() passed after 0.140 seconds.
+◇ Test confirmsShortBreakRetestWithExecutablePlanLevels() started.
+◇ Test missingOpeningBarIsUnresolvedNotASetup() started.
+◇ Test futureBarsCannotCreateLookaheadSetup() started.
+◇ Test notificationsAreStageBoundDeepLinkedAndDeduplicated() started.
+◇ Test confirmsLongBreakRetestAndCreatesCompletePlan() started.
+◇ Test daylightSavingSessionStillAnchorsAtNineThirtyEastern() started.
+◇ Test failedRetestInvalidatesSetup() started.
+✔ Test v3TradePlanRequiresStructuralLevelsAndVersionedEvidence() passed after 0.140 seconds.
+◇ Test remoteNotificationEnvelopeRejectsStaleOrMismatchedAlerts() started.
+✔ Test v3SpotEvaluationDoesNotInventLateResults() passed after 0.141 seconds.
+✔ Test persistedNominalAcceptanceFlagsCannotBypassEvidenceControls() passed after 0.142 seconds.
+✔ Test contextThatCannotFitReturnsContextFailure() passed after 0.142 seconds.
+✔ Test extremeButSupportedValuesDoNotTrapScoreConversion() passed after 0.143 seconds.
+✔ Test incompleteCashInputsCannotLookLikeAContainedSession() passed after 0.143 seconds.
+✔ Test referenceAttributionRequiresTimelyProxyAtMatchingExpiry() passed after 0.143 seconds.
+✔ Test invalidCryptoQuoteAndChronologyFailClosed() passed after 0.143 seconds.
+✔ Test v3PlanLifecycleDoesNotResurrectTerminalPlans() passed after 0.144 seconds.
+✔ Test assistantCountsFullArchiveBeforeBoundingItsContext() passed after 0.145 seconds.
+✔ Test unresolvedEnteredTradeWithholdsPathStatisticsAndEqualTimesAreDeterministic() passed after 0.147 seconds.
+✔ Test candlesPreserveRawClockNormalizeAndMarkIncomplete() passed after 0.147 seconds.
+✔ Test syntheticFixturesRemainDocumentationOnly() passed after 0.151 seconds.
+✔ Test validationRecordDecodesArchivesWrittenBeforeTiePolicy() passed after 0.151 seconds.
+✔ Test promotionRequiresTheLowerBoundAboveBreakEven() passed after 0.159 seconds.
+✔ Test snapshotArchiveKeepsDifferentFullInputsWithTheSameDisplayHash() passed after 0.161 seconds.
+✔ Test v3RiskSizerRespectsRiskBudgetAndMargin() passed after 0.160 seconds.
+✔ Test campaignFreezesSixtySecondRulesAndVersions() passed after 0.169 seconds.
+✔ Test ledgerHeaderUpgradeKeepsAPreV3Backup() passed after 0.171 seconds.
+◇ Test noTriggerRemainsUntriggeredWithoutForcedExpiration() started.
+◇ Test crossInstrumentEntryCannotContaminatePlan() started.
+✔ Test driftClassifiesSkew() passed after 0.171 seconds.
+◇ Test missingQuoteIsUnresolved() started.
+◇ Test staleEntryIsNotUsedAsExecutableEvidence() started.
+◇ Test sameTimestampConflictingTriggersAreAmbiguous() started.
+◇ Test stopUsesLongBidAndRecordsLoser() started.
+◇ Test structuralOutcomeReplayIsIdempotentAndConflictsAreRejected() started.
+◇ Test targetUsesLongAskToBidAndRecordsSpreadAdjustedPnl() started.
+✔ Test assistantValidationSummariesAreBoundedToOnePerStage() passed after 0.180 seconds.
+✔ Test syntheticResearchRootIsIsolatedFromTheDeskRoot() passed after 0.182 seconds.
+◇ Test timingSeparatesCalculationFromPublicationLatency() started.
+✔ Test uncorrectedSignificanceCannotPassARegisteredFamily() passed after 0.182 seconds.
+◇ Test selectsHighestDeterministicResearchCandidate() started.
+◇ Test conflictingDirectionsProduceNoTradeAndPreserveDiagnostics() started.
+◇ Test adaptiveNotificationDeduplicatesAndRejectsStalePublication() started.
+◇ Test returnsNoTradeForStaleCandidate() started.
+◇ Test unavailableCandidateRemainsUnavailableThroughSelection() started.
+◇ Test orbAdapterPreservesResearchOnlyUnavailableDiagnostics() started.
+✔ Test duplicateEventIsIdempotent() passed after 0.186 seconds.
+✔ Test unverifiedSourceStillReportsTheLoadedHash() passed after 0.187 seconds.
+✔ Test candidateComparisonWithholdsCostExpectancyWhenCostOrPayoutMissing() passed after 0.187 seconds.
+✔ Test manualBrokerObservationArchiveIsResearchOnlyAndCorruptionIsVisible() passed after 0.190 seconds.
+✔ Test cryptoIdentityIsStable() passed after 0.190 seconds.
+✔ Test v3PersistenceKeepsMissingExitExplicitlyUnresolved() passed after 0.191 seconds.
+✔ Test storeSurvivesRestart() passed after 0.191 seconds.
+✔ Test sealedReplayWithoutOriginalScanIsHistoricalAndNonActionable() passed after 0.191 seconds.
+✔ Test flatTransitionsAreNotCountedAsDirectionalAgreement() passed after 0.192 seconds.
+✔ Test unresolvedOutcomeRoundTrips() passed after 0.192 seconds.
+✔ Test partiallyLabelledBookIsMarkedMixed() passed after 0.192 seconds.
+◇ Test parseQuotesFromDictionaryResponse() started.
+◇ Test unconfiguredClientFailsFast() started.
+◇ Test sessionConfiguredValidation() started.
+◇ Test parseQuotesFromListResponse() started.
+✔ Test frozenHoldoutDoesNotMoveWhenTheArchiveGrows() passed after 0.193 seconds.
+✔ Test manualObservationCandleTimeMustNotPostDateTheObservation() passed after 0.193 seconds.
+✔ Test moneynessClassification() passed after 0.194 seconds.
+✔ Test contractViolationsAreRejectedWithContractErrors() passed after 0.194 seconds.
+✔ Test tieSettledAsLossCountsInLossRateAndConfidenceSample() passed after 0.197 seconds.
+✔ Test v3RiskSizerRejectsInsufficientMarginAndMalformedInputs() passed after 0.197 seconds.
+✔ Test cryptoDecisionsAreSealed() passed after 0.197 seconds.
+✔ Test directPocketOptionProviderIsDisabledBeforeUsingTheSession() passed after 0.198 seconds.
+✔ Test auditReturnsAdviceThroughInjectedTransport() passed after 0.199 seconds.
+✔ Test breakEvenWinRateIsMathematicallyExact() passed after 0.199 seconds.
+✔ Test requestCarriesSystemComputedNumbersNotModelMath() passed after 0.199 seconds.
+✔ Test liveActivityExpiresWithoutAStaleFlag() passed after 0.201 seconds.
+✔ Test fxPipScalesUnchanged() passed after 0.201 seconds.
+✔ Test cryptoShapedSignalPassesEntryQuality() passed after 0.202 seconds.
+✔ Test v3PlansAreImmutableAndReloadable() passed after 0.202 seconds.
+✔ Test candidate002TestsFibonacciLevelsIndependently() passed after 0.202 seconds.
+✔ Test decodeRejectsMalformedOrEmpty() passed after 0.203 seconds.
+✔ Test unknownTiePolicyWithholdsExpectancyAndRefundPolicyCountsStake() passed after 0.204 seconds.
+✔ Test heartbeatOverdueDetection() passed after 0.210 seconds.
+✔ Test ledgerPersistsHandoffTiming() passed after 0.210 seconds.
+✔ Test positionSizingRejectsOverlappingHistoricalContracts() passed after 0.210 seconds.
+✔ Test ledgerPreservesOutcomeProvenanceAndArmID() passed after 0.210 seconds.
+✔ Test v3SpotEvaluationRejectsIdentityAndSourceOrderMismatches() passed after 0.210 seconds.
+✔ Test corruptResearchArchiveIsAnExplicitError() passed after 0.210 seconds.
+✔ Test decodeValidAdvice() passed after 0.210 seconds.
+✔ Test mixedPayoutBookUsesEveryRecordedRate() passed after 0.210 seconds.
+✔ Test vaultStoresAndReadsBack() passed after 0.210 seconds.
+✔ Test staleClockSampleForcesRemeasure() passed after 0.210 seconds.
+✔ Test bothProviderParsersRejectFractionalAndOverflowingTradeCounts() passed after 0.210 seconds.
+✔ Test standardAndOTCEURUSDIdentitiesNeverAlias() passed after 0.210 seconds.
+✔ Test negativeExpectancyMandatesZeroStakeAndFlatPosture() passed after 0.210 seconds.
+✔ Test rejectsStaleAndInvalidOrOutsideEnvelopeQuotes() passed after 0.210 seconds.
+✔ Test corruptPendingLineDoesNotBlockValidSettlements() passed after 0.210 seconds.
+✔ Test corruptWebhookReplayLedgerFailsClosedOnEveryAttempt() passed after 0.210 seconds.
+✔ Test replayUsesOnlySourceMatchedObservationsAndExactlySixtySeconds() passed after 0.210 seconds.
+✔ Test syntheticSignalInputRemainsSyntheticWithIndependentSettlementPrices() passed after 0.210 seconds.
+✔ Test decayGateBlocksLateOutOfTheMoneyEntries() passed after 0.210 seconds.
+✔ Test correctedNowAppliesSkew() passed after 0.210 seconds.
+✔ Test morningPrimeLastMinuteStillCounts() passed after 0.210 seconds.
+✔ Test referenceOutcomesNeverEnterTheMeasuredSample() passed after 0.212 seconds.
+✔ Test goldGateUsesSwiftPipUnits() passed after 0.210 seconds.
+✔ Test lowSignalIsNotExcludedFromResearchMeasurement() passed after 0.210 seconds.
+✔ Test researchStorePersistsCampaignsAndGapRegister() passed after 0.210 seconds.
+✔ Test acceptanceUsesBreakEvenNotFiftyPercent() passed after 0.213 seconds.
+✔ Test legacyNineColumnLedgerDoesNotReadTheirPriceAsPayout() passed after 0.210 seconds.
+✔ Test fractionalPositionSizingSimulationUsesHistoricalPayoutAndFailsClosedOnMissingPayout() passed after 0.210 seconds.
+✔ Test scanRingRefusesTruncationAndReordering() passed after 0.210 seconds.
+✔ Test ledgerWritesDeclaredHeaderAndFixedWidthV3Rows() passed after 0.212 seconds.
+✔ Test invalidCryptoDomainsAlwaysWait() passed after 0.210 seconds.
+✔ Test assessmentFlagsLateDecayedOutOfTheMoney() passed after 0.210 seconds.
+✔ Test reportUsesMixedPayoutExpectancyAndSeparatesSyntheticEvidence() passed after 0.210 seconds.
+✔ Test assistantReceivesOnlyBoundedConfirmedRiskFacts() passed after 0.210 seconds.
+✔ Test settlementPaysContractValueOnWinAndZeroOnLoss() passed after 0.210 seconds.
+✔ Test comparisonHonorsTimestampSkewAndDirectionWithoutSignals() passed after 0.210 seconds.
+✔ Test v3PositionLifecycleSeparatesUserReportsFromBrokerConfirmation() passed after 0.210 seconds.
+✔ Test strategyCompetitionSeparatesCandidatesAndUnresolvedRecords() passed after 0.209 seconds.
+✔ Test webhookRejectsUnauthorizedStaleAndDuplicateAlerts() passed after 0.210 seconds.
+✔ Test unresolvedRowsAreExcludedFromConfirmedStats() passed after 0.209 seconds.
+✔ Test coachSynthesizesBasicMathAndExpectancyIntelligence() passed after 0.209 seconds.
+✔ Test v3SetupLifecycleRejectsResurrection() passed after 0.209 seconds.
+✔ Test validationDoesNotClaimLiveEvidenceWithoutAnOTCPrint() passed after 0.210 seconds.
+✔ Test cryptoFeedRequestsReconnectWhenNoTick() passed after 0.209 seconds.
+✔ Test chronologicalReportPurgesOverlappingExpiries() passed after 0.209 seconds.
+✔ Test millisecondServerSampleProducesOffset() passed after 0.209 seconds.
+✔ Test ageUsesSelectedWindowAndCannotResurrectAfterTwentySeconds() passed after 0.209 seconds.
+✔ Test newPendingCanBeQueuedAfterCorruption() passed after 0.209 seconds.
+✔ Test expectancyCalculatesPositiveAndNegativeEV() passed after 0.209 seconds.
+✔ Test cryptoFeedDoesNotDependOnFxSessions() passed after 0.209 seconds.
+✔ Test offPeakCountsToNextPrime() passed after 0.208 seconds.
+✔ Test ledgerStillReadsLegacyV2RowsWrittenUnderTheOldHeader() passed after 0.211 seconds.
+✔ Test researchStoreRejectsDecodableCaseWhoseContentDoesNotMatchFilename() passed after 0.209 seconds.
+✔ Test validationPipelineMeasuresSixtySecondsAndExcludesStaleWeekendReference() passed after 0.211 seconds.
+✔ Test reproduceMixedPayoutFormulaReversesProfitability() passed after 0.208 seconds.
+✔ Test unavailableModelReturnsLabelledFallback() passed after 0.205 seconds.
+✔ Test cryptoFeedStateMapsToDeskFeedStatus() passed after 0.205 seconds.
+✔ Test strategyValidationRecordsUseExistingImmutableResearchStore() passed after 0.211 seconds.
+✔ Test storageIdentityCoversBothTimeframes() passed after 0.205 seconds.
+✔ Test partialExitReducesQuantityAndConserves() passed after 0.205 seconds.
+✔ Test v3MarketObservationValidatesBidAskAndFreshness() passed after 0.205 seconds.
+✔ Test losingAdvertisedPayoutCannotChangeRealizedProfit() passed after 0.206 seconds.
+✔ Test tamperedEngineSourceIsRefusedBeforeAContextExists() passed after 0.205 seconds.
+✔ Test assistantContextCountsOnlyVenueConfirmedPerformance() passed after 0.206 seconds.
+✔ Test missingBrokerTimeIsUnknownNotCompliant() passed after 0.205 seconds.
+✔ Test securityGateStillRejectsCredentialShapedFreeText() passed after 0.205 seconds.
+✔ Test coachRejectsARestatedScoreThatDoesNotMatchTheSeal() passed after 0.204 seconds.
+✔ Test weekendReportsMarketClosedInsteadOfNextPrime() passed after 0.205 seconds.
+✔ Test rollingRevalidationAcceptsResearchCandidateWithoutEntryAuthority() passed after 0.204 seconds.
+✔ Test unverifiedLabelsCannotCertifyAnEdge() passed after 0.204 seconds.
+✔ Test assessmentBundlesDeterministicValues() passed after 0.204 seconds.
+✔ Test symbolsAcceptTheDocumentedCatalogueWithoutAVenueField() passed after 0.204 seconds.
+✔ Test cryptoFeedConnectingBeforeFirstTick() passed after 0.202 seconds.
+✔ Test catalogPreservesIdentityAvailabilityAndPayout() passed after 0.202 seconds.
+✔ Test cryptoFeedGoesStaleThenNoFeed() passed after 0.201 seconds.
+✔ Test cannotSettleTwice() passed after 0.202 seconds.
+✔ Test futureOrIncompleteCandleIsRejectedBeforeEvaluation() passed after 0.206 seconds.
+✔ Test payoutCoverageFailureWithholdsExpectancyAndDrawdown() passed after 0.207 seconds.
+✔ Test reconnectBackoffIsExponentialAndCapped() passed after 0.201 seconds.
+✔ Test storeRejectsUnknownPosition() passed after 0.199 seconds.
+✔ Test executionReportUsesTheVerifiedReturnPathAfterStatisticalChecks() passed after 0.202 seconds.
+✔ Test proxiesDuplicatesAndFutureRowsCannotInflateVenueEvidence() passed after 0.201 seconds.
+✔ Test currentCryptoSpecMatchesAuthoritativeTerms() passed after 0.197 seconds.
+✔ Test promptDemandsStrictJsonAndForbidsPriceTargets() passed after 0.198 seconds.
+✔ Test briefBackgroundingWithFreshFeedNeedsNoReconnect() passed after 0.197 seconds.
+✔ Test advisoryLabelDefaultsToCautionNeverGreenLight() passed after 0.197 seconds.
+✔ Test slippageGateFailsClosedWithAReason() passed after 0.197 seconds.
+✔ Test syntheticVerificationCannotClaimProviderEvidence() passed after 0.202 seconds.
+✔ Test onlyFreshDirectionalSignalsAreActionable() passed after 0.197 seconds.
+✔ Test breakevenGeneralizesAcrossContractValue() passed after 0.197 seconds.
+✔ Test longBackgroundingForcesFullResume() passed after 0.197 seconds.
+✔ Test legacyTenDollarTermsAreNotTheDefault() passed after 0.196 seconds.
+✔ Test invalidRiskPolicyCannotTriggerNumericallyUnboundedWarnings() passed after 0.196 seconds.
+✔ Test requestStateSeparatesCapabilityFromRequestFailure() passed after 0.196 seconds.
+✔ Test heterogeneousPayoutsWithoutOutcomeAlignmentAreUnavailable() passed after 0.196 seconds.
+✔ Test v3PersistenceRejectsConflictingReplay() passed after 0.202 seconds.
+✔ Test staleSignalIsRejectedWithoutReplacingTheSignal() passed after 0.196 seconds.
+✔ Test activePositionRoundTripsItsCompleteScanInput() passed after 0.197 seconds.
+✔ Test lateEntryExpiresAfterTenMinutes() passed after 0.196 seconds.
+✔ Test candidate001RecordsTerminalLifecycleStateForUntriggeredSetups() passed after 0.183 seconds.
+✔ Test concurrentCorrelatedPairsCollapseIntoOneBlock() passed after 0.183 seconds.
+✔ Test boundedContextFitsTheModelWindow() passed after 0.183 seconds.
+✔ Test actualExpectancyMatchesPayoutToWinningRows() passed after 0.183 seconds.
+✔ Test strategyCompetitionSortsReturnsAndRejectsMixedValidationStages() passed after 0.183 seconds.
+✔ Test positiveExpectancyCapsStakeAtRiskCeiling() passed after 0.183 seconds.
+✔ Test numericGuardsPreserveExplicitFiniteRiskConfiguration() passed after 0.183 seconds.
+✔ Test cryptoFeedNoFeedAfterDisconnectWithHistory() passed after 0.183 seconds.
+✔ Test expiredPositionIsReportedAsExpiredRatherThanGuessed() passed after 0.183 seconds.
+✔ Test ledgerRetryDoesNotEraseUnreadableHistory() passed after 0.197 seconds.
+✔ Test acceptanceRejectsSmallSyntheticCohorts() passed after 0.197 seconds.
+✔ Test marketDataServiceMapsProviderFailuresWithoutFabricatingData() passed after 0.183 seconds.
+✔ Test vaultOverwritesAndRemoves() passed after 0.182 seconds.
+✔ Test executionObservationStoreSurfacesCorruption() passed after 0.183 seconds.
+✔ Test cachedScanCanNeverProduceAnActionableVerb() passed after 0.178 seconds.
+✔ Test v3ProxyAndUnresolvedOutcomesDoNotBecomeVerifiedPerformance() passed after 0.178 seconds.
+✔ Test scanCommitRejectsInvalidOpportunityWithoutConversionTrap() passed after 0.178 seconds.
+✔ Test pairIntervalsRespectExpiryOverlapAndMissingEntryTimes() passed after 0.178 seconds.
+✔ Test missingDirectionIsUnavailable() passed after 0.177 seconds.
+✔ Test cloudRecordRoundTripsV2MeasurementFields() passed after 0.178 seconds.
+✔ Test deteriorationIsResearchOnlyAndDoesNotPromoteOrReplace() passed after 0.177 seconds.
+✔ Test breakEvenMatchesCommonVenuePayouts() passed after 0.177 seconds.
+✔ Test recordedPayoutReplacesTheAssumedRate() passed after 0.178 seconds.
+✔ Test selectionNotesDescribeOmittedRecords() passed after 0.177 seconds.
+✔ Test stalePickerFallbackStaysWAIT() passed after 0.177 seconds.
+✔ Test capitalScenariosFailClosedForInvalidInputsAndMarkUnsuitableAccounts() passed after 0.177 seconds.
+✔ Test lateEntryRequiresDirectionAndAClearDesk() passed after 0.177 seconds.
+✔ Test allTimeDrawdownCarriesAcrossSessionBoundaries() passed after 0.177 seconds.
+✔ Test restoreReportsDamageInsteadOfReturningEmptyHistory() passed after 0.177 seconds.
+✔ Test unresolvedConfirmedTradeWithholdsSequenceAndCashConclusions() passed after 0.177 seconds.
+✔ Test unconfirmedAndDuplicateCashResultsNeverEnterActualReturns() passed after 0.177 seconds.
+✔ Test zeroOrNegativeModelContextUsesBoundedFallbackCapacity() passed after 0.177 seconds.
+✔ Test v3SpotEvaluationUsesExecutableBidAskSides() passed after 0.177 seconds.
+✔ Test referenceOutcomeStoreIsBoundedAndDeduplicated() passed after 0.183 seconds.
+✔ Test denseTicksReduceToNonOverlappingSixtySecondBuckets() passed after 0.185 seconds.
+✔ Test verificationMustBeTrustedBoundAndProspectivelyRegistered() passed after 0.176 seconds.
+✔ Test researchReportExcludesProxyDuplicateFutureAndUnclockedRecords() passed after 0.176 seconds.
+✔ Test cryptoCommitScoresConvictionNotAFraction() passed after 0.176 seconds.
+✔ Test extractContentFromBothEnvelopes() passed after 0.177 seconds.
+✔ Test timestampMutationAndWrongVenueCannotBecomeHistoricalOutcome() passed after 0.177 seconds.
+✔ Test rollingCheckpointsPersistOnlyToResearchArchive() passed after 0.176 seconds.
+✔ Test legacyExperimentRecomputesAndSaysSo() passed after 0.176 seconds.
+✔ Test validationTransitionsNeverBridgeProvidersOrASkewedStartingPair() passed after 0.176 seconds.
+✔ Test auditThrowsOnUnparseableAdviceSoCallerFallsBack() passed after 0.176 seconds.
+✔ Test coachRejectsPerformanceAndProbabilityClaims() passed after 0.176 seconds.
+✔ Test entryGateAllowsAFreshArmedBeam() passed after 0.176 seconds.
+✔ Test missingPayoutCannotBecomeActualExpectancy() passed after 0.176 seconds.
+✔ Test directPocketOptionProviderHasNoHistoricalOrTradingSurface() passed after 0.176 seconds.
+✔ Test candidateComparisonRequiresMatchedIdentityAndKeepsPromotionDisabled() passed after 0.176 seconds.
+✔ Test detectsServerAheadAndBehind() passed after 0.176 seconds.
+✔ Test separatedObservationsRemainIndependent() passed after 0.175 seconds.
+✔ Test candlesAcceptTheDocumentedResponseWithoutATopLevelSymbol() passed after 0.175 seconds.
+✔ Test chronologicalExperimentIncludesBothDirectionsAndHeldOutCohort() passed after 0.176 seconds.
+✔ Test cryptoDeskGatesAreEnforced() passed after 0.175 seconds.
+✔ Test sseDecoderDispatchesLineOrientedTicksWithoutBlankSeparators() passed after 0.174 seconds.
+✔ Test missingMoneyMakesPnLUnknownNotZero() passed after 0.174 seconds.
+✔ Test lateEntryIsAvailableAfterTheBeamCloses() passed after 0.174 seconds.
+✔ Test staleSampleIsDetected() passed after 0.174 seconds.
+✔ Test candleValidationRejectsMalformedRelationsAndNegativeData() passed after 0.174 seconds.
+✔ Test referenceLabelsSuggestWithoutSettling() passed after 0.174 seconds.
+✔ Test savedTapBecomesHistoricalAfterTheBeam() passed after 0.174 seconds.
+✔ Test referenceSuggestionIsNeverAVenueConfirmation() passed after 0.174 seconds.
+✔ Test directPocketOptionCatalogDeclaresOnlyTheConfiguredResearchIdentity() passed after 0.174 seconds.
+✔ Test completeVerifiedContextIsSupported() passed after 0.174 seconds.
+✔ Test damagedLinesAreCountedWithoutDeletingTheFile() passed after 0.174 seconds.
+✔ Test researchArchiveRetainsOnlyTheNewestSamples() passed after 0.178 seconds.
+✔ Test qualityClassificationDoesNotChangeEngineDirection() passed after 0.174 seconds.
+✔ Test morningPrimeCountdownEndsAtTenAM() passed after 0.174 seconds.
+✔ Test provenanceIsPreserved() passed after 0.174 seconds.
+✔ Test strikeStoreCreatesPositionAndOpeningEventInOneWrite() passed after 0.174 seconds.
+✔ Test invalidLedgerTimestampMakesRiskCoverageIncomplete() passed after 0.174 seconds.
+✔ Test unlabelledPayoutFallsBackToTheAssumedRate() passed after 0.175 seconds.
+✔ Test winAndLossAmountsAreExact() passed after 0.175 seconds.
+✔ Test providersMapToDistinctKeySlots() passed after 0.175 seconds.
+✔ Test applicationSupportFallsBackToLegacyUntilMigration() passed after 0.176 seconds.
+✔ Test symmetricSampleHasNoSkew() passed after 0.175 seconds.
+✔ Test cryptoFeedIsLiveWhenTickIsFresh() passed after 0.175 seconds.
+✔ Test duplicateCasesAndForgedOANDAOTCPricesCannotInflateEvidence() passed after 0.175 seconds.
+✔ Test coachDoesNotInventEvidenceWhenNoneWasRecorded() passed after 0.175 seconds.
+✔ Test webhookReplayStateSurvivesStoreRestart() passed after 0.175 seconds.
+✔ Test countdownUsesTheSameWindowAsCurrent() passed after 0.175 seconds.
+✔ Test unequalClustersAndClockBoundariesDoNotInflateEffectiveN() passed after 0.175 seconds.
+✔ Test replayPreservesSignalTimeAndSimulatesExactSixtySecondExpiry() passed after 0.175 seconds.
+✔ Test commitUsesFullInputIdentity() passed after 0.175 seconds.
+✔ Test bootstrapStressTestSimulatesExpectancyAndDrawdown() passed after 0.179 seconds.
+✔ Test corruptSnapshotLineCannotBeErasedByNextArchive() passed after 0.175 seconds.
+✔ Test candidate002RejectsIncompleteDataAndDoesNotFabricateOrderFlow() passed after 0.175 seconds.
+✔ Test disabledProviderAlwaysFailsClosed() passed after 0.175 seconds.
+✔ Test basisWarningWhenReferenceSitsTooCloseToStrike() passed after 0.175 seconds.
+✔ Test replayRefusesMixedEntryAndExpiryProvenance() passed after 0.175 seconds.
+✔ Test sharedSignalIdentityCannotStampAnotherArmsOutcome() passed after 0.176 seconds.
+✔ Test candidate002FindsConfirmedPriceStructureFailure() passed after 0.175 seconds.
+✔ Test executionQualityDoesNotUseProfitToJudgeAdherence() passed after 0.175 seconds.
+✔ Test explicitlyReviewedPositiveControlClearsOnlyStatisticalQualification() passed after 0.195 seconds.
+✔ Test openPositionSurvivesRestartAndCanBeCleared() passed after 0.196 seconds.
+✔ Test validationAcceptsCallVocabularyForAHighSeal() passed after 0.196 seconds.
+✔ Test lowSignalGetsTheSameTelemetryTiersAsHigh() passed after 0.196 seconds.
+✔ Test experimentStoreRoundTripsVersionedRecords() passed after 0.195 seconds.
+✔ Test differentCorrelationGroupsStaySeparateInTheSameMinute() passed after 0.195 seconds.
+✔ Test replayRejectsPreEntryAndMixedProvenanceObservations() passed after 0.195 seconds.
+✔ Test validationAcceptsPutVocabularyForALowSeal() passed after 0.195 seconds.
+✔ Test lateNightCountdownCrossesMidnight() passed after 0.195 seconds.
+✔ Test corruptPendingSettlementIsSurfacedNotDiscarded() passed after 0.196 seconds.
+✔ Test duplicateArmCannotAppendASecondOutcome() passed after 0.196 seconds.
+✔ Test missingIdentityAndUnresolvedOutcomeWithholdRiskConclusions() passed after 0.195 seconds.
+✔ Test boundedAssistantDiagnosticsReportOmittedJournalNotes() passed after 0.195 seconds.
+✔ Test candidate001FVGIsNotObservableBeforeThirdCompletedCandle() passed after 0.195 seconds.
+✔ Test invalidConfigurationAndManualPricesFailClosedWithoutTrapping() passed after 0.194 seconds.
+✔ Test storageIdentityIncludesPairAndRejectsDisplayHashCollisions() passed after 0.194 seconds.
+✔ Test entryGateRefusesAVetoedCommit() passed after 0.194 seconds.
+✔ Test missingFeedOrClockForcesRebuild() passed after 0.194 seconds.
+✔ Test actualPayoutRatioHasNoInventedOneHundredPercentCeiling() passed after 0.194 seconds.
+✔ Test validationRejectsUnknownVocabulary() passed after 0.193 seconds.
+✔ Test validationRejectsTheOppositeDirection() passed after 0.193 seconds.
+✔ Test observationRejectsACandleFromAnotherInstrument() passed after 0.191 seconds.
+✔ Test v3MarketObservationRejectsFutureAndReceiptInversions() passed after 0.189 seconds.
+✔ Test closedOnlyUntilSundayOpen() passed after 0.189 seconds.
+✔ Test reportIsReproducibleAndDoesNotPromoteNominalSuccess() passed after 0.237 seconds.
+✔ Test cryptoPipScaleIsOneDollar() passed after 0.187 seconds.
+✔ Test allRecordIDsIncludesLocalEntryAndGapIDs() passed after 0.187 seconds.
+✔ Test v3PersistenceSeparatesAndReloadsExecutableOutcomes() passed after 0.189 seconds.
+✔ Test conflictingDuplicateOrderHasStableDigest() passed after 0.185 seconds.
+✔ Test otchartsIsDisabledBeforeTransportOrCredentialsAreUsed() passed after 0.184 seconds.
+✔ Test reproduceNominalCountWouldPassButVerifiedEffectiveCountFails() passed after 0.184 seconds.
+✔ Test storageIdentityCoversQuoteSpreadExpiryAndEngine() passed after 0.184 seconds.
+✔ Test historicalBuilderCreatesOnlyPastCompletedSnapshots() passed after 0.184 seconds.
+✔ Test confirmedSessionRiskUsesActualStakesAndChronologicalLosses() passed after 0.181 seconds.
+✔ Test highWinRateAtLowPayoutIsNotPromoted() passed after 0.184 seconds.
+✔ Test expiryDoesNotInventAResultFromOldOrLatePrices() passed after 0.181 seconds.
+✔ Test cryptoVetoBranchesAreSealed() passed after 0.181 seconds.
+✔ Test sessionLossThresholdLatchesAfterIntradayRecovery() passed after 0.181 seconds.
+✔ Test failedObservedConstraintIsRejectedNotConditional() passed after 0.181 seconds.
+✔ Test failedSettlementSurvivesAndReconcilesOnceWithoutDuplicating() passed after 0.197 seconds.
+✔ Test liveObservationRequiresManualExecutionAndVenueConfirmation() passed after 0.181 seconds.
+✔ Test checkpointIdentityIsDeterministicDistinctAndParentIsImmutable() passed after 0.180 seconds.
+✔ Test missingLosingQuoteTermsDoNotEraseKnownExecutionReturns() passed after 0.181 seconds.
+✔ Test decisionStateDoesNotTreatUnsafeCandidateAsForming() passed after 0.180 seconds.
+✔ Test selectedHorizonRequiresRecordedResearchEvidence() passed after 0.180 seconds.
+✔ Test actionableStateRequiresSelectedCandidate() passed after 0.180 seconds.
+✔ Test pairEvidenceExcludesConflictingUnresolvedOrCrossPairArms() passed after 0.180 seconds.
+✔ Test duplicateVenueSettlementCannotCountUnderDifferentCaseIDs() passed after 0.180 seconds.
+✔ Test v3PersistenceRejectsValidOutcomeWithoutExitAndCrossInstrumentEvidence() passed after 0.180 seconds.
+✔ Test canonicalDecisionMapsBothVocabularies() passed after 0.180 seconds.
+✔ Test v3ForwardPathEvaluatesThenPersistsExecutableOutcome() passed after 0.180 seconds.
+✔ Test candidate001RejectsIncompleteAndNonIncreasingBars() passed after 0.180 seconds.
+✔ Test horizonIsNotPresentedAsSupportedWithoutEvidence() passed after 0.180 seconds.
+✔ Test invalidSizingAndWilsonInputsFailClosed() passed after 0.179 seconds.
+✔ Test decisionStateRetainsDevelopingSetup() passed after 0.179 seconds.
+✔ Test entryGateRefusesStaleHistoricalAndCrossPairEntries() passed after 0.176 seconds.
+✔ Test buildRequestGeminiShape() passed after 0.179 seconds.
+✔ Test reportExtensionPreservesLedgerBytesAndDecodesLegacyReports() passed after 0.196 seconds.
+✔ Test signalComparisonCannotAuthorizeExternalDirection() passed after 0.176 seconds.
+✔ Test exitCannotExceedOpenQuantity() passed after 0.176 seconds.
+✔ Test cryptoRejectsNonFiniteQuotesBeforeScoring() passed after 0.176 seconds.
+✔ Test rehearsalRecordPreservesDecisionStatesAndInputIdentity() passed after 0.180 seconds.
+✔ Test rejectsSideQualificationIdentityExpiryAndLocks() passed after 0.176 seconds.
+✔ Test adaptiveRehearsalPersistsAndReloadsDeterministically() passed after 0.173 seconds.
+✔ Test confirmedStatsExcludeReferenceAndSyntheticRows() passed after 0.173 seconds.
+✔ Test researchStoreLinksRecordByCaseDigestWhenHumanCaseIDIsReused() passed after 0.180 seconds.
+✔ Test ambiguousSweepIsRejected() passed after 0.243 seconds.
+✔ Test scanKernelUsesMillisecondCandleTimesAndRemovesFormingM5BeforeEngine() passed after 0.244 seconds.
+✔ Test malformedInputFailsExplicitly() passed after 0.244 seconds.
+✔ Test remoteNotificationSignatureVerificationRejectsTampering() passed after 0.104 seconds.
+✔ Test confirmsShortBreakRetestWithExecutablePlanLevels() passed after 0.103 seconds.
+✔ Test missingOpeningBarIsUnresolvedNotASetup() passed after 0.103 seconds.
+✔ Test futureBarsCannotCreateLookaheadSetup() passed after 0.103 seconds.
+✔ Test notificationsAreStageBoundDeepLinkedAndDeduplicated() passed after 0.103 seconds.
+✔ Test daylightSavingSessionStillAnchorsAtNineThirtyEastern() passed after 0.103 seconds.
+✔ Test confirmsLongBreakRetestAndCreatesCompletePlan() passed after 0.103 seconds.
+✔ Test failedRetestInvalidatesSetup() passed after 0.103 seconds.
+✔ Test remoteNotificationEnvelopeRejectsStaleOrMismatchedAlerts() passed after 0.103 seconds.
+✔ Test regimeRouterRoutesTrendToContinuation() passed after 0.228 seconds.
+✔ Test crossInstrumentEntryCannotContaminatePlan() passed after 0.072 seconds.
+✔ Test noTriggerRemainsUntriggeredWithoutForcedExpiration() passed after 0.072 seconds.
+✔ Test missingQuoteIsUnresolved() passed after 0.072 seconds.
+✔ Test staleEntryIsNotUsedAsExecutableEvidence() passed after 0.072 seconds.
+✔ Test sameTimestampConflictingTriggersAreAmbiguous() passed after 0.072 seconds.
+✔ Test stopUsesLongBidAndRecordsLoser() passed after 0.072 seconds.
+✔ Test structuralOutcomeReplayIsIdempotentAndConflictsAreRejected() passed after 0.072 seconds.
+✔ Test targetUsesLongAskToBidAndRecordsSpreadAdjustedPnl() passed after 0.072 seconds.
+✔ Test engineBootsVerifiedAgainstPin() passed after 0.198 seconds.
+✔ Test timingSeparatesCalculationFromPublicationLatency() passed after 0.061 seconds.
+✔ Test selectsHighestDeterministicResearchCandidate() passed after 0.061 seconds.
+✔ Test conflictingDirectionsProduceNoTradeAndPreserveDiagnostics() passed after 0.061 seconds.
+✔ Test adaptiveNotificationDeduplicatesAndRejectsStalePublication() passed after 0.061 seconds.
+✔ Test unavailableCandidateRemainsUnavailableThroughSelection() passed after 0.062 seconds.
+✔ Test returnsNoTradeForStaleCandidate() passed after 0.062 seconds.
+✔ Test orbAdapterPreservesResearchOnlyUnavailableDiagnostics() passed after 0.062 seconds.
+✔ Test unconfiguredClientFailsFast() passed after 0.052 seconds.
+✔ Test sessionConfiguredValidation() passed after 0.052 seconds.
+✔ Test parseQuotesFromDictionaryResponse() passed after 0.052 seconds.
+✔ Test parseQuotesFromListResponse() passed after 0.052 seconds.
+✔ Test interruptionIsExplicitAndFreshnessExpires() passed after 0.245 seconds.
+✔ Test goldenDecisionIsSealed() passed after 0.199 seconds.
+✔ Test streamAcceptsUnlabelledTicksAndTheOfficialCloseField() passed after 0.244 seconds.
+✔ Test replayPropagatesCancellation() passed after 0.237 seconds.
+✔ Test trendDecisionsAreSealed() passed after 0.244 seconds.
+✔ Test directPocketOptionAuthenticationAloneNeverReportsLive() passed after 0.247 seconds.
+✔ Test cancellationStopsAProviderThatKeepsProducing() passed after 0.204 seconds.
+✔ Test streamRejectsAnUnlabelledTickWhenSeveralInstrumentsAreRequested() passed after 0.203 seconds.
+✔ Test futureDatedTicksAreRejected() passed after 0.202 seconds.
+✔ Test bullishAndBearishConvictionAreSymmetric() passed after 0.206 seconds.
+✔ Test researchSurvivesRelaunchAndRetainsDistinctHorizons() passed after 0.247 seconds.
+✔ Test entryGateRejectsStaleAndChasedPricesInBothDirections() passed after 0.201 seconds.
+✔ Test tickPrintsThatShareASourceSecondAreRetained() passed after 0.195 seconds.
+✔ Suite ORBBreakRetestV1Tests passed after 0.251 seconds.
+✔ Test debriefRejectsUnknownCitation() passed after 0.251 seconds.
+✔ Test comparisonAlwaysUsesDeterministicDifferences() passed after 0.251 seconds.
+✔ Suite V3StructuralOutcomeTests passed after 0.251 seconds.
+✔ Test directPocketOptionTickNormalizesBrokerClockAndCannotAuthorizeEntry() passed after 0.211 seconds.
+✔ Suite AdaptiveOpportunitySelectorTests passed after 0.251 seconds.
+✔ Test streamRejectsOutOfOrderAndWrongInstrumentTicks() passed after 0.250 seconds.
+✔ Suite "ClearStreetClientTests" passed after 0.250 seconds.
+✔ Test fullRecordedEvidenceStringIsAccepted() passed after 0.250 seconds.
+✔ Test providerThrottlingAndReconnectAreControlled() passed after 0.250 seconds.
+✔ Test revalidationCallsPinnedDeterministicEngineOnFreshInput() passed after 0.210 seconds.
+✔ Test availableEngineProducesModelOrigin() passed after 0.250 seconds.
+✔ Test unsupportedPercentageClaimIsRejected() passed after 0.250 seconds.
+✔ Test oversizedContextRetriesOnceWithCompactedContext() passed after 0.250 seconds.
+✔ Test cancellingAResearchStreamEndsAConsumerWithoutAnotherYield() passed after 0.251 seconds.
+✔ Test inventedEvidenceIsStillRejected() passed after 0.249 seconds.
+✔ Test refusedGenerationFallsBack() passed after 0.230 seconds.
+✔ Test marketDataServiceKeepsOutOfOrderResponsesBoundToTheirAssets() passed after 0.217 seconds.
+✔ Test debriefRejectsModelNarratedRiskNumbersAndUsesDeterministicFacts() passed after 0.219 seconds.
+✔ Test contradictoryScoreIsRejectedAndFallsBack() passed after 0.217 seconds.
+✔ Test goldenControlIsPreserved() passed after 0.203 seconds.
+✔ Test controlArtifactIsPinnedAndEvaluates() passed after 0.198 seconds.
+✔ Test selectionUsesConvictionAfterFreshnessGate() passed after 0.252 seconds.
+✔ Test boundedDiagnosticFailsClosedWithoutCredentials() passed after 0.188 seconds.
+✔ Test reversalRequiresARangeReclaimRatherThanTrendContinuation() passed after 0.218 seconds.
+✔ Test malformedInputIsRejectedBeforeTheEngineSeesIt() passed after 0.252 seconds.
+✔ Test debriefDerivesStructuredFieldsFromContext() passed after 0.207 seconds.
+✔ Test directPocketOptionProviderRejectsOverlappingStreams() passed after 0.219 seconds.
+✔ Test directPocketOptionProviderRequiresCurrentBrokerMetadataForEveryTick() passed after 0.250 seconds.
+✔ Suite AdaptiveMarketRehearsalTests passed after 0.253 seconds.
+✔ Test directPocketOptionProviderRejectsWrongInstrumentAndFutureTicks() passed after 0.188 seconds.
+✔ Test challengersAreOptInAndStaleTriggersAreVetoed() passed after 0.212 seconds.
+✔ Test pinnedHistoricalReplayIsDeterministic() passed after 0.202 seconds.
+✔ Test sharedRingKeepsEachConcurrentScanIsolated() passed after 0.229 seconds.
+✔ Test cancelledGenerationFallsBack() passed after 0.248 seconds.
+✔ Test directPocketOptionSessionStaysInTheVaultAndCanBeRemovedImmediately() passed after 0.315 seconds.
+✔ Test switchingMarketModeIsSafe() passed after 0.323 seconds.
+✔ Test scanSchedulerKeepsOneLatestPendingRequest() passed after 0.334 seconds.
+✔ Test malformedPocketOptionSessionIsNeverPersisted() passed after 0.346 seconds.
+✔ Test candleCacheDoesNotCacheEmptyFetches() passed after 0.349 seconds.
+✔ Test backgroundingExpiresActionableDeskStateWithoutRearming() passed after 0.330 seconds.
+✔ Test timedOutGenerationFallsBack() passed after 0.351 seconds.
+✔ Test concurrentRequestsAreSerialized() passed after 0.368 seconds.
+✔ Test failedPocketOptionSessionRemovalRemainsVisible() passed after 0.348 seconds.
+✔ Test demoBarsAreNeverCachedAsFreshTransportData() passed after 0.363 seconds.
+✔ Test backgroundingStopsTheResearchCaptureAndClearsConnectionState() passed after 0.367 seconds.
+✔ Test intelWorkflowKeepsProviderSecretInVaultAndManualEvidenceSeparate() passed after 0.390 seconds.
+✔ Test scanCoordinatorFiresIdleOnlyAfterOwnershipIsRelinquished() passed after 0.433 seconds.
+✔ Test candleCacheOwnsFreshnessAndDeduplicatesInFlightFetches() passed after 0.391 seconds.
+✔ Test backgroundCancelsResearchCaptureAndInvalidatesSuspendedScan() passed after 0.438 seconds.
+✔ Test backgroundInvalidatesCancellationIgnoringScanAndForegroundDoesNotPublishIt() passed after 0.416 seconds.
+✔ Test scanCoordinatorRejectsCancellationIgnoringObsoleteResult() passed after 0.445 seconds.
+✔ Test pendingSiriFlagIsConsumedExactlyOnceWhileResearchCaptureIsActive() passed after 0.423 seconds.
+✔ Test boundedCapturePersistsProviderSamplesWithoutEntryAuthority() passed after 0.470 seconds.
+✔ Test candleCacheAndOTCSamplesRemainSeparate() passed after 0.487 seconds.
+✔ Test candleCacheJoinsInFlightFetchesEvenWhenForced() passed after 0.520 seconds.
+✔ Test suspendedScanAndOTCCaptureProgressIndependently() passed after 0.494 seconds.
+✔ Test researchEvidenceSurvivesRelaunchWithoutMutatingTheLedger() passed after 0.501 seconds.
+FM_COMPACT_FULL Optional(BlazerCore.ModelTokenEstimate(inputTokens: 280, contextSize: 4096, outputReserve: 420, safetyMargin: 640, method: "exact", omitted: [])) chars=68
+FM_BUDGET Optional(BlazerCore.ModelTokenEstimate(inputTokens: 955, contextSize: 4096, outputReserve: 420, safetyMargin: 640, method: "exact", omitted: []))
+✔ Test realEngineReportsExactTokenCountWhenAvailable() passed after 8.701 seconds.
+FM_COMPACT state=completed retry=0 tokens=1316 omitted=["scans 2/30", "entries 4/40"]
+✔ Test realModelCompactsAnOversizedContextOnce() passed after 19.970 seconds.
+FM_RAW availability=ready decision=WAIT score=44 summary=The sealed scan was blocked because the range is tight. The engine recorded the action WAIT.
+✔ Test realAppleOnDeviceEngineGenerates() passed after 27.488 seconds.
+FM_SERVICE availability=ready origin=appleOnDevice decision=WAIT score=44 latencyMs=31171.013951301575 issues=[]
+✔ Test realAppleOnDeviceServiceIsSafeOnLiveOutput() passed after 31.313 seconds.
+FM_ACTIONABLE origin=appleOnDevice decision=TAP LOW score=96 issues=[]
+✔ Test realAppleOnDeviceAcceptsAnActionableLowDecision() passed after 36.151 seconds.
+✔ Test run with 424 tests in 5 suites passed after 36.152 seconds.

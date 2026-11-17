@@ -10,6 +10,9 @@ struct MiniCandleChart: View, Equatable {
     var candidateAnnotations: [Candidate001Candidate] = []
     var visibleBars: Int = 32
     var allowsZoom: Bool = false
+    var lightAppearance: Bool = false
+    var isLoading = false
+    var emptyMessage: String? = nil
 
     @State private var scrubbedIndex: Int? = nil
     @State private var zoomScale: CGFloat = 1
@@ -24,6 +27,9 @@ struct MiniCandleChart: View, Equatable {
             && lhs.candidateAnnotations == rhs.candidateAnnotations
             && lhs.visibleBars == rhs.visibleBars
             && lhs.allowsZoom == rhs.allowsZoom
+            && lhs.lightAppearance == rhs.lightAppearance
+            && lhs.isLoading == rhs.isLoading
+            && lhs.emptyMessage == rhs.emptyMessage
     }
 
     private var bars: [Candle] {
@@ -36,7 +42,7 @@ struct MiniCandleChart: View, Equatable {
     var body: some View {
         Group {
             if bars.isEmpty {
-                loadingState
+                emptyState
                     .transition(.opacity)
             } else {
                 chartPlot(bars: bars)
@@ -46,17 +52,19 @@ struct MiniCandleChart: View, Equatable {
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: bars.count)
     }
 
-    private var loadingState: some View {
+    private var emptyState: some View {
         HStack(spacing: 8) {
-            ProgressView()
-                .scaleEffect(0.7)
-                .tint(DeskInk.slate)
-            Text("Loading candles\u{2026}")
+            if isLoading {
+                ProgressView()
+                    .scaleEffect(0.7)
+                    .tint(DeskInk.slate)
+            }
+            Text(isLoading ? "Loading candles\u{2026}" : (emptyMessage ?? "No candles available"))
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(DeskInk.slate.opacity(0.7))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .accessibilityLabel("Loading candles")
+        .accessibilityLabel(isLoading ? "Loading candles" : (emptyMessage ?? "No candles available"))
     }
 
     private func chartPlot(bars: [Candle]) -> some View {
@@ -73,94 +81,107 @@ struct MiniCandleChart: View, Equatable {
         let span = maxP - minP
 
         return GeometryReader { geo in
-            let width = geo.size.width
+            let showsAxis = geo.size.height >= 80
+            let axisWidth: CGFloat = showsAxis ? 64 : 0
+            let plotWidth = max(1, geo.size.width - axisWidth)
             let count = bars.count
-            let spacing: CGFloat = 3.5
+            let spacing = candleSpacing(width: plotWidth, count: count)
             let totalSpacing = spacing * CGFloat(count - 1)
-            let candleWidth = max(2.5, min(8.0, (width - totalSpacing) / CGFloat(count)))
+            let candleWidth = max(1.0, min(24.0, (plotWidth - totalSpacing) / CGFloat(count)))
             let effectiveWidth = (candleWidth + spacing) * CGFloat(count) - spacing
-            let xOffset = max(0, width - effectiveWidth)
+            let xOffset = max(0, plotWidth - effectiveWidth)
+            let plotHeight = max(1, geo.size.height - (showsAxis ? 22 : 0))
 
-            ZStack(alignment: .top) {
-                gridLines
-
-                CandleCanvas(
-                    bars: bars,
-                    minP: minP,
-                    span: span,
-                    strike: strike,
-                    currentPrice: currentPrice,
-                    side: side,
-                    pair: pair,
-                    candidateAnnotations: candidateAnnotations,
-                    scrubbedIndex: scrubbedIndex
-                )
-
-                // High / Low boundary labels on right edge
-                priceLabels(high: rawMax, low: rawMin)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .opacity(scrubbedIndex == nil ? 1.0 : 0.2)
-                    .animation(.easeInOut(duration: 0.15), value: scrubbedIndex)
-
-                // Floating OHLC Telemetry HUD when scrubbing
-                if let idx = scrubbedIndex, idx >= 0, idx < bars.count {
-                    let bar = bars[idx]
-                    scrubPill(for: bar)
-                        .transition(.asymmetric(
-                            insertion: .opacity.combined(with: .scale(scale: 0.94)),
-                            removal: .opacity
-                        ))
+            VStack(spacing: 0) {
+                HStack(spacing: 0) {
+                    ZStack(alignment: .top) {
+                        gridLines
+                        CandleCanvas(
+                            bars: bars,
+                            minP: minP,
+                            span: span,
+                            strike: strike,
+                            currentPrice: currentPrice,
+                            side: side,
+                            pair: pair,
+                            candidateAnnotations: candidateAnnotations,
+                            scrubbedIndex: scrubbedIndex,
+                            lightAppearance: lightAppearance
+                        )
+                        if let idx = scrubbedIndex, idx >= 0, idx < bars.count {
+                            scrubPill(for: bars[idx])
+                                .transition(.asymmetric(
+                                    insertion: .opacity.combined(with: .scale(scale: 0.94)),
+                                    removal: .opacity
+                                ))
+                        }
+                    }
+                    .frame(width: plotWidth, height: plotHeight)
+                    .background(lightAppearance ? Color.white : DeskInk.background)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                let relativeX = value.location.x - xOffset
+                                let rawIndex = Int(round((relativeX - candleWidth / 2) / (candleWidth + spacing)))
+                                let clamped = max(0, min(count - 1, rawIndex))
+                                if clamped != scrubbedIndex {
+                                    scrubbedIndex = clamped
+                                    DeskHaptics.scrubTick()
+                                }
+                            }
+                            .onEnded { _ in
+                                withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                                    scrubbedIndex = nil
+                                }
+                            }
+                    )
+                    .simultaneousGesture(
+                        MagnificationGesture()
+                            .onChanged { value in
+                                guard allowsZoom else { return }
+                                zoomScale = min(3, max(1, value))
+                            }
+                            .onEnded { _ in
+                                guard allowsZoom else { return }
+                                zoomScale = min(3, max(1, zoomScale))
+                            }
+                    )
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 14)
+                            .onEnded { value in
+                                guard allowsZoom, zoomScale > 1, candles.count > bars.count else { return }
+                                let shift = Int((-value.translation.width / 18).rounded())
+                                let maxShift = max(0, candles.count - bars.count)
+                                viewportShift = min(maxShift, max(0, viewportShift + shift))
+                            }
+                    )
+                    if showsAxis {
+                        priceLabels(maxP: maxP, minP: minP)
+                            .frame(width: axisWidth, height: plotHeight)
+                            .opacity(scrubbedIndex == nil ? 1.0 : 0.25)
+                            .animation(.easeInOut(duration: 0.15), value: scrubbedIndex)
+                    }
+                }
+                .frame(height: plotHeight)
+                if showsAxis {
+                    timeAxis(bars)
+                        .frame(width: plotWidth)
+                        .frame(height: 22)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        let touchX = value.location.x
-                        let relativeX = touchX - xOffset
-                        let rawIndex = Int(round((relativeX - candleWidth / 2) / (candleWidth + spacing)))
-                        let clamped = max(0, min(count - 1, rawIndex))
-                        if clamped != scrubbedIndex {
-                            scrubbedIndex = clamped
-                            DeskHaptics.scrubTick()
-                        }
-                    }
-                    .onEnded { _ in
-                        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                            scrubbedIndex = nil
-                        }
-                    }
-            )
-            .simultaneousGesture(
-                MagnificationGesture()
-                    .onChanged { value in
-                        guard allowsZoom else { return }
-                        zoomScale = min(3, max(1, value))
-                    }
-                    .onEnded { _ in
-                        guard allowsZoom else { return }
-                        zoomScale = min(3, max(1, zoomScale))
-                    }
-            )
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 14)
-                    .onEnded { value in
-                        guard allowsZoom, zoomScale > 1, candles.count > bars.count else { return }
-                        let shift = Int((-value.translation.width / 18).rounded())
-                        let maxShift = max(0, candles.count - bars.count)
-                        viewportShift = min(maxShift, max(0, viewportShift + shift))
-                    }
-            )
         }
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .accessibilityLabel("Interactive candle chart")
         .accessibilityHint(allowsZoom
             ? "Drag to scrub. Pinch to zoom and drag horizontally to browse candles"
-            : "Drag horizontally to scrub historical prices")
+            : "Drag horizontally to inspect earlier candles")
     }
 
     private func scrubPill(for bar: Candle) -> some View {
         HStack(spacing: 7) {
+            ohlcField("TIME", candleTime(bar), tint: DeskInk.slate, weight: .medium)
             ohlcField("O", PriceFormat.px(bar.bodyOpen), tint: DeskInk.ink, weight: .medium)
             ohlcField("H", PriceFormat.px(bar.bodyHigh), tint: DeskInk.ink, weight: .medium)
             ohlcField("L", PriceFormat.px(bar.bodyLow), tint: DeskInk.ink, weight: .medium)
@@ -190,36 +211,76 @@ struct MiniCandleChart: View, Equatable {
     private func ohlcField(
         _ label: String, _ value: String, tint: Color, weight: Font.Weight
     ) -> some View {
-        (
+        HStack(spacing: 0) {
             Text(label).foregroundStyle(DeskInk.slate.opacity(0.8))
-                + Text(" \(value)").foregroundStyle(tint)
-        )
+            Text(" \(value)").foregroundStyle(tint)
+        }
         .font(.system(size: 9.5, weight: weight, design: .monospaced))
+        .accessibilityElement(children: .combine)
     }
 
     private var gridLines: some View {
-        VStack(spacing: 0) {
-            Divider().background(Color.white.opacity(0.04))
-            Spacer()
-            Divider().background(Color.white.opacity(0.03))
-            Spacer()
-            Divider().background(Color.white.opacity(0.04))
+        Canvas { context, size in
+            for index in 0...4 {
+                let y = size.height * CGFloat(index) / 4
+                var line = Path()
+                line.move(to: CGPoint(x: 0, y: y))
+                line.addLine(to: CGPoint(x: size.width, y: y))
+                context.stroke(
+                    line,
+                    with: .color((lightAppearance ? Color(red: 0.16, green: 0.22, blue: 0.31) : Color.white).opacity(lightAppearance ? (index == 0 || index == 4 ? 0.14 : 0.07) : (index == 0 || index == 4 ? 0.11 : 0.065))),
+                    style: StrokeStyle(lineWidth: index == 2 ? 0.9 : 0.6, dash: index == 2 ? [] : [3, 5])
+                )
+            }
         }
+        .allowsHitTesting(false)
     }
 
-    private func priceLabels(high: Double, low: Double) -> some View {
-        VStack {
-            Text(PriceFormat.px(high))
-                .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                .foregroundStyle(DeskInk.slate.opacity(0.55))
-                .padding(.trailing, 4)
-            Spacer()
-            Text(PriceFormat.px(low))
-                .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                .foregroundStyle(DeskInk.slate.opacity(0.55))
-                .padding(.trailing, 4)
+    private func priceLabels(maxP: Double, minP: Double) -> some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .topTrailing) {
+                ForEach(0..<5, id: \.self) { index in
+                    let fraction = Double(index) / 4
+                    let value = maxP - (maxP - minP) * fraction
+                    Text(PriceFormat.px(value))
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .foregroundStyle((lightAppearance ? Color(red: 0.39, green: 0.48, blue: 0.59) : DeskInk.slate).opacity(0.92))
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 2)
+                        .background((lightAppearance ? Color.white : DeskInk.background).opacity(0.88), in: RoundedRectangle(cornerRadius: 4))
+                        .position(
+                            x: geometry.size.width - 30,
+                            y: min(geometry.size.height - 8, max(8, geometry.size.height * CGFloat(fraction)))
+                        )
+                }
+            }
         }
-        .padding(.vertical, 4)
+        .allowsHitTesting(false)
+    }
+
+    private func timeAxis(_ bars: [Candle]) -> some View {
+        let middle = bars.count / 2
+        return HStack {
+            Text(candleTime(bars.first))
+            Spacer()
+            Text(candleTime(bars.indices.contains(middle) ? bars[middle] : nil))
+            Spacer()
+            Text(candleTime(bars.last))
+        }
+        .font(.system(size: 9, weight: .medium, design: .monospaced))
+        .foregroundStyle((lightAppearance ? Color(red: 0.39, green: 0.48, blue: 0.59) : DeskInk.slate).opacity(0.85))
+        .padding(.horizontal, 4)
+    }
+
+    private func candleTime(_ candle: Candle?) -> String {
+        guard let milliseconds = candle?.time, milliseconds.isFinite, milliseconds > 0 else { return "—" }
+        return Date(timeIntervalSince1970: milliseconds / 1_000)
+            .formatted(date: .omitted, time: .shortened)
+    }
+
+    private func candleSpacing(width: CGFloat, count: Int) -> CGFloat {
+        guard count > 0 else { return 0 }
+        return min(4.5, max(0.5, (width / CGFloat(count)) * 0.22))
     }
 }
 
@@ -233,14 +294,15 @@ struct CandleCanvas: View {
     var pair: String? = nil
     var candidateAnnotations: [Candidate001Candidate] = []
     var scrubbedIndex: Int? = nil
+    var lightAppearance: Bool = false
 
     var body: some View {
         Canvas { context, size in
             let count = bars.count
             guard count > 0, span > 0 else { return }
-            let spacing: CGFloat = 3.5
+            let spacing = min(4.5, max(0.5, (size.width / CGFloat(count)) * 0.22))
             let totalSpacing = spacing * CGFloat(count - 1)
-            let candleWidth = max(2.5, min(8.0, (size.width - totalSpacing) / CGFloat(count)))
+            let candleWidth = max(1.0, min(24.0, (size.width - totalSpacing) / CGFloat(count)))
             let effectiveWidth = (candleWidth + spacing) * CGFloat(count) - spacing
             let xOffset = max(0, size.width - effectiveWidth)
             let height = size.height
@@ -260,7 +322,9 @@ struct CandleCanvas: View {
                 let topBody = min(openY, closeY)
                 let bottomBody = max(openY, closeY)
                 let bodyHeight = max(2.5, bottomBody - topBody)
-                let tint = bar.isUp ? DeskInk.emerald : DeskInk.coral
+                let tint = bar.isUp
+                    ? (lightAppearance ? Color(red: 0.06, green: 0.82, blue: 0.65) : DeskInk.emerald)
+                    : (lightAppearance ? Color(red: 0.98, green: 0.36, blue: 0.48) : DeskInk.coral)
 
                 var wickPath = Path()
                 wickPath.move(to: CGPoint(x: cx, y: highY))
@@ -280,15 +344,16 @@ struct CandleCanvas: View {
                     )
                 }
 
-                drawCandidateAnnotations(
-                    context: &context,
-                    bars: bars,
-                    size: size,
-                    minP: minP,
-                    span: span,
-                    annotations: candidateAnnotations
-                )
             }
+
+            drawCandidateAnnotations(
+                context: &context,
+                bars: bars,
+                size: size,
+                minP: minP,
+                span: span,
+                annotations: candidateAnnotations
+            )
 
             // Reference close dashed line on last bar
             if let lastBar = bars.last {
@@ -328,6 +393,12 @@ struct CandleCanvas: View {
                 let currentFrac = CGFloat((current - minP) / span)
                 let currentY = max(4, min(height - 4, height - (currentFrac * height)))
                 let beaconX = size.width - 8
+
+                var currentLine = Path()
+                currentLine.move(to: CGPoint(x: 0, y: currentY))
+                currentLine.addLine(to: CGPoint(x: size.width, y: currentY))
+                context.stroke(currentLine, with: .color(DeskInk.electric.opacity(0.38)),
+                               style: StrokeStyle(lineWidth: 0.8, dash: [2, 4]))
 
                 let pipScale = Assets.pipScale(for: pair ?? "")
                 let pipDiff = strike != nil ? (current - strike!) / pipScale : 0.0
@@ -392,10 +463,10 @@ struct CandleCanvas: View {
             annotations: [Candidate001Candidate]
         ) {
             guard !annotations.isEmpty else { return }
-            let spacing: CGFloat = 3.5
             let count = bars.count
+        let spacing = min(4.5, max(0.5, (size.width / CGFloat(count)) * 0.22))
             let totalSpacing = spacing * CGFloat(count - 1)
-            let candleWidth = max(2.5, min(8.0, (size.width - totalSpacing) / CGFloat(count)))
+        let candleWidth = max(1.0, min(24.0, (size.width - totalSpacing) / CGFloat(count)))
             let effectiveWidth = (candleWidth + spacing) * CGFloat(count) - spacing
             let xOffset = max(0, size.width - effectiveWidth)
 

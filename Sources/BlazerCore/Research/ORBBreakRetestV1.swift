@@ -67,6 +67,7 @@ public struct ORBConfiguration: Codable, Sendable, Equatable {
     public let rewardRisk: Double
     public let maximumSetupMinutes: Int
     public let maximumSpread: Double
+    public let maximumEntryDeviation: Double
     public let riskFraction: Double
     public let plannedUnits: Double
 
@@ -82,6 +83,7 @@ public struct ORBConfiguration: Codable, Sendable, Equatable {
                 rewardRisk: Double = 2,
                 maximumSetupMinutes: Int = 120,
                 maximumSpread: Double = 0.0003,
+                maximumEntryDeviation: Double = 0.0003,
                 riskFraction: Double = 0.01,
                 plannedUnits: Double = 1) {
         self.strategyVersion = strategyVersion
@@ -98,6 +100,7 @@ public struct ORBConfiguration: Codable, Sendable, Equatable {
         self.rewardRisk = rewardRisk
         self.maximumSetupMinutes = maximumSetupMinutes
         self.maximumSpread = maximumSpread
+        self.maximumEntryDeviation = maximumEntryDeviation
         self.riskFraction = riskFraction
         self.plannedUnits = plannedUnits
     }
@@ -122,11 +125,12 @@ public struct ORBDecision: Codable, Sendable, Equatable {
     public let direction: ORBDirection?
     public let reason: String
     public let candidate: ORBTradePlanCandidate?
+    public let causativeBarID: String?
 
     public init(stage: ORBStage, setupState: V3SetupState, sessionStart: Date?,
                 rangeHigh: Double? = nil, rangeLow: Double? = nil,
                 direction: ORBDirection? = nil, reason: String,
-                candidate: ORBTradePlanCandidate? = nil) {
+                candidate: ORBTradePlanCandidate? = nil, causativeBarID: String? = nil) {
         self.stage = stage
         self.setupState = setupState
         self.sessionStart = sessionStart
@@ -135,6 +139,7 @@ public struct ORBDecision: Codable, Sendable, Equatable {
         self.direction = direction
         self.reason = reason
         self.candidate = candidate
+        self.causativeBarID = causativeBarID
     }
 }
 
@@ -255,10 +260,35 @@ public enum ORBRemoteNotificationAuthenticator {
 public enum ORBBreakRetestV1 {
     public static let configuration = ORBConfiguration()
 
+    /// The default config is expressed in EUR/USD price units. Convert its
+    /// one-pip retest tolerance and three-pip spread ceiling for each instrument
+    /// so JPY pairs and metals are not filtered with the wrong decimal scale.
+    public static func configuration(for instrument: String) -> ORBConfiguration {
+        let pip = Assets.pipScale(for: instrument)
+        return ORBConfiguration(
+            strategyVersion: configuration.strategyVersion,
+            engineVersion: configuration.engineVersion,
+            timeZoneIdentifier: configuration.timeZoneIdentifier,
+            openingHour: configuration.openingHour,
+            openingMinute: configuration.openingMinute,
+            openingRangeMinutes: configuration.openingRangeMinutes,
+            barMinutes: configuration.barMinutes,
+            minimumBreakoutThreshold: configuration.minimumBreakoutThreshold,
+            retestTolerance: pip,
+            confirmationBuffer: configuration.confirmationBuffer,
+            stopBuffer: configuration.stopBuffer,
+            rewardRisk: configuration.rewardRisk,
+            maximumSetupMinutes: configuration.maximumSetupMinutes,
+            maximumSpread: 3 * pip,
+            maximumEntryDeviation: 3 * pip,
+            riskFraction: configuration.riskFraction,
+            plannedUnits: configuration.plannedUnits)
+    }
+
     /// Adapts the existing ForwardTest/iPhone market payload without changing the
     /// pinned V1 engine. Only completed one-minute payloads are considered.
     public static func evaluate(input: StrategyEngine.MarketInput, asOf: Date? = nil,
-                                configuration: ORBConfiguration = configuration) -> ORBDecision {
+                                configuration: ORBConfiguration? = nil) -> ORBDecision {
         let bars = input.candles1m.map {
             let start = Date(timeIntervalSince1970: $0.time / 1_000)
             return ORBBar(id: "\(input.asset)-\($0.time)", instrument: input.asset,
@@ -267,11 +297,13 @@ public enum ORBBreakRetestV1 {
         }
         let cutoff = asOf ?? Date(timeIntervalSince1970:
             (input.evaluatedAtMs ?? input.quoteAsOfMs ?? bars.last.map { $0.endTime.timeIntervalSince1970 * 1_000 } ?? 0) / 1_000)
-        return evaluate(instrument: input.asset, bars: bars, asOf: cutoff, configuration: configuration)
+        return evaluate(instrument: input.asset, bars: bars, asOf: cutoff,
+                        configuration: configuration ?? Self.configuration(for: input.asset))
     }
 
     public static func evaluate(instrument: String, bars: [ORBBar], asOf: Date,
-                                configuration: ORBConfiguration = configuration) -> ORBDecision {
+                                configuration: ORBConfiguration? = nil) -> ORBDecision {
+        let configuration = configuration ?? Self.configuration(for: instrument)
         guard !instrument.isEmpty, asOf.timeIntervalSince1970.isFinite else {
             return .init(stage: .unavailable, setupState: .unresolved, sessionStart: nil,
                          reason: "invalid_evaluation_input")
@@ -361,7 +393,7 @@ public enum ORBBreakRetestV1 {
             || direction == .short && retest.close > boundary + configuration.retestTolerance {
             return .init(stage: .invalidated, setupState: .invalidated, sessionStart: sessionStart,
                          rangeHigh: rangeHigh, rangeLow: rangeLow, direction: direction,
-                         reason: "retest_failed_boundary")
+                         reason: "retest_failed_boundary", causativeBarID: retest.id)
         }
         let afterRetest = Array(subsequent.dropFirst(retestIndex + 1))
         guard let confirmation = afterRetest.first(where: {
@@ -381,26 +413,29 @@ public enum ORBBreakRetestV1 {
         guard risk.isFinite, risk > 0, configuration.rewardRisk >= 2 else {
             return .init(stage: .invalidated, setupState: .invalidated, sessionStart: sessionStart,
                          rangeHigh: rangeHigh, rangeLow: rangeLow, direction: direction,
-                         reason: "invalid_structural_risk")
+                         reason: "invalid_structural_risk", causativeBarID: confirmation.id)
         }
         let target = direction == .long
             ? entry + risk * configuration.rewardRisk
             : entry - risk * configuration.rewardRisk
         let side: V3SpotSide = direction == .long ? .long : .short
+        let safeInstrument = instrument.replacingOccurrences(of: "/", with: "-")
+        let safeConfirmationID = String(confirmation.id.filter { $0.isLetter || $0.isNumber })
         let plan = V3TradePlan(
-            id: "orb-\(instrument.replacingOccurrences(of: "/", with: "-"))-\(confirmation.id)",
+            id: "orb-\(safeInstrument)-\(safeConfirmationID)",
             instrument: instrument, strategyID: "ORB_BREAK_RETEST_V1",
             strategyVersion: configuration.strategyVersion, engineVersion: configuration.engineVersion,
             sourceObservationID: confirmation.id, state: .validated, side: side,
             entryPrice: entry, stopPrice: stop, targetPrice: target,
             units: configuration.plannedUnits, maxSpread: configuration.maximumSpread,
             riskFraction: configuration.riskFraction,
+            maxEntryDeviation: configuration.maximumEntryDeviation,
             evidenceIDs: [rangeBars.map(\.id).joined(separator: ","), breakout.id, retest.id, confirmation.id],
             createdAt: confirmation.endTime)
         guard plan.validation().isEmpty else {
             return .init(stage: .invalidated, setupState: .invalidated, sessionStart: sessionStart,
                          rangeHigh: rangeHigh, rangeLow: rangeLow, direction: direction,
-                         reason: "generated_plan_validation_failed")
+                         reason: "generated_plan_validation_failed", causativeBarID: confirmation.id)
         }
         let candidate = ORBTradePlanCandidate(direction: direction, breakoutBarID: breakout.id,
             retestBarID: retest.id, confirmationBarID: confirmation.id,

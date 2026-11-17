@@ -1,7 +1,6 @@
 import BlazerCore
 import LightningDesk
 import SwiftUI
-#if os(macOS)
 import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -10,82 +9,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 }
-#endif
-
-#if os(iOS)
-import UIKit
-
-final class IOSAppDelegate: NSObject, UIApplicationDelegate {
-    func application(_ application: UIApplication,
-                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
-        Task { _ = await MarketNotificationService.shared.registerForRemoteNotifications() }
-        return true
-    }
-
-    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
-        UserDefaults.standard.set(deviceToken.map { String(format: "%02x", $0) }.joined(),
-                                  forKey: MarketNotificationService.remotePushTokenKey)
-    }
-
-    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
-        UserDefaults.standard.removeObject(forKey: MarketNotificationService.remotePushTokenKey)
-    }
-}
-#endif
 
 @main
 struct BlazerOSMain: App {
-    #if os(macOS)
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    #endif
-    #if os(iOS)
-    @UIApplicationDelegateAdaptor(IOSAppDelegate.self) var appDelegate
-    #endif
-    @StateObject private var model = LightningDeskModel()
+    @StateObject private var model: LightningDeskModel
     @Environment(\.scenePhase) private var scenePhase
+
+    init() {
+        let promotionConfiguration = StrategyPromotionRuntime.load(from: .main)
+        _model = StateObject(wrappedValue: LightningDeskModel(
+            liveStrategyProfiles: promotionConfiguration.profiles,
+            strategyPromotionRecords: promotionConfiguration.promotions,
+            macResearchSourceAttestationVerified: promotionConfiguration.sourceAttestationVerified))
+    }
 
     var body: some Scene {
         WindowGroup("BlazerOS — Lightning Desk") {
             LightningDeskView(model: model)
-                #if os(macOS)
-                .frame(width: PhoneTarget.width, height: PhoneTarget.height)
-                #endif
-                .onChange(of: scenePhase) { _, phase in
-                    switch phase {
-                    case .active: model.handleAppForegrounded()
-                    case .background: model.handleAppBackgrounded()
-                    default: break
-                    }
+            .onChange(of: scenePhase) { _, phase in
+                switch phase {
+                case .active: model.handleAppForegrounded()
+                case .background: model.handleAppBackgrounded()
+                default: break
                 }
-                .onReceive(NotificationCenter.default.publisher(for: MarketNotificationService.orbNotificationReceived)) { event in
-                    if let link = event.object as? String {
-                        model.handleORBDeepLink(link)
-                    }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: MarketNotificationService.orbNotificationReceived)) { event in
+                if let link = event.object as? String {
+                    model.handleORBDeepLink(link)
                 }
-                .task {
-                    #if DEBUG
-                    if ProcessInfo.processInfo.environment["BLAZER_FM_COACH_SELFTEST"] == "1" {
-                        await model.assistant.runBoundedCoachSelfTestForTesting()
-                    }
-                    #endif
-                }
+            }
         }
-        #if os(macOS)
-        .defaultSize(width: PhoneTarget.width, height: PhoneTarget.height)
-        .windowResizability(.contentSize)
+        .defaultSize(width: 1440, height: 920)
+        .windowResizability(.contentMinSize)
         .commands {
             CommandMenu("Desk") {
                 Button("Scan Now") {
                     Task { await model.scan() }
                 }
                 .keyboardShortcut("r", modifiers: [.command])
-
-                Button("Lock In Trade") {
-                    Task { await model.lockInTrade() }
-                }
-                .keyboardShortcut(.space, modifiers: [])
-
-                Divider()
 
                 Button("Select 60s Horizon") {
                     model.selectedHorizonSec = 60
@@ -144,6 +106,5 @@ struct BlazerOSMain: App {
                 }
             }
         }
-        #endif
     }
 }

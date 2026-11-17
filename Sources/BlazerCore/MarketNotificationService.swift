@@ -192,9 +192,13 @@ public final class MarketNotificationService: NSObject, @unchecked Sendable {
         guard Self.hasAppBundle else { return false }
         guard await requestAuthorization() else { return false }
         let content = UNMutableNotificationContent()
-        content.title = "ORB \(notification.stage.rawValue.replacingOccurrences(of: "_", with: " "))"
+        content.title = notification.stage == .setupConfirmed
+            ? "ORB strategy signal · \(notification.instrument)"
+            : "ORB setup update · \(notification.instrument)"
         content.subtitle = "\(notification.instrument) · \(notification.strategyVersion)"
-        content.body = "Revalidate the current Trade plan. This alert is research evidence, not an entry instruction."
+        content.body = notification.stage == .setupConfirmed
+            ? "ORB breakout and retest confirmed. Review the direction, entry, stop and target in Trade. No order is open."
+            : "The confirmed ORB setup changed. Review the latest Trade plan before acting."
         content.sound = .default
         content.userInfo = ["deepLink": notification.deepLink,
                             "notificationID": notification.id,
@@ -216,6 +220,45 @@ public final class MarketNotificationService: NSObject, @unchecked Sendable {
         #if canImport(UserNotifications)
         guard Self.hasAppBundle else { return }
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [notification.id])
+        #endif
+    }
+
+    /// Publishes a cross-strategy Live decision. The notification is informational;
+    /// opening it returns to the app and does not place an order.
+    public func scheduleLiveStrategyNotification(identifier: String,
+                                                decision: LiveStrategyDecision,
+                                                withdrawn: Bool = false) async -> Bool {
+        #if canImport(UserNotifications)
+        guard Self.hasAppBundle, await requestAuthorization() else { return false }
+        let content = UNMutableNotificationContent()
+        if withdrawn {
+            content.title = "Strategy signal withdrawn · \(decision.instrument)"
+            content.body = "The Live strategies no longer agree. Current decision: WAIT. Review the latest quote and plan."
+        } else if let plan = decision.plan {
+            content.title = "Strategy signal · \(decision.action.rawValue) \(decision.instrument)"
+            content.subtitle = decision.supportingStrategies.joined(separator: " + ")
+            content.body = "Entry \(plan.entryPrice) · stop \(plan.stopPrice) · target \(plan.targetPrice). Review the latest Live quote. No order placed."
+        } else {
+            return false
+        }
+        content.sound = .default
+        var components = URLComponents()
+        components.scheme = "blazer"
+        components.host = "trade"
+        components.queryItems = [URLQueryItem(name: "instrument", value: decision.instrument)]
+        content.userInfo = ["deepLink": components.url?.absoluteString ?? "blazer://trade",
+                            "notificationID": identifier,
+                            "kind": withdrawn ? "strategy-withdrawn" : "strategy-signal"]
+        let request = UNNotificationRequest(identifier: identifier, content: content,
+            trigger: UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false))
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+            return true
+        } catch {
+            return false
+        }
+        #else
+        return false
         #endif
     }
 

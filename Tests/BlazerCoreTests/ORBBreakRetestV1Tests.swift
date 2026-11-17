@@ -52,6 +52,14 @@ struct ORBBreakRetestV1Tests {
         #expect(decision.candidate?.plan.validation().isEmpty == true)
     }
 
+    @Test func instrumentConfigurationUsesCorrectPipScaleForJPYAndGold() {
+        #expect(ORBBreakRetestV1.configuration(for: "EUR/USD").retestTolerance == 0.0001)
+        #expect(ORBBreakRetestV1.configuration(for: "USD/JPY").retestTolerance == 0.01)
+        #expect(ORBBreakRetestV1.configuration(for: "USD/JPY").maximumSpread == 0.03)
+        #expect(ORBBreakRetestV1.configuration(for: "USD/JPY").maximumEntryDeviation == 0.03)
+        #expect(ORBBreakRetestV1.configuration(for: "XAU/USD").retestTolerance == 0.10)
+    }
+
     @Test func confirmsShortBreakRetestWithExecutablePlanLevels() {
         let start = date(2026, 11, 6, 9, 35)
         let range = openingRange().map { bar($0.id, $0.sourceTime, open: 1.102,
@@ -79,6 +87,23 @@ struct ORBBreakRetestV1Tests {
         #expect(decision.stage == .unavailable)
         #expect(decision.setupState == .unresolved)
         #expect(decision.reason == "opening_range_missing_or_out_of_order")
+    }
+
+    @Test func sessionHistoryPreservesOpeningRangeAfterRollingChartWindowHasMovedOn() {
+        let start = date(2026, 11, 6, 9, 30)
+        let fullSession = (0..<500).map { index in
+            bar("session-\(index)", start.addingTimeInterval(Double(index * 60)),
+                open: 1.102, high: 1.105, low: 1.100, close: 1.102)
+        }
+        let asOf = start.addingTimeInterval(150 * 60)
+        let decision = ORBBreakRetestV1.evaluate(instrument: "EUR/USD", bars: fullSession, asOf: asOf)
+        let rollingWindowDecision = ORBBreakRetestV1.evaluate(
+            instrument: "EUR/USD", bars: Array(fullSession.suffix(120)), asOf: asOf)
+
+        #expect(decision.stage == .expired)
+        #expect(decision.reason == "setup_expired_without_breakout")
+        #expect(rollingWindowDecision.stage == .unavailable)
+        #expect(rollingWindowDecision.reason == "opening_range_missing_or_out_of_order")
     }
 
     @Test func futureBarsCannotCreateLookaheadSetup() {

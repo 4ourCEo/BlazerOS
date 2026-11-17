@@ -107,6 +107,23 @@ private func quote(_ input: StrategyEngine.MarketInput, time: Date = clock, mid:
     #expect(envelope.snapshotM5Bars?.count == 120)
 }
 
+@Test func scanKernelRetainsFullSessionHistoryBeyondOldRingCapacity() async throws {
+    var input = trendInput()
+    let template = try #require(input.candles1m.first)
+    let extensionCount = 500 - input.candles1m.count
+    let older = (0..<extensionCount).map { offset in
+        StrategyEngine.CandlePayload(time: template.time - Double(extensionCount - offset) * 60_000,
+            open: template.open, high: template.high, low: template.low, close: template.close)
+    }
+    input.candles1m = older + input.candles1m
+
+    let asset = input.asset
+    let envelope = try await ScanKernel.evaluate(input: &input, asset: asset)
+
+    #expect(input.candles1m.count == 500)
+    #expect(envelope.snapshotBars?.count == 500)
+}
+
 @Test func challengersAreOptInAndStaleTriggersAreVetoed() async throws {
     var input = trendInput()
     let baseline = try await StrategyEngine.evaluate(input: input).signal

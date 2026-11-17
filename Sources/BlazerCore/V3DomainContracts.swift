@@ -20,14 +20,302 @@ public enum V3SetupState: String, Codable, Sendable, CaseIterable {
         switch (self, next) {
         case (.noData, .stale), (.noData, .watching),
              (.stale, .watching), (.stale, .noData),
+             (.stale, .setupExpired),
              (.watching, .forming), (.watching, .stale), (.watching, .invalidated),
+             (.watching, .setupExpired),
              (.forming, .approaching), (.forming, .invalidated), (.forming, .stale),
+             (.forming, .setupExpired),
              (.approaching, .confirmed), (.approaching, .invalidated), (.approaching, .stale),
+             (.approaching, .setupExpired),
              (.confirmed, .triggered), (.confirmed, .invalidated), (.confirmed, .stale),
+             (.confirmed, .setupExpired),
              (.triggered, .unresolved), (.triggered, .invalidated),
              (.invalidated, .unresolved), (.setupExpired, .unresolved),
              (.stale, .unresolved), (.watching, .unresolved), (.forming, .unresolved),
              (.approaching, .unresolved), (.confirmed, .unresolved):
+            return true
+        default:
+            return false
+        }
+    }
+}
+
+/// Append-only evidence for a strategy setup as it develops. Setup lifetime is
+/// controlled by the strategy's explicit state transition, not by quote freshness
+/// or the legacy V1 eight-second action window.
+public struct V3SetupLifecycleEvent: Codable, Sendable, Equatable, Identifiable {
+    public let id: String
+    public let setupID: String
+    public let instrument: String
+    public let strategyID: String
+    public let strategyVersion: String
+    public let provider: String
+    public let environment: V3ProviderEnvironment
+    public let previousState: V3SetupState?
+    public let state: V3SetupState
+    public let sourceObservationID: String?
+    public let sourceTime: Date?
+    public let receivedAt: Date
+    public let recordedAt: Date
+    public let planID: String?
+    public let reason: String
+    public let configurationDigest: String?
+    public let inputDigest: String?
+    public let engineVersion: String?
+    public let sourceBarIDs: [String]?
+    public let quoteSequence: UInt64?
+    public let reasonCodes: [String]?
+    public let evidenceSchemaVersion: Int?
+    /// Stable structure identity and timeframe used to prevent terminal re-arm.
+    /// Optional values preserve decoding of older lifecycle events.
+    public let structureID: String?
+    public let timeframeSeconds: Int?
+
+    public init(id: String, setupID: String, instrument: String,
+                strategyID: String, strategyVersion: String, provider: String,
+                environment: V3ProviderEnvironment, previousState: V3SetupState?,
+                state: V3SetupState, sourceObservationID: String? = nil,
+                sourceTime: Date? = nil, receivedAt: Date, recordedAt: Date,
+                planID: String? = nil, reason: String,
+                configurationDigest: String? = nil, inputDigest: String? = nil,
+                engineVersion: String? = nil, sourceBarIDs: [String]? = nil,
+                quoteSequence: UInt64? = nil, reasonCodes: [String]? = nil,
+                structureID: String? = nil, timeframeSeconds: Int? = nil,
+                evidenceSchemaVersion: Int? = nil) {
+        self.id = id
+        self.setupID = setupID
+        self.instrument = instrument
+        self.strategyID = strategyID
+        self.strategyVersion = strategyVersion
+        self.provider = provider
+        self.environment = environment
+        self.previousState = previousState
+        self.state = state
+        self.sourceObservationID = sourceObservationID
+        self.sourceTime = sourceTime
+        self.receivedAt = receivedAt
+        self.recordedAt = recordedAt
+        self.planID = planID
+        self.reason = reason
+        self.configurationDigest = configurationDigest
+        self.inputDigest = inputDigest
+        self.engineVersion = engineVersion
+        self.sourceBarIDs = sourceBarIDs
+        self.quoteSequence = quoteSequence
+        self.reasonCodes = reasonCodes
+        self.evidenceSchemaVersion = evidenceSchemaVersion
+        self.structureID = structureID
+        self.timeframeSeconds = timeframeSeconds
+    }
+
+    public var hasCompleteEvaluatorProvenance: Bool {
+        guard let configurationDigest, let inputDigest, let engineVersion,
+              let sourceBarIDs, let reasonCodes,
+              let structureID, let timeframeSeconds, let evidenceSchemaVersion else { return false }
+        let sequenceIsValid = strategyID == "ORB_BREAK_RETEST_V1"
+            ? quoteSequence == nil : quoteSequence.map { $0 > 0 } ?? false
+        return Self.isDigest(configurationDigest) && Self.isDigest(inputDigest)
+            && !engineVersion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !sourceBarIDs.isEmpty && sourceBarIDs.allSatisfy { !$0.isEmpty }
+            && Set(sourceBarIDs).count == sourceBarIDs.count && sequenceIsValid
+            && !structureID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && timeframeSeconds > 0
+            && evidenceSchemaVersion == 1
+            && reasonCodes.allSatisfy { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
+    private static func isDigest(_ value: String) -> Bool {
+        value.count == 64 && value.allSatisfy(\.isHexDigit)
+    }
+
+    public func validation() -> [String] {
+        var issues: [String] = []
+        if id.isEmpty || setupID.isEmpty || instrument.isEmpty || strategyID.isEmpty
+            || strategyVersion.isEmpty || provider.isEmpty || reason.isEmpty {
+            issues.append("identity_missing")
+        }
+        if !id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" })
+            || !setupID.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" }) {
+            issues.append("identity_invalid")
+        }
+        if let planID, planID.isEmpty || !planID.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" }) {
+            issues.append("plan_identity_invalid")
+        }
+        for date in [sourceTime, Optional(receivedAt), Optional(recordedAt)].compactMap({ $0 }) {
+            if !date.timeIntervalSince1970.isFinite { issues.append("timestamp_invalid") }
+        }
+        if let sourceTime {
+            if sourceTime > recordedAt.addingTimeInterval(1) { issues.append("future_source_time") }
+            if sourceTime > receivedAt.addingTimeInterval(1) { issues.append("source_after_receipt") }
+        }
+        if receivedAt > recordedAt.addingTimeInterval(1) { issues.append("receipt_after_recorded_time") }
+        if sourceObservationID?.isEmpty == true { issues.append("observation_identity_invalid") }
+        if (sourceObservationID == nil) != (sourceTime == nil) { issues.append("observation_provenance_incomplete") }
+        let hasAnyEvaluatorProvenance = configurationDigest != nil || inputDigest != nil
+            || engineVersion != nil || sourceBarIDs != nil || quoteSequence != nil || reasonCodes != nil
+            || structureID != nil || timeframeSeconds != nil || evidenceSchemaVersion != nil
+        if hasAnyEvaluatorProvenance && !hasCompleteEvaluatorProvenance {
+            issues.append("evaluator_provenance_incomplete")
+        }
+        if (structureID == nil) != (timeframeSeconds == nil) {
+            issues.append("structure_provenance_incomplete")
+        }
+        if let structureID, structureID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            issues.append("structure_identity_invalid")
+        }
+        if let timeframeSeconds, timeframeSeconds <= 0 { issues.append("timeframe_invalid") }
+        if let evidenceSchemaVersion, evidenceSchemaVersion <= 0 { issues.append("evidence_schema_version_invalid") }
+        if let quoteSequence, quoteSequence == 0 { issues.append("quote_sequence_invalid") }
+        if strategyID == "ORB_BREAK_RETEST_V1" {
+            if provider != "OANDA" || environment != .oandaLive || sourceTime == nil
+                || sourceObservationID.map({ sourceBarIDs?.contains($0) == true }) != true {
+                issues.append("orb_provenance_invalid")
+            }
+            if state == .confirmed && planID == nil { issues.append("orb_confirmed_plan_missing") }
+        }
+        if let previousState {
+            if !V3SetupLifecycle.transitionAllowed(from: previousState, to: state, event: self) {
+                issues.append("invalid_state_transition")
+            }
+        } else if strategyID == "ORB_BREAK_RETEST_V1" {
+            if !hasCompleteEvaluatorProvenance || !Self.isORBObservedState(state) {
+                issues.append("initial_state_invalid")
+            }
+        } else if ![V3SetupState.noData, .watching, .forming].contains(state)
+                    && !(hasCompleteEvaluatorProvenance && Self.isAdvancedObservedState(state)) {
+            issues.append("initial_state_invalid")
+        }
+        return Array(Set(issues)).sorted()
+    }
+
+    private static func isAdvancedObservedState(_ state: V3SetupState) -> Bool {
+        [.stale, .approaching, .confirmed, .invalidated, .setupExpired].contains(state)
+    }
+
+    private static func isORBObservedState(_ state: V3SetupState) -> Bool {
+        [.watching, .approaching, .confirmed, .invalidated, .setupExpired].contains(state)
+    }
+}
+
+public enum V3SetupLifecycle {
+    /// Validates a replayed setup stream after sorting by durable record time. It
+    /// rejects duplicate/conflicting updates and prevents a terminal setup from
+    /// silently returning to a tradeable state after restart.
+    public static func validationIssues(for events: [V3SetupLifecycleEvent]) -> [String] {
+        guard !events.isEmpty else { return [] }
+        var issues = events.flatMap { $0.validation() }
+        var uniqueEvents: [String: V3SetupLifecycleEvent] = [:]
+        for event in events {
+            if let existing = uniqueEvents[event.id], existing != event {
+                issues.append("event_id_conflict")
+            } else {
+                uniqueEvents[event.id] = event
+            }
+        }
+        let ordered = uniqueEvents.values.sorted {
+            if $0.strategyID == "ORB_BREAK_RETEST_V1", $1.strategyID == "ORB_BREAK_RETEST_V1",
+               let left = $0.sourceTime, let right = $1.sourceTime, left != right { return left < right }
+            if $0.recordedAt != $1.recordedAt { return $0.recordedAt < $1.recordedAt }
+            if let left = $0.quoteSequence, let right = $1.quoteSequence, left != right { return left < right }
+            return $0.id < $1.id
+        }
+        for pair in zip(ordered, ordered.dropFirst())
+        where pair.0.recordedAt == pair.1.recordedAt
+            && !(pair.0.strategyID == "ORB_BREAK_RETEST_V1"
+                 && pair.1.strategyID == "ORB_BREAK_RETEST_V1"
+                 && pair.0.sourceTime != nil && pair.1.sourceTime != nil
+                 && pair.0.sourceTime != pair.1.sourceTime) {
+            guard let leftSequence = pair.0.quoteSequence, let rightSequence = pair.1.quoteSequence,
+                  leftSequence != rightSequence else {
+                issues.append("ambiguous_recorded_time")
+                continue
+            }
+        }
+        guard let first = ordered.first else { return Array(Set(issues)).sorted() }
+        var current: V3SetupState?
+        var priorRecordedAt: Date?
+        var priorSourceTime: Date?
+        var priorQuoteSequence: UInt64?
+        for event in ordered {
+            if event.setupID != first.setupID || event.instrument != first.instrument
+                || event.strategyID != first.strategyID || event.strategyVersion != first.strategyVersion
+                || event.provider != first.provider || event.environment != first.environment
+                || event.configurationDigest != first.configurationDigest
+                || event.engineVersion != first.engineVersion || event.structureID != first.structureID
+                || event.timeframeSeconds != first.timeframeSeconds
+                || event.evidenceSchemaVersion != first.evidenceSchemaVersion {
+                issues.append("setup_identity_changed")
+            }
+            if let priorRecordedAt, event.recordedAt < priorRecordedAt {
+                issues.append("recorded_time_out_of_order")
+            }
+            if event.previousState != current { issues.append("predecessor_state_mismatch") }
+            if let current, !transitionAllowed(from: current, to: event.state, event: event) {
+                issues.append("invalid_replayed_transition")
+            }
+            if let sourceTime = event.sourceTime, let priorSourceTime {
+                if sourceTime < priorSourceTime { issues.append("source_time_out_of_order") }
+                if event.strategyID == "ORB_BREAK_RETEST_V1", sourceTime <= priorSourceTime {
+                    issues.append("orb_source_time_not_strictly_increasing")
+                }
+            }
+            if let seq = event.quoteSequence, let priorQuoteSequence {
+                if seq < priorQuoteSequence { issues.append("quote_sequence_out_of_order") }
+                if event.sourceTime == priorSourceTime && seq <= priorQuoteSequence {
+                    issues.append("same_source_sequence_not_increasing")
+                }
+            }
+            current = event.state
+            priorRecordedAt = event.recordedAt
+            priorSourceTime = event.sourceTime ?? priorSourceTime
+            priorQuoteSequence = event.quoteSequence ?? priorQuoteSequence
+        }
+        return Array(Set(issues)).sorted()
+    }
+
+    /// Validates archive-wide ORB structure identity in addition to each setup
+    /// stream. A later configuration cannot reopen a structure already terminal.
+    public static func archiveValidationIssues(for events: [V3SetupLifecycleEvent]) -> [String] {
+        var issues = events.flatMap { $0.validation() }
+        for stream in Dictionary(grouping: events, by: \.setupID).values {
+            issues += validationIssues(for: stream)
+        }
+        let orbByStructure = Dictionary(grouping: events.filter {
+            $0.strategyID == "ORB_BREAK_RETEST_V1" && $0.structureID != nil
+        }, by: { $0.structureID ?? "" })
+        for stream in orbByStructure.values {
+            let terminalEvents = stream.filter { [.confirmed, .invalidated, .setupExpired].contains($0.state) }
+            for terminal in terminalEvents {
+                guard let terminalTime = terminal.sourceTime else { continue }
+                if stream.contains(where: { event in
+                    event.setupID != terminal.setupID
+                        && (event.sourceTime.map { $0 >= terminalTime } ?? true)
+                }) {
+                    issues.append("orb_terminal_structure_rearmed")
+                }
+            }
+        }
+        return Array(Set(issues)).sorted()
+    }
+
+    fileprivate static func transitionAllowed(from previous: V3SetupState, to next: V3SetupState,
+                                                event: V3SetupLifecycleEvent) -> Bool {
+        if event.strategyID == "ORB_BREAK_RETEST_V1" {
+            guard event.hasCompleteEvaluatorProvenance else { return false }
+            switch (previous, next) {
+            case (.watching, .approaching), (.watching, .confirmed),
+                 (.watching, .invalidated), (.watching, .setupExpired),
+                 (.approaching, .confirmed), (.approaching, .invalidated),
+                 (.approaching, .setupExpired): return true
+            default: return false
+            }
+        }
+        if previous.canTransition(to: next) { return true }
+        guard event.strategyID == "BREAKOUT_ACCEPTANCE_V1", event.hasCompleteEvaluatorProvenance else { return false }
+        switch (previous, next) {
+        case (.watching, .approaching), (.watching, .confirmed),
+             (.forming, .confirmed), (.stale, .approaching), (.stale, .confirmed),
+             (.stale, .invalidated), (.stale, .setupExpired):
             return true
         default:
             return false
@@ -48,9 +336,66 @@ public enum V3EvidenceKind: String, Codable, Sendable {
     case signal = "SIGNAL"
     case plan = "TRADE_PLAN"
     case manualTradeReport = "MANUAL_TRADE_REPORT"
+    case manualTradeCloseReport = "MANUAL_TRADE_CLOSE_REPORT"
     case brokerExecution = "BROKER_EXECUTION"
     case exitObservation = "EXIT_OBSERVATION"
     case outcome = "OUTCOME"
+}
+
+/// Immutable user assertion that a position was closed outside BlazerOS.
+/// This record is not a broker close or a simulated structural outcome.
+public struct V3UserReportedPositionClose: Codable, Sendable, Equatable, Identifiable {
+    public let id: String
+    public let positionID: String
+    public let planID: String
+    /// Exact immutable opening revision observed when this close chain began.
+    public let openingRecordID: String
+    /// Previous close report in this close-correction chain; nil only at its root.
+    public let supersedesCloseID: String?
+    public let exitPrice: Double?
+    /// User-reported effective close time. Nil remains explicitly unknown.
+    public let closedAt: Date?
+    public let provenance: V3EvidenceKind
+    /// Time the user report was durably recorded, distinct from `closedAt`.
+    public let recordedAt: Date
+
+    public init(id: String, positionID: String, planID: String, openingRecordID: String,
+                supersedesCloseID: String? = nil, exitPrice: Double? = nil,
+                closedAt: Date? = nil, provenance: V3EvidenceKind = .manualTradeCloseReport,
+                recordedAt: Date) {
+        self.id = id
+        self.positionID = positionID
+        self.planID = planID
+        self.openingRecordID = openingRecordID
+        self.supersedesCloseID = supersedesCloseID
+        self.exitPrice = exitPrice
+        self.closedAt = closedAt
+        self.provenance = provenance
+        self.recordedAt = recordedAt
+    }
+
+    public func validation() -> [String] {
+        var issues: [String] = []
+        if id.isEmpty || positionID.isEmpty || planID.isEmpty || openingRecordID.isEmpty {
+            issues.append("identity_missing")
+        }
+        if let exitPrice, !exitPrice.isFinite || exitPrice <= 0 {
+            issues.append("invalid_user_reported_exit_price")
+        }
+        if let closedAt, !closedAt.timeIntervalSince1970.isFinite {
+            issues.append("invalid_user_reported_close_time")
+        }
+        if !recordedAt.timeIntervalSince1970.isFinite {
+            issues.append("invalid_close_recorded_at")
+        }
+        if provenance != .manualTradeCloseReport {
+            issues.append("user_close_provenance_mismatch")
+        }
+        if let closedAt, closedAt > recordedAt.addingTimeInterval(1) {
+            issues.append("close_time_after_report")
+        }
+        return issues
+    }
 }
 
 /// A canonical, bid/ask-aware market observation. It contains no order authority.
@@ -260,8 +605,8 @@ public enum V3StructuralExitReason: String, Codable, Sendable, Equatable {
     case instrumentMismatch = "INSTRUMENT_MISMATCH"
 }
 
-/// The immutable evidence that a shadow/manual/broker-confirmed plan had an entry
-/// observation. It is separate from a plan because a plan is not a fill.
+/// Immutable market evidence for a hypothetical shadow-entry reference. It does
+/// not establish user intent, an order, a fill, or a position.
 public struct V3PlanEntryEvidence: Codable, Sendable, Equatable, Identifiable {
     public let id: String
     public let planID: String
@@ -343,7 +688,8 @@ public enum V3StructuralOutcomeEvaluator {
                                 exitQuotes: [V3MarketObservation], asOf: Date,
                                 quality: V3OutcomeQuality = .simulated,
                                 additionalCostPerUnit: Double = 0,
-                                maximumEvidenceAge: TimeInterval = 10) -> V3StructuralOutcome {
+                                maximumEvidenceAge: TimeInterval = 10,
+                                entryFreshnessAtReceipt: Bool = false) -> V3StructuralOutcome {
         let baseID = "\(plan.id)-structural"
         guard plan.validation().isEmpty else {
             return unresolved(id: baseID, plan: plan, quality: quality, reason: .invalidEvidence,
@@ -358,7 +704,9 @@ public enum V3StructuralOutcomeEvaluator {
             return unresolved(id: baseID, plan: plan, quality: quality, reason: .invalidEvidence,
                               entry: entry.observation, recordedAt: asOf)
         }
-        guard fresh(entry.observation, asOf: asOf, maximumAge: maximumEvidenceAge),
+        let entryFreshnessAsOf = entryFreshnessAtReceipt ? entry.observation.receivedAt : asOf
+        guard fresh(entry.observation, asOf: entryFreshnessAsOf,
+                    maximumAge: maximumEvidenceAge),
               validSpread(entry.observation, maximum: plan.maxSpread) else {
             return unresolved(id: baseID, plan: plan, quality: quality, reason: .staleEvidence,
                               entry: entry.observation, recordedAt: asOf)
@@ -497,6 +845,9 @@ public struct V3TradePlan: Codable, Sendable, Equatable, Identifiable {
     public let targetPrice: Double
     public let units: Double
     public let maxSpread: Double
+    /// Maximum distance from the planned entry for a shadow market reference.
+    /// Nil on older plans, which remain decodable but cannot create this evidence.
+    public let maxEntryDeviation: Double?
     public let riskFraction: Double
     public let evidenceIDs: [String]
     public let createdAt: Date
@@ -505,7 +856,7 @@ public struct V3TradePlan: Codable, Sendable, Equatable, Identifiable {
                 engineVersion: String, sourceObservationID: String, state: V3TradePlanState,
                 side: V3SpotSide, entryPrice: Double, stopPrice: Double, targetPrice: Double,
                 units: Double, maxSpread: Double, riskFraction: Double,
-                evidenceIDs: [String] = [], createdAt: Date) {
+                maxEntryDeviation: Double? = nil, evidenceIDs: [String] = [], createdAt: Date) {
         self.id = id
         self.instrument = instrument
         self.strategyID = strategyID
@@ -519,6 +870,7 @@ public struct V3TradePlan: Codable, Sendable, Equatable, Identifiable {
         self.targetPrice = targetPrice
         self.units = units
         self.maxSpread = maxSpread
+        self.maxEntryDeviation = maxEntryDeviation
         self.riskFraction = riskFraction
         self.evidenceIDs = evidenceIDs
         self.createdAt = createdAt
@@ -542,6 +894,9 @@ public struct V3TradePlan: Codable, Sendable, Equatable, Identifiable {
         }
         if !units.isFinite || units <= 0 { issues.append("invalid_units") }
         if !maxSpread.isFinite || maxSpread <= 0 { issues.append("invalid_max_spread") }
+        if let maxEntryDeviation, !maxEntryDeviation.isFinite || maxEntryDeviation <= 0 {
+            issues.append("invalid_max_entry_deviation")
+        }
         if !riskFraction.isFinite || riskFraction <= 0 || riskFraction > 1 { issues.append("invalid_risk_fraction") }
         switch side {
         case .long:
@@ -693,7 +1048,11 @@ public enum V3PositionState: String, Codable, Sendable, CaseIterable {
 /// User reports, practice fills, and broker-confirmed fills cannot be conflated.
 public struct V3PositionRecord: Codable, Sendable, Equatable, Identifiable {
     public let id: String
+    /// Stable identity for one logical user-reported position. Nil on legacy/broker rows.
+    public let positionID: String?
     public let planID: String?
+    /// Immutable predecessor record for a manual correction. Nil on each chain root.
+    public let supersedesRecordID: String?
     public let instrument: String
     public let state: V3PositionState
     public let side: V3SpotSide
@@ -701,17 +1060,23 @@ public struct V3PositionRecord: Codable, Sendable, Equatable, Identifiable {
     public let broker: String?
     public let brokerPositionID: String?
     public let entryPrice: Double?
+    /// User-reported execution time; distinct from `updatedAt` (the report timestamp).
+    public let userReportedEnteredAt: Date?
     public let exitPrice: Double?
     public let provenance: V3EvidenceKind
     public let updatedAt: Date
 
-    public init(id: String, planID: String? = nil, instrument: String,
+    public init(id: String, positionID: String? = nil, planID: String? = nil,
+                supersedesRecordID: String? = nil, instrument: String,
                 state: V3PositionState, side: V3SpotSide, units: Double,
                 broker: String? = nil, brokerPositionID: String? = nil,
-                entryPrice: Double? = nil, exitPrice: Double? = nil,
+                entryPrice: Double? = nil, userReportedEnteredAt: Date? = nil,
+                exitPrice: Double? = nil,
                 provenance: V3EvidenceKind, updatedAt: Date) {
         self.id = id
+        self.positionID = positionID
         self.planID = planID
+        self.supersedesRecordID = supersedesRecordID
         self.instrument = instrument
         self.state = state
         self.side = side
@@ -719,6 +1084,7 @@ public struct V3PositionRecord: Codable, Sendable, Equatable, Identifiable {
         self.broker = broker
         self.brokerPositionID = brokerPositionID
         self.entryPrice = entryPrice
+        self.userReportedEnteredAt = userReportedEnteredAt
         self.exitPrice = exitPrice
         self.provenance = provenance
         self.updatedAt = updatedAt
@@ -728,6 +1094,22 @@ public struct V3PositionRecord: Codable, Sendable, Equatable, Identifiable {
         var issues: [String] = []
         if id.isEmpty || instrument.isEmpty { issues.append("identity_missing") }
         if !units.isFinite || units <= 0 { issues.append("invalid_units") }
+        if let entryPrice, !entryPrice.isFinite || entryPrice <= 0 { issues.append("invalid_entry_price") }
+        if let userReportedEnteredAt,
+           !userReportedEnteredAt.timeIntervalSince1970.isFinite {
+            issues.append("invalid_user_reported_entry_time")
+        }
+        if state == .userReported {
+            if provenance != .manualTradeReport { issues.append("user_report_provenance_mismatch") }
+            if broker != nil || brokerPositionID != nil { issues.append("user_report_contains_broker_identity") }
+            if exitPrice != nil { issues.append("user_report_contains_exit_price") }
+        }
+        if positionID != nil {
+            if state != .userReported || provenance != .manualTradeReport
+                || planID == nil || broker != nil || brokerPositionID != nil || exitPrice != nil {
+                issues.append("invalid_user_report_identity")
+            }
+        }
         if state == .brokerOpen || state == .brokerClosed,
            (broker ?? "").isEmpty || (brokerPositionID ?? "").isEmpty {
             issues.append("broker_identity_missing")

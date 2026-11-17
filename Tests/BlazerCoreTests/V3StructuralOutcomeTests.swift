@@ -25,6 +25,67 @@ struct V3StructuralOutcomeTests {
             observation: quote("entry-quote", bid: 1.1, ask: 1.1002, at: time), recordedAt: time)
     }
 
+    private func livePlan(createdAt: Date) -> V3TradePlan {
+        V3TradePlan(id: "orb-live-plan", instrument: "EUR/USD", strategyID: "ORB_BREAK_RETEST_V1",
+            strategyVersion: "ORB_BREAK_RETEST_V1", engineVersion: "V3_ORB_ENGINE_1",
+            sourceObservationID: "confirm", state: .validated, side: .long,
+            entryPrice: 1.1002, stopPrice: 1.099, targetPrice: 1.102,
+            units: 10_000, maxSpread: 0.0003, riskFraction: 0.01,
+            maxEntryDeviation: 0.0003, createdAt: createdAt)
+    }
+
+    private func liveEntryObservation(at time: Date) -> V3MarketObservation {
+        V3MarketObservation(id: "live-entry-quote", instrument: "EUR/USD", provider: "OANDA",
+            environment: .oandaLive, bid: 1.1001, ask: 1.1003,
+            sourceTime: time, receivedAt: time.addingTimeInterval(0.1))
+    }
+
+    private func liveExitObservation(_ id: String, bid: Double, ask: Double,
+                                     sourceTime: Date, receivedAt: Date? = nil) -> V3MarketObservation {
+        V3MarketObservation(id: id, instrument: "EUR/USD", provider: "OANDA",
+            environment: .oandaLive, bid: bid, ask: ask,
+            sourceTime: sourceTime, receivedAt: receivedAt ?? sourceTime.addingTimeInterval(0.1))
+    }
+
+    private func persistLiveEntry(plan: V3TradePlan, store: ResearchStore,
+                                  observation: V3MarketObservation) async throws {
+        try await store.record(plan)
+        let result = try await store.recordLivePlanEntryObservation(planID: plan.id,
+            observation: observation, recordedAt: observation.receivedAt, shouldAppend: { true })
+        guard case .appended = result else { throw ScanError.failed("Live entry fixture did not append") }
+    }
+
+    private func writeEntryFixture(_ entry: V3PlanEntryEvidence, root: URL) throws {
+        let directory = root.appendingPathComponent("v3-plan-entry-evidence", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .millisecondsSince1970
+        encoder.outputFormatting = [.sortedKeys]
+        try encoder.encode(entry).write(to: directory.appendingPathComponent("\(entry.id).json"))
+    }
+
+    private func terminalLifecycleEvents(planID: String, confirmedAt: Date,
+                                         terminalAt: Date) -> [V3SetupLifecycleEvent] {
+        let digest = String(repeating: "a", count: 64)
+        func event(_ id: String, previous: V3SetupState?, state: V3SetupState,
+                   sourceTime: Date, planID: String? = nil, sequence: UInt64) -> V3SetupLifecycleEvent {
+            V3SetupLifecycleEvent(id: id, setupID: "setup-shadow",
+                instrument: "EUR/USD", strategyID: "SHADOW_TEST_STRATEGY",
+                strategyVersion: "ORB_BREAK_RETEST_V1", provider: "OANDA", environment: .oandaLive,
+                previousState: previous, state: state, sourceObservationID: "bar-\(id)",
+                sourceTime: sourceTime, receivedAt: sourceTime.addingTimeInterval(0.1),
+                recordedAt: sourceTime.addingTimeInterval(0.2), planID: planID,
+                reason: "observed", configurationDigest: digest, inputDigest: digest,
+                engineVersion: "V3_ORB_ENGINE_1", sourceBarIDs: ["bar-\(id)"],
+                quoteSequence: sequence, reasonCodes: ["observed"], structureID: "structure-shadow",
+                timeframeSeconds: 60, evidenceSchemaVersion: 1)
+        }
+        return [event("confirm", previous: nil, state: .confirmed,
+                      sourceTime: confirmedAt, planID: planID, sequence: 1),
+                event("terminal", previous: .confirmed, state: .invalidated,
+                      sourceTime: terminalAt, sequence: 2)]
+    }
+
     @Test func targetUsesLongAskToBidAndRecordsSpreadAdjustedPnl() {
         let plan = plan()
         let result = V3StructuralOutcomeEvaluator.evaluate(plan: plan, entry: entry(plan),
@@ -77,14 +138,20 @@ struct V3StructuralOutcomeTests {
         #expect(result.exitReason == .missingQuote)
     }
 
-    @Test func staleEntryIsNotUsedAsExecutableEvidence() {
+    @Test func genericEvaluatorKeepsEvaluationTimeFreshnessWhileLiveOptionUsesEntryReceipt() {
         let plan = plan()
         let stale = entry(plan, at: now.addingTimeInterval(-30))
-        let result = V3StructuralOutcomeEvaluator.evaluate(plan: plan, entry: stale,
+        let generic = V3StructuralOutcomeEvaluator.evaluate(plan: plan, entry: stale,
             exitQuotes: [quote("target", bid: 1.1021, ask: 1.1023, at: now)],
             asOf: now)
-        #expect(result.status == .unresolved)
-        #expect(result.exitReason == .staleEvidence)
+        #expect(generic.status == .unresolved)
+        #expect(generic.exitReason == .staleEvidence)
+
+        let livePath = V3StructuralOutcomeEvaluator.evaluate(plan: plan, entry: stale,
+            exitQuotes: [quote("target-live", bid: 1.1021, ask: 1.1023, at: now)],
+            asOf: now, maximumEvidenceAge: 5, entryFreshnessAtReceipt: true)
+        #expect(livePath.status == .winner)
+        #expect(livePath.exitReason == .takeProfit)
     }
 
     @Test func crossInstrumentEntryCannotContaminatePlan() {
@@ -96,183 +163,6 @@ struct V3StructuralOutcomeTests {
             exitQuotes: [], asOf: now.addingTimeInterval(1))
         #expect(result.status == .unresolved)
         #expect(result.exitReason == .instrumentMismatch)
-    }
-
-    private func archiveCandle(_ start: Date, instrument: String = "EUR/USD",
-                               bid: (Double, Double, Double, Double),
-                               ask: (Double, Double, Double, Double)) -> OandaBidAskCandle {
-        OandaBidAskCandle(instrument: instrument, granularity: "M1", sourceTime: start,
-            complete: true, bidOpen: bid.0, bidHigh: bid.1, bidLow: bid.2, bidClose: bid.3,
-            askOpen: ask.0, askHigh: ask.1, askLow: ask.2, askClose: ask.3)
-    }
-
-    private func archivePlan(side: V3SpotSide = .long) -> V3TradePlan {
-        V3TradePlan(id: "archive-plan", instrument: "EUR/USD", strategyID: "ORB_BREAK_RETEST_V1",
-            strategyVersion: "ORB_BREAK_RETEST_V1", engineVersion: "V3_ORB_ENGINE_1",
-            sourceObservationID: "confirm-source", state: .validated, side: side,
-            entryPrice: 1.100, stopPrice: side == .long ? 1.099 : 1.101,
-            targetPrice: side == .long ? 1.102 : 1.098, units: 1,
-            maxSpread: 0.0003, riskFraction: 0.01, createdAt: now)
-    }
-
-    private func archiveEntryCandle(_ plan: V3TradePlan, spread: Double = 0.0002) -> OandaBidAskCandle {
-        archiveCandle(plan.createdAt.addingTimeInterval(-60),
-            bid: (1.0999, 1.1000, 1.0998, 1.0999),
-            ask: (1.1001, max(1.1002, 1.0999 + spread), 1.1000, 1.0999 + spread))
-    }
-
-    @Test func archiveStructuralReplayHandlesFirstTouchesAndUnresolvedSeries() {
-        let plan = archivePlan()
-        let stop = archiveCandle(now, bid: (1.100, 1.1001, 1.0989, 1.0995),
-            ask: (1.1002, 1.1003, 1.0991, 1.0997))
-        let laterTarget = archiveCandle(now.addingTimeInterval(60),
-            bid: (1.100, 1.1021, 1.0999, 1.101), ask: (1.1002, 1.1023, 1.1001, 1.1012))
-        let first = ORBArchiveStructuralReplay.evaluate(plan: plan, candles: [archiveEntryCandle(plan), laterTarget, stop])
-        #expect(first.status == .stopTouched)
-        #expect(first.firstTouchCandleStart == now)
-        #expect(first.firstTouchCandleEnd == now.addingTimeInterval(60))
-        #expect(abs((first.spreadToRiskRatio ?? 0) - 0.2) < 1e-12)
-        #expect(first.entryQuoteCandleStart == now.addingTimeInterval(-60))
-        #expect(first.entryQuoteCandleEnd == now)
-        #expect(first.entryBidClose == 1.0999)
-        #expect(first.entryAskClose == 1.1001)
-        #expect(first.entrySpread == first.entryAskClose! - first.entryBidClose!)
-        #expect(first.entryIndicativeSideClose == first.entryAskClose)
-        let quiet = archiveCandle(now, bid: (1.100, 1.101, 1.0995, 1.100),
-            ask: (1.1002, 1.1012, 1.0997, 1.1002))
-        let unresolved = ORBArchiveStructuralReplay.evaluate(plan: plan, candles: [archiveEntryCandle(plan), quiet])
-        #expect(unresolved.status == .unresolved)
-        #expect(unresolved.firstTouchCandleEnd == nil)
-        #expect(unresolved.entryQuoteWithinPlanMaxSpread == true)
-    }
-
-    @Test func archiveStructuralReplayMarksAFirstTouchAfterCoverageGapUnresolved() {
-        let plan = archivePlan()
-        let quietAtEntry = archiveCandle(now, bid: (1.100, 1.101, 1.0995, 1.100),
-            ask: (1.1002, 1.1012, 1.0997, 1.1002))
-        let touchAfterTwoMissingMinutes = archiveCandle(now.addingTimeInterval(180),
-            bid: (1.100, 1.1001, 1.0989, 1.0995), ask: (1.1002, 1.1003, 1.0991, 1.0997))
-        let result = ORBArchiveStructuralReplay.evaluate(plan: plan,
-            candles: [archiveEntryCandle(plan), quietAtEntry, touchAfterTwoMissingMinutes])
-        #expect(result.status == .unresolvedCoverageGap)
-        #expect(result.coverageGapFrom == now.addingTimeInterval(60))
-        #expect(result.coverageGapTo == now.addingTimeInterval(180))
-        #expect(result.firstTouchCandleStart == nil)
-        #expect(result.entryQuoteWithinPlanMaxSpread == true)
-    }
-
-    private func archiveBatch(filename: String? = nil,
-                              candles: [OandaBidAskCandle], transport: OandaTransport = .ok,
-                              httpStatus: Int? = 200, rejected: Bool = false,
-                              from: Date? = nil, to: Date? = nil) -> ORBArchiveBatchSource {
-        let requestedFrom = from ?? now.addingTimeInterval(-60)
-        let requestedTo = to ?? now.addingTimeInterval(180)
-        let name = filename ?? "oanda-practice-EUR_USD-M1-\(Int(requestedFrom.timeIntervalSince1970))-\(Int(requestedTo.timeIntervalSince1970)).json"
-        return ORBArchiveBatchSource(filename: name, batch: OandaHistoricalBidAskBatch(
-            instrument: "EUR_USD", granularity: "M1", requestedFrom: requestedFrom,
-            requestedTo: requestedTo, candles: candles, transport: transport,
-            practiceOnlyRejected: rejected, httpStatus: httpStatus))
-    }
-
-    @Test func archiveBatchValidatorRejectsBadProvenanceAndCandleIdentity() {
-        let mismatched = OandaBidAskCandle(instrument: "GBP_JPY", granularity: "M1",
-            sourceTime: now, complete: true, bidOpen: 1.1, bidHigh: 1.1, bidLow: 1.1,
-            bidClose: 1.1, askOpen: 1.1002, askHigh: 1.1002, askLow: 1.1002, askClose: 1.1002)
-        let source = archiveBatch(candles: [mismatched], transport: .network,
-            httpStatus: 503, rejected: true)
-        let reasons = Set(ORBArchiveBatchValidator.validate([source]).map(\.reason))
-        #expect(reasons.contains("transport_not_ok"))
-        #expect(reasons.contains("http_status_not_200"))
-        #expect(reasons.contains("practice_only_rejected"))
-        #expect(reasons.contains("candle_batch_identity_mismatch"))
-    }
-
-    @Test func archiveBatchValidatorRejectsFilenameEpochsThatDisagreeWithMetadata() {
-        let valid = archiveCandle(now, instrument: "EUR_USD", bid: (1.1, 1.1, 1.1, 1.1),
-            ask: (1.1002, 1.1002, 1.1002, 1.1002))
-        let source = archiveBatch(filename: "oanda-practice-EUR_USD-M1-100-200.json", candles: [valid])
-        #expect(ORBArchiveBatchValidator.validate([source]).contains {
-            $0.reason == "filename_requested_range_mismatch"
-        })
-    }
-
-    @Test func archiveSessionCoverageSeparatesOpeningRangeFromCensoredSetupWindow() {
-        let start = now
-        func bars(count: Int) -> [ORBBar] {
-            (0..<count).map { minute in
-                let time = start.addingTimeInterval(Double(minute * 60))
-                return ORBBar(id: "coverage-\(minute)", instrument: "EUR/USD",
-                    sourceTime: time, endTime: time.addingTimeInterval(60),
-                    open: 1.1, high: 1.101, low: 1.099, close: 1.1)
-            }
-        }
-        let defaults = ORBArchiveSessionCoverageEvaluator.evaluate(sessionStart: start, bars: bars(count: 125))
-        #expect(defaults.openingRangeEligible)
-        #expect(defaults.fullSetupWindowCovered)
-        let censored = ORBArchiveSessionCoverageEvaluator.evaluate(sessionStart: start, bars: bars(count: 124))
-        #expect(censored.openingRangeEligible)
-        #expect(!censored.fullSetupWindowCovered)
-        let insufficient = ORBArchiveSessionCoverageEvaluator.evaluate(sessionStart: start, bars: bars(count: 4))
-        #expect(!insufficient.openingRangeEligible)
-        #expect(!insufficient.fullSetupWindowCovered)
-    }
-
-    @Test func archiveOutputGuardResolvesSymlinksAndRejectsOutputInsideInput() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("orb-archive-guard-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let input = root.appendingPathComponent("historical-bid-ask", isDirectory: true)
-        let output = root.appendingPathComponent("structural-replay", isDirectory: true)
-        try FileManager.default.createDirectory(at: input, withIntermediateDirectories: true)
-        #expect(ORBArchiveFilesystemGuard.outputIsOutsideInputArchive(inputArchive: input, outputDirectory: output))
-        let link = root.appendingPathComponent("linked-output", isDirectory: true)
-        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: input)
-        #expect(!ORBArchiveFilesystemGuard.outputIsOutsideInputArchive(inputArchive: input, outputDirectory: link))
-    }
-
-    @Test func archiveBatchValidatorRejectsConflictingOverlaps() {
-        let one = archiveCandle(now, instrument: "EUR_USD", bid: (1.1, 1.1, 1.1, 1.1),
-            ask: (1.1002, 1.1002, 1.1002, 1.1002))
-        let other = archiveCandle(now, instrument: "EUR_USD", bid: (1.1001, 1.1001, 1.1001, 1.1001),
-            ask: (1.1003, 1.1003, 1.1003, 1.1003))
-        let a = archiveBatch(candles: [one])
-        let b = archiveBatch(filename: "oanda-practice-EUR_USD-M1-1899999940-1900000180.json", candles: [other])
-        let issues = ORBArchiveBatchValidator.validate([b, a])
-        #expect(issues.filter { $0.reason == "conflicting_duplicate_candle" }.count == 2)
-    }
-
-    @Test func archiveStructuralReplayUsesShortAskAndAmbiguousSameCandleTouches() {
-        let short = archivePlan(side: .short)
-        let target = archiveCandle(now, bid: (1.0997, 1.0998, 1.0978, 1.0996),
-            ask: (1.0999, 1.1000, 1.0979, 1.0998))
-        #expect(ORBArchiveStructuralReplay.evaluate(plan: short,
-            candles: [archiveEntryCandle(short), target]).status == .targetTouched)
-        let shortEntry = ORBArchiveStructuralReplay.evaluate(plan: short, candles: [archiveEntryCandle(short)])
-        #expect(shortEntry.entryIndicativeSideClose == shortEntry.entryBidClose)
-        #expect(shortEntry.entrySpread == shortEntry.entryAskClose! - shortEntry.entryBidClose!)
-        let long = archivePlan()
-        let both = archiveCandle(now, bid: (1.100, 1.1021, 1.0989, 1.100),
-            ask: (1.1002, 1.1023, 1.0991, 1.1002))
-        #expect(ORBArchiveStructuralReplay.evaluate(plan: long,
-            candles: [archiveEntryCandle(long), both]).status == .ambiguous)
-    }
-
-    @Test func archiveStructuralReplaySeparatesMissingEntryAndSpreadFailure() {
-        let plan = archivePlan()
-        let missing = ORBArchiveStructuralReplay.evaluate(plan: plan, candles: [])
-        #expect(missing.status == .entryMissingQuote)
-        #expect(missing.entryQuoteCandleStart == nil)
-        #expect(missing.entryQuoteCandleEnd == nil)
-        #expect(missing.entryBidClose == nil)
-        #expect(missing.entryAskClose == nil)
-        #expect(missing.entryIndicativeSideClose == nil)
-        let wrongMinute = archiveCandle(now.addingTimeInterval(-120),
-            bid: (1.0999, 1.1000, 1.0998, 1.0999),
-            ask: (1.1001, 1.1002, 1.1000, 1.1001))
-        let noFallback = ORBArchiveStructuralReplay.evaluate(plan: plan, candles: [wrongMinute])
-        #expect(noFallback.status == .entryMissingQuote)
-        #expect(noFallback.entryQuoteCandleStart == nil)
-        let wide = archiveEntryCandle(plan, spread: 0.0004)
-        #expect(ORBArchiveStructuralReplay.evaluate(plan: plan, candles: [wide]).status == .entrySpreadExceeded)
     }
 
     @Test func structuralOutcomeReplayIsIdempotentAndConflictsAreRejected() async throws {
@@ -295,5 +185,291 @@ struct V3StructuralOutcomeTests {
             netPnl: outcome.netPnl, spreadCost: outcome.spreadCost,
             additionalCosts: outcome.additionalCosts, recordedAt: outcome.recordedAt)
         await #expect(throws: ScanError.self) { try await store.record(conflict) }
+    }
+
+    @Test func liveShadowOutcomeBindsObservedEntryAndStoresOneSimulatedTerminalResult() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("v3-live-shadow-\(UUID().uuidString)")
+            .appendingPathComponent("live-oanda", isDirectory: true)
+        let store = ResearchStore(root: root)
+        let plan = livePlan(createdAt: now.addingTimeInterval(-5))
+        let entryObservation = liveEntryObservation(at: now.addingTimeInterval(-2))
+        try await persistLiveEntry(plan: plan, store: store, observation: entryObservation)
+        let exit = liveExitObservation("target-live", bid: 1.1021, ask: 1.1023,
+            sourceTime: now.addingTimeInterval(-1))
+        let appended = try await store.recordLiveShadowStructuralOutcome(planID: plan.id,
+            exitObservation: exit, recordedAt: exit.receivedAt, shouldAppend: { true })
+        guard case let .appended(outcome) = appended else {
+            Issue.record("Expected a terminal simulated outcome")
+            return
+        }
+        #expect(outcome.status == .winner)
+        #expect(outcome.exitReason == .takeProfit)
+        #expect(outcome.quality == .simulated)
+        #expect(outcome.entryObservation == (try await store.v3PlanEntryEvidence().first?.observation))
+        #expect(outcome.exitObservation == exit)
+        #expect(outcome.id.hasPrefix("shadow-structural-"))
+        let retry = try await ResearchStore(root: root).recordLiveShadowStructuralOutcome(
+            planID: plan.id, exitObservation: exit, recordedAt: exit.receivedAt, shouldAppend: { false })
+        guard case let .alreadyRecorded(replayed) = retry else {
+            Issue.record("Expected exact retry to return the durable terminal result")
+            return
+        }
+        #expect(replayed.id == outcome.id)
+        #expect(replayed.quality == .simulated)
+        #expect(try await store.v3StructuralOutcomes().map(\.id) == [outcome.id])
+        #expect(try await store.v3PositionRecords().isEmpty)
+        #expect(try await store.v3SetupLifecycleEvents().isEmpty)
+
+        let conflict = liveExitObservation("other-target-live", bid: 1.1022, ask: 1.1024,
+            sourceTime: now.addingTimeInterval(-0.5))
+        await #expect(throws: ScanError.self) {
+            try await ResearchStore(root: root).recordLiveShadowStructuralOutcome(
+                planID: plan.id, exitObservation: conflict, recordedAt: conflict.receivedAt,
+                shouldAppend: { true })
+        }
+        #expect(try await store.v3StructuralOutcomes().map(\.id) == [outcome.id])
+    }
+
+    @Test func liveShadowOutcomeRequiresStrictSourceAndReceiptChronology() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("v3-live-shadow-time-\(UUID().uuidString)")
+            .appendingPathComponent("live-oanda", isDirectory: true)
+        let store = ResearchStore(root: root)
+        let plan = livePlan(createdAt: now.addingTimeInterval(-5))
+        let entryObservation = liveEntryObservation(at: now.addingTimeInterval(-2))
+        try await persistLiveEntry(plan: plan, store: store, observation: entryObservation)
+        let persistedEntry = try #require(await store.v3PlanEntryEvidence().first)
+
+        let equalSource = liveExitObservation("equal-source", bid: 1.1021, ask: 1.1023,
+            sourceTime: persistedEntry.observation.sourceTime,
+            receivedAt: persistedEntry.observation.receivedAt.addingTimeInterval(0.1))
+        let sourceRejected = try await store.recordLiveShadowStructuralOutcome(planID: plan.id,
+            exitObservation: equalSource, recordedAt: equalSource.receivedAt, shouldAppend: { true })
+        #expect(sourceRejected == .noTerminalTrigger)
+
+        let equalReceipt = liveExitObservation("equal-receipt", bid: 1.1021, ask: 1.1023,
+            sourceTime: persistedEntry.observation.sourceTime.addingTimeInterval(0.1),
+            receivedAt: persistedEntry.observation.receivedAt)
+        let receiptRejected = try await store.recordLiveShadowStructuralOutcome(planID: plan.id,
+            exitObservation: equalReceipt, recordedAt: equalReceipt.receivedAt, shouldAppend: { true })
+        #expect(receiptRejected == .noTerminalTrigger)
+        #expect(try await store.v3StructuralOutcomes().isEmpty)
+
+        let quiet = liveExitObservation("quiet", bid: 1.101, ask: 1.1012,
+            sourceTime: now.addingTimeInterval(-1))
+        let noTrigger = try await store.recordLiveShadowStructuralOutcome(planID: plan.id,
+            exitObservation: quiet, recordedAt: quiet.receivedAt, shouldAppend: { true })
+        #expect(noTrigger == .noTerminalTrigger)
+        #expect(try await store.v3StructuralOutcomes().isEmpty)
+    }
+
+    @Test func liveShadowOutcomeCanRecordDelayedTriggerAfterEntryIsNoLongerFresh() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("v3-live-shadow-delayed-\(UUID().uuidString)")
+            .appendingPathComponent("live-oanda", isDirectory: true)
+        let store = ResearchStore(root: root)
+        let plan = livePlan(createdAt: now.addingTimeInterval(-60))
+        let entryObservation = liveEntryObservation(at: now.addingTimeInterval(-20))
+        try await persistLiveEntry(plan: plan, store: store, observation: entryObservation)
+        let exit = liveExitObservation("delayed-target", bid: 1.1021, ask: 1.1023,
+            sourceTime: now.addingTimeInterval(-0.5))
+        #expect(exit.sourceTime.timeIntervalSince(entryObservation.sourceTime) > 10)
+        let result = try await store.recordLiveShadowStructuralOutcome(planID: plan.id,
+            exitObservation: exit, recordedAt: exit.receivedAt, shouldAppend: { true })
+        guard case let .appended(outcome) = result else {
+            Issue.record("Expected a delayed terminal market trigger to remain evaluable")
+            return
+        }
+        #expect(outcome.status == .winner)
+        #expect(outcome.quality == .simulated)
+        #expect(try await store.v3StructuralOutcomes().count == 1)
+    }
+
+    @Test func genericStructuralOutcomeWriterCannotBypassLivePlanBinding() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("v3-live-shadow-generic-bypass-\(UUID().uuidString)")
+            .appendingPathComponent("live-oanda", isDirectory: true)
+        let plan = plan()
+        let candidate = V3StructuralOutcomeEvaluator.evaluate(plan: plan, entry: entry(plan),
+            exitQuotes: [quote("generic-target", bid: 1.1021, ask: 1.1023,
+                at: now.addingTimeInterval(2))], asOf: now.addingTimeInterval(3))
+        let store = ResearchStore(root: root)
+        await #expect(throws: ScanError.self) { try await store.record(candidate) }
+        #expect(try await store.v3StructuralOutcomes().isEmpty)
+        #expect(!FileManager.default.fileExists(atPath:
+            root.appendingPathComponent("v3-structural-outcomes", isDirectory: true).path))
+    }
+
+    @Test func liveShadowOutcomeRejectsMissingOrMismatchedObservedEntry() async throws {
+        let plan = livePlan(createdAt: now.addingTimeInterval(-5))
+        let exit = liveExitObservation("target", bid: 1.1021, ask: 1.1023,
+            sourceTime: now.addingTimeInterval(-1))
+
+        let missingRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("v3-live-shadow-missing-entry-\(UUID().uuidString)")
+            .appendingPathComponent("live-oanda", isDirectory: true)
+        let missingStore = ResearchStore(root: missingRoot)
+        try await missingStore.record(plan)
+        await #expect(throws: ScanError.self) {
+            try await missingStore.recordLiveShadowStructuralOutcome(planID: plan.id,
+                exitObservation: exit, recordedAt: exit.receivedAt, shouldAppend: { true })
+        }
+        #expect(try await missingStore.v3StructuralOutcomes().isEmpty)
+
+        let mismatchRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("v3-live-shadow-mismatch-entry-\(UUID().uuidString)")
+            .appendingPathComponent("live-oanda", isDirectory: true)
+        let mismatchStore = ResearchStore(root: mismatchRoot)
+        try await mismatchStore.record(plan)
+        let badObservation = V3MarketObservation(id: "wrong-provider", instrument: plan.instrument,
+            provider: "PROXY", environment: .oandaLive, bid: 1.1001, ask: 1.1003,
+            sourceTime: now.addingTimeInterval(-2), receivedAt: now.addingTimeInterval(-1.9))
+        try writeEntryFixture(V3PlanEntryEvidence(id: "wrong-entry",
+            planID: plan.id, observation: badObservation, quality: .observed,
+            recordedAt: badObservation.receivedAt), root: mismatchRoot)
+        await #expect(throws: ScanError.self) {
+            try await mismatchStore.recordLiveShadowStructuralOutcome(planID: plan.id,
+                exitObservation: exit, recordedAt: exit.receivedAt, shouldAppend: { true })
+        }
+        #expect(try await mismatchStore.v3StructuralOutcomes().isEmpty)
+    }
+
+    @Test func genericLiveEntryWriterCannotBypassExactPlanObservationPath() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("v3-live-entry-generic-bypass-\(UUID().uuidString)")
+            .appendingPathComponent("live-oanda", isDirectory: true)
+        let store = ResearchStore(root: root)
+        let observation = liveEntryObservation(at: now.addingTimeInterval(-1))
+        let entry = V3PlanEntryEvidence(id: "generic-live-entry", planID: "plan-id",
+            observation: observation, quality: .observed, recordedAt: observation.receivedAt)
+        await #expect(throws: ScanError.self) { try await store.record(entry) }
+        #expect(try await store.v3PlanEntryEvidence().isEmpty)
+        #expect(!FileManager.default.fileExists(atPath:
+            root.appendingPathComponent("v3-plan-entry-evidence", isDirectory: true).path))
+    }
+
+    @Test func dedicatedWriterRejectsEntryOutsideDeviationOrBeforePlanCreation() async throws {
+        let exit = liveExitObservation("target-entry-gates", bid: 1.1021, ask: 1.1023,
+            sourceTime: now.addingTimeInterval(-0.5))
+
+        let bandRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("v3-live-entry-band-\(UUID().uuidString)")
+            .appendingPathComponent("live-oanda", isDirectory: true)
+        let bandStore = ResearchStore(root: bandRoot)
+        let bandPlan = livePlan(createdAt: now.addingTimeInterval(-5))
+        try await bandStore.record(bandPlan)
+        let outsideBand = V3MarketObservation(id: "entry-outside-band", instrument: bandPlan.instrument,
+            provider: "OANDA", environment: .oandaLive, bid: 1.1006, ask: 1.1008,
+            sourceTime: now.addingTimeInterval(-2), receivedAt: now.addingTimeInterval(-1.9))
+        try writeEntryFixture(V3PlanEntryEvidence(id: "outside-band-entry", planID: bandPlan.id,
+            observation: outsideBand, quality: .observed, recordedAt: outsideBand.receivedAt), root: bandRoot)
+        await #expect(throws: ScanError.self) {
+            try await bandStore.recordLiveShadowStructuralOutcome(planID: bandPlan.id,
+                exitObservation: exit, recordedAt: exit.receivedAt, shouldAppend: { true })
+        }
+        #expect(try await bandStore.v3StructuralOutcomes().isEmpty)
+
+        let chronologyRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("v3-live-entry-chronology-\(UUID().uuidString)")
+            .appendingPathComponent("live-oanda", isDirectory: true)
+        let chronologyStore = ResearchStore(root: chronologyRoot)
+        let chronologyPlan = livePlan(createdAt: now.addingTimeInterval(-1))
+        try await chronologyStore.record(chronologyPlan)
+        let prePlanEntry = V3MarketObservation(id: "entry-before-plan", instrument: chronologyPlan.instrument,
+            provider: "OANDA", environment: .oandaLive, bid: 1.1001, ask: 1.1003,
+            sourceTime: now.addingTimeInterval(-2), receivedAt: now.addingTimeInterval(-1.9))
+        try writeEntryFixture(V3PlanEntryEvidence(id: "before-plan-entry", planID: chronologyPlan.id,
+            observation: prePlanEntry, quality: .observed, recordedAt: prePlanEntry.receivedAt), root: chronologyRoot)
+        await #expect(throws: ScanError.self) {
+            try await chronologyStore.recordLiveShadowStructuralOutcome(planID: chronologyPlan.id,
+                exitObservation: exit, recordedAt: exit.receivedAt, shouldAppend: { true })
+        }
+        #expect(try await chronologyStore.v3StructuralOutcomes().isEmpty)
+    }
+
+    @Test func liveShadowOutcomeTerminalLifecycleCutsOffAtAndAfterInvalidation() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("v3-live-shadow-terminal-\(UUID().uuidString)")
+            .appendingPathComponent("live-oanda", isDirectory: true)
+        let store = ResearchStore(root: root)
+        let plan = livePlan(createdAt: now.addingTimeInterval(-8))
+        let entryObservation = liveEntryObservation(at: now.addingTimeInterval(-2))
+        try await persistLiveEntry(plan: plan, store: store, observation: entryObservation)
+        for event in terminalLifecycleEvents(planID: plan.id,
+            confirmedAt: now.addingTimeInterval(-3), terminalAt: now.addingTimeInterval(-1)) {
+            try await store.record(event)
+        }
+        let atCutoff = liveExitObservation("at-terminal", bid: 1.1021, ask: 1.1023,
+            sourceTime: now.addingTimeInterval(-1))
+        let result = try await store.recordLiveShadowStructuralOutcome(planID: plan.id,
+            exitObservation: atCutoff, recordedAt: atCutoff.receivedAt, shouldAppend: { true })
+        #expect(result == .noTerminalTrigger)
+        #expect(try await store.v3StructuralOutcomes().isEmpty)
+
+        let afterCutoff = liveExitObservation("after-terminal", bid: 1.1021, ask: 1.1023,
+            sourceTime: now.addingTimeInterval(-0.5))
+        let after = try await store.recordLiveShadowStructuralOutcome(planID: plan.id,
+            exitObservation: afterCutoff, recordedAt: afterCutoff.receivedAt, shouldAppend: { true })
+        #expect(after == .noTerminalTrigger)
+        #expect(try await store.v3StructuralOutcomes().isEmpty)
+    }
+
+    @Test func competingLiveShadowOutcomeStoresKeepOnlyOneTerminalResult() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("v3-live-shadow-race-\(UUID().uuidString)")
+            .appendingPathComponent("live-oanda", isDirectory: true)
+        let firstStore = ResearchStore(root: root)
+        let plan = livePlan(createdAt: now.addingTimeInterval(-5))
+        let entryObservation = liveEntryObservation(at: now.addingTimeInterval(-2))
+        try await persistLiveEntry(plan: plan, store: firstStore, observation: entryObservation)
+        let exits = [
+            liveExitObservation("race-target-a", bid: 1.1021, ask: 1.1023,
+                sourceTime: now.addingTimeInterval(-1)),
+            liveExitObservation("race-target-b", bid: 1.1022, ask: 1.1024,
+                sourceTime: now.addingTimeInterval(-0.5))
+        ]
+        let results = await withTaskGroup(of: Bool.self, returning: [Bool].self) { group in
+            for (index, exit) in exits.enumerated() {
+                let store = index == 0 ? firstStore : ResearchStore(root: root)
+                group.addTask {
+                    do {
+                        let result = try await store.recordLiveShadowStructuralOutcome(
+                            planID: plan.id, exitObservation: exit, recordedAt: exit.receivedAt,
+                            shouldAppend: { true })
+                        if case .appended = result { return true }
+                        return false
+                    } catch { return false }
+                }
+            }
+            var values: [Bool] = []
+            for await value in group { values.append(value) }
+            return values
+        }
+        #expect(results.filter { $0 }.count == 1)
+        #expect(try await firstStore.v3StructuralOutcomes().count == 1)
+        #expect(try await firstStore.v3PositionRecords().isEmpty)
+    }
+
+    @Test func failedShadowOutcomeArchiveReadLeavesPlanEntryAndPositionsUnchanged() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("v3-live-shadow-failure-\(UUID().uuidString)")
+            .appendingPathComponent("live-oanda", isDirectory: true)
+        let store = ResearchStore(root: root)
+        let plan = livePlan(createdAt: now.addingTimeInterval(-5))
+        let entryObservation = liveEntryObservation(at: now.addingTimeInterval(-2))
+        try await persistLiveEntry(plan: plan, store: store, observation: entryObservation)
+        let outcomePath = root.appendingPathComponent("v3-structural-outcomes")
+        try Data("corrupt archive path".utf8).write(to: outcomePath)
+        let exit = liveExitObservation("archive-failure-target", bid: 1.1021, ask: 1.1023,
+            sourceTime: now.addingTimeInterval(-1))
+        await #expect(throws: (any Error).self) {
+            try await store.recordLiveShadowStructuralOutcome(planID: plan.id,
+                exitObservation: exit, recordedAt: exit.receivedAt, shouldAppend: { true })
+        }
+        #expect(try await store.v3TradePlans() == [plan])
+        #expect(try await store.v3PlanEntryEvidence().count == 1)
+        #expect(try await store.v3PositionRecords().isEmpty)
+        #expect(try await store.v3SetupLifecycleEvents().isEmpty)
     }
 }

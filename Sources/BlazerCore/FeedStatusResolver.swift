@@ -27,7 +27,10 @@ public enum FeedStatusResolver {
             if QuoteFreshness.isLiveQuote(quote, lastFreshPollAt: lastFreshPollAt, now: now) {
                 return .live
             }
-            return lastFreshPollAt == nil ? .connecting : .stale
+            // A completed successful response with no fresh usable quote is a
+            // feed fault, not a connection still in progress. CONNECTING is
+            // reserved for the interval before the first transport result.
+            return lastFreshPollAt == nil ? .error : .stale
         }
     }
 }

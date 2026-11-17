@@ -117,7 +117,7 @@ final class ExecutionFlowTests: XCTestCase {
 
         await model.lockInTrade(duration: 60)
         XCTAssertNil(model.activeTrade)
-        XCTAssertEqual(model.entryIssue, "Historical scan; scan again before entry")
+        XCTAssertEqual(model.entryIssue, "Previous scan restored. SCAN for current market evidence before entry.")
     }
 
     func testExpiredUnenteredSignalDoesNotBecomeAwaitingOutcome() {

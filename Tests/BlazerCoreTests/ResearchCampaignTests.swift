@@ -31,3 +31,15 @@ import Testing
     try await store.record(gap)
     #expect((try await store.gaps()).first?.status == .verified)
 }
+
+@Test func researchStorePersistsAndReloadsLiveStrategyDecisions() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("live-strategy-\(UUID().uuidString)", isDirectory: true)
+    let store = ResearchStore(root: root)
+    let decision = LiveStrategyDecision(instrument: "USD/JPY", action: .wait,
+        supportingStrategies: ["AUCTION_FAILURE", "LEGACY_V1"], plan: nil,
+        reasons: ["eligible_strategy_direction_conflict"],
+        observedAt: Date(timeIntervalSince1970: 1_800_000_000))
+    try await store.record(decision)
+    #expect(try await ResearchStore(root: root).liveStrategyDecisions() == [decision])
+}

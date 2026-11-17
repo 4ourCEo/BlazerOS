@@ -1,0 +1,24 @@
+Building for debugging...
+[Computing dependencies]
+[1 / 2] BlazerCore
+Build complete! (0.45 sec)
+◇ Test run started.
+↳ Testing Library Version: 2403
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite AdaptiveOpportunitySelectorTests started.
+◇ Test unavailableCandidateRemainsUnavailableThroughSelection() started.
+◇ Test conflictingDirectionsProduceNoTradeAndPreserveDiagnostics() started.
+◇ Test orbAdapterPreservesResearchOnlyUnavailableDiagnostics() started.
+◇ Test selectsHighestDeterministicResearchCandidate() started.
+◇ Test returnsNoTradeForStaleCandidate() started.
+◇ Test adaptiveNotificationDeduplicatesAndRejectsStalePublication() started.
+◇ Test timingSeparatesCalculationFromPublicationLatency() started.
+✔ Test returnsNoTradeForStaleCandidate() passed after 0.001 seconds.
+✔ Test selectsHighestDeterministicResearchCandidate() passed after 0.001 seconds.
+✔ Test adaptiveNotificationDeduplicatesAndRejectsStalePublication() passed after 0.001 seconds.
+✔ Test unavailableCandidateRemainsUnavailableThroughSelection() passed after 0.001 seconds.
+✔ Test conflictingDirectionsProduceNoTradeAndPreserveDiagnostics() passed after 0.001 seconds.
+✔ Test orbAdapterPreservesResearchOnlyUnavailableDiagnostics() passed after 0.001 seconds.
+✔ Test timingSeparatesCalculationFromPublicationLatency() passed after 0.001 seconds.
+✔ Suite AdaptiveOpportunitySelectorTests passed after 0.001 seconds.
+✔ Test run with 7 tests in 1 suite passed after 0.001 seconds.

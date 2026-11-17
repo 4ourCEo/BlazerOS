@@ -89,10 +89,24 @@ public struct OandaDiagnostic: Codable, Sendable, Equatable {
 public struct OandaQuoteBatch: Sendable {
     public var quotes: [LiveQuote]
     public var transport: OandaTransport
+    public var httpStatus: Int?
 
-    public init(quotes: [LiveQuote], transport: OandaTransport) {
+    public init(quotes: [LiveQuote], transport: OandaTransport, httpStatus: Int? = nil) {
         self.quotes = quotes
         self.transport = transport
+        self.httpStatus = httpStatus
+    }
+}
+
+public struct OandaCandleBatch: Sendable {
+    public let candles: [Candle]
+    public let transport: OandaTransport
+    public let httpStatus: Int?
+
+    public init(candles: [Candle], transport: OandaTransport, httpStatus: Int? = nil) {
+        self.candles = candles
+        self.transport = transport
+        self.httpStatus = httpStatus
     }
 }
 
@@ -149,19 +163,45 @@ public struct OandaHistoricalBidAskBatch: Codable, Sendable, Equatable {
     public let candles: [OandaBidAskCandle]
     public let transport: OandaTransport
     public let practiceOnlyRejected: Bool
+    public let liveOnlyRejected: Bool?
     public let httpStatus: Int?
     public let serverError: String?
 
     public init(instrument: String, granularity: String, requestedFrom: Date,
                 requestedTo: Date, candles: [OandaBidAskCandle], transport: OandaTransport,
-                practiceOnlyRejected: Bool = false, httpStatus: Int? = nil,
+                practiceOnlyRejected: Bool = false, liveOnlyRejected: Bool? = nil,
+                httpStatus: Int? = nil,
                 serverError: String? = nil) {
         self.instrument = instrument; self.granularity = granularity
         self.requestedFrom = requestedFrom; self.requestedTo = requestedTo
         self.candles = candles; self.transport = transport
         self.practiceOnlyRejected = practiceOnlyRejected
+        self.liveOnlyRejected = liveOnlyRejected
         self.httpStatus = httpStatus
         self.serverError = serverError
+    }
+}
+
+/// A successful response obtained through the environment-gated Live candle
+/// request. Its receipt is created only inside this file, so callers cannot
+/// turn a hand-built or decoded batch into archivable Live provenance.
+public struct OandaLiveHistoricalCapture: Sendable {
+    public let batch: OandaHistoricalBidAskBatch
+    let sourceReceipt: OandaLiveHistoricalCaptureReceipt?
+
+    fileprivate init(batch: OandaHistoricalBidAskBatch, sourceReceipt: OandaLiveHistoricalCaptureReceipt?) {
+        self.batch = batch
+        self.sourceReceipt = sourceReceipt
+    }
+}
+
+struct OandaLiveHistoricalCaptureReceipt: Sendable {
+    let includeFirst: Bool
+    let retrievedAt: Date
+
+    fileprivate init(includeFirst: Bool, retrievedAt: Date) {
+        self.includeFirst = includeFirst
+        self.retrievedAt = retrievedAt
     }
 }
 
@@ -243,6 +283,14 @@ public actor OandaRateLimit {
 }
 
 public enum OandaClient {
+    /// Finite request session: URLRequest timeouts reset when response bytes arrive,
+    /// so cap total response duration separately. Streaming uses URLSession.shared.
+    static let finiteRequestSession: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 20
+        configuration.timeoutIntervalForResource = 30
+        return URLSession(configuration: configuration)
+    }()
     private static let proofLock = NSLock()
     nonisolated(unsafe) private static var _loggedProof = false
     private static var loggedProof: Bool {
@@ -272,6 +320,17 @@ public enum OandaClient {
 
     public static func instrument(for asset: String) -> String? {
         instrumentMap[asset]
+    }
+
+    public static func authorizationFailureMessage(environment: OandaEnvironment, httpStatus: Int?) -> String {
+        let environmentName = environment == .live ? "Live" : "Practice"
+        let detail: String
+        switch httpStatus {
+        case 401: detail = "token rejected (HTTP 401)"
+        case 403: detail = "account or API access denied (HTTP 403)"
+        default: detail = "authorization rejected (HTTP 401/403)"
+        }
+        return "OANDA \(environmentName) \(detail). Check the token, account ID, and API access."
     }
 
     /// Read-only operational probe. It deliberately separates credentials, auth,
@@ -358,7 +417,7 @@ public enum OandaClient {
         let request = authorized(url, session: session, timeout: 8)
         let started = Date()
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
+            let (_, response) = try await finiteRequestSession.data(for: request)
             let ms = Date().timeIntervalSince(started) * 1000
             guard let http = response as? HTTPURLResponse else {
                 return (false, ms, "Feed timeout")
@@ -417,7 +476,7 @@ public enum OandaClient {
         }
         let request = authorized(url, session: session, timeout: 8)
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await finiteRequestSession.data(for: request)
             guard let http = response as? HTTPURLResponse else {
                 return OandaQuoteBatch(quotes: [], transport: .network)
             }
@@ -425,7 +484,7 @@ public enum OandaClient {
                 return OandaQuoteBatch(quotes: [], transport: .rateLimited)
             }
             if http.statusCode == 401 || http.statusCode == 403 {
-                return OandaQuoteBatch(quotes: [], transport: .unauthorized)
+                return OandaQuoteBatch(quotes: [], transport: .unauthorized, httpStatus: http.statusCode)
             }
             guard http.statusCode < 400 else {
                 return OandaQuoteBatch(quotes: [], transport: .network)
@@ -461,7 +520,9 @@ public enum OandaClient {
             if !session.isConfigured { throw ScanError.failed("OANDA token missing") }
             return nil
         }
-        async let oneMinute = fetchCandlesResult(asset: asset, granularity: "M1", count: 120, session: session)
+        // Keep enough of the session in memory for NY ORB evaluation. A 120-bar
+        // rolling window drops the 09:30 opening range later in the morning.
+        async let oneMinute = fetchCandlesResult(asset: asset, granularity: "M1", count: 500, session: session)
         async let fiveMinute = fetchCandlesResult(asset: asset, granularity: "M5", count: 120, session: session)
         async let quoteBatch = fetchQuoteBatch(assets: [asset], session: session)
         let candles1m = await oneMinute
@@ -477,19 +538,27 @@ public enum OandaClient {
         {
             throw ScanError.failed("Feed timeout")
         }
-        if batch.transport == .missingToken || candles1m.transport == .missingToken {
+        if batch.transport == .missingToken || candles1m.transport == .missingToken
+            || candles5m.transport == .missingToken {
             throw ScanError.failed("OANDA token missing")
         }
-        if batch.transport == .unauthorized {
-            throw ScanError.failed("OANDA unauthorized")
+        if batch.transport == .unauthorized || candles1m.transport == .unauthorized
+            || candles5m.transport == .unauthorized {
+            let status = [batch.httpStatus, candles1m.httpStatus, candles5m.httpStatus]
+                .compactMap { $0 }
+                .first(where: { $0 == 401 || $0 == 403 })
+            throw ScanError.failed(authorizationFailureMessage(environment: session.environment,
+                                                                 httpStatus: status))
         }
         if candles1m.transport == .network || candles5m.transport == .network
             || batch.transport == .network {
             throw ScanError.failed("OANDA network failure")
         }
         let quote = batch.quotes.first
-        guard candles1m.candles.count >= 20, candles5m.candles.count >= 20 else { return nil }
-        guard let quote else { return nil }
+        guard candles1m.candles.count >= 20, candles5m.candles.count >= 20 else {
+            throw ScanError.failed("OANDA returned insufficient completed candles (M1: \(candles1m.candles.count), M5: \(candles5m.candles.count))")
+        }
+        guard let quote else { throw ScanError.failed("OANDA returned no usable pricing row") }
         guard QuoteFreshness.isFresh(quote) else {
             throw ScanError.failed("Feed timeout")
         }
@@ -527,6 +596,20 @@ public enum OandaClient {
         return result.candles
     }
 
+    /// Preserves the broker outcome so the UI can distinguish authentication,
+    /// rate limiting, an empty completed-bar response, and a network failure.
+    public static func fetchCandlesBatch(
+        asset: String,
+        session: OandaSession,
+        granularity: String = "M1",
+        count: Int = 80
+    ) async -> OandaCandleBatch {
+        let result = await fetchCandlesResult(asset: asset, granularity: granularity,
+                                               count: count, session: session)
+        return OandaCandleBatch(candles: result.candles, transport: result.transport,
+                                httpStatus: result.httpStatus)
+    }
+
     /// Fetches authentic historical bid/ask candles from OANDA Practice. This
     /// is intentionally not a tick-history claim: callers must preserve
     /// intrabar ambiguity when evaluating stops and targets.
@@ -534,16 +617,82 @@ public enum OandaClient {
         asset: String, from: Date, to: Date, granularity: String = "M1",
         session: OandaSession
     ) async -> OandaHistoricalBidAskBatch {
+        await fetchHistoricalBidAskCandles(asset: asset, from: from, to: to,
+            granularity: granularity, session: session, requiredEnvironment: .practice,
+            includeFirst: true, requestSession: finiteRequestSession)
+    }
+
+    /// Fetches a separate Live historical candle batch for research data capture.
+    /// This endpoint reads only instrument candles and carries no order authority.
+    public static func fetchLiveHistoricalBidAskCandles(
+        asset: String, from: Date, to: Date, granularity: String = "M1",
+        includeFirst: Bool = true, session: OandaSession
+    ) async -> OandaHistoricalBidAskBatch {
+        await fetchHistoricalBidAskCandles(asset: asset, from: from, to: to,
+            granularity: granularity, session: session, requiredEnvironment: .live,
+            includeFirst: includeFirst, requestSession: finiteRequestSession)
+    }
+
+    /// Returns an archivable capture only with an in-memory receipt issued for
+    /// a successful response from the Live-only request path.
+    public static func fetchLiveHistoricalCapture(
+        asset: String, from: Date, to: Date, granularity: String = "M1",
+        includeFirst: Bool = true, session: OandaSession
+    ) async -> OandaLiveHistoricalCapture {
+        let batch = await fetchLiveHistoricalBidAskCandles(asset: asset, from: from, to: to,
+            granularity: granularity, includeFirst: includeFirst, session: session)
+        return OandaLiveHistoricalCapture(batch: batch,
+            sourceReceipt: successfulLiveReceipt(for: batch, includeFirst: includeFirst,
+                                                 retrievedAt: Date()))
+    }
+
+    static func fetchLiveHistoricalCapture(
+        asset: String, from: Date, to: Date, granularity: String = "M1",
+        includeFirst: Bool = true, session: OandaSession, requestSession: URLSession
+    ) async -> OandaLiveHistoricalCapture {
+        let batch = await fetchLiveHistoricalBidAskCandles(asset: asset, from: from, to: to,
+            granularity: granularity, includeFirst: includeFirst, session: session,
+            requestSession: requestSession)
+        return OandaLiveHistoricalCapture(batch: batch,
+            sourceReceipt: successfulLiveReceipt(for: batch, includeFirst: includeFirst,
+                                                 retrievedAt: Date()))
+    }
+
+    private static func successfulLiveReceipt(
+        for batch: OandaHistoricalBidAskBatch, includeFirst: Bool, retrievedAt: Date
+    ) -> OandaLiveHistoricalCaptureReceipt? {
+        guard batch.transport == .ok, batch.httpStatus == 200,
+              batch.liveOnlyRejected == false, !batch.practiceOnlyRejected else { return nil }
+        guard retrievedAt.timeIntervalSince1970.isFinite else { return nil }
+        return OandaLiveHistoricalCaptureReceipt(includeFirst: includeFirst, retrievedAt: retrievedAt)
+    }
+
+    /// URLSession injection keeps the Live request contract testable without network access.
+    static func fetchLiveHistoricalBidAskCandles(
+        asset: String, from: Date, to: Date, granularity: String = "M1",
+        includeFirst: Bool = true, session: OandaSession, requestSession: URLSession
+    ) async -> OandaHistoricalBidAskBatch {
+        await fetchHistoricalBidAskCandles(asset: asset, from: from, to: to,
+            granularity: granularity, session: session, requiredEnvironment: .live,
+            includeFirst: includeFirst, requestSession: requestSession)
+    }
+
+    private static func fetchHistoricalBidAskCandles(
+        asset: String, from: Date, to: Date, granularity: String,
+        session: OandaSession, requiredEnvironment: OandaEnvironment,
+        includeFirst: Bool, requestSession: URLSession
+    ) async -> OandaHistoricalBidAskBatch {
         let instrumentName = instrument(for: asset) ?? asset
         let base = OandaHistoricalBidAskBatch(instrument: instrumentName,
             granularity: granularity, requestedFrom: from, requestedTo: to,
             candles: [], transport: .network)
-        guard session.isConfigured, session.environment == .practice,
+        guard session.isConfigured, session.environment == requiredEnvironment,
               from.timeIntervalSince1970.isFinite, to > from else {
             return OandaHistoricalBidAskBatch(instrument: instrumentName,
                 granularity: granularity, requestedFrom: from, requestedTo: to,
                 candles: [], transport: session.isConfigured ? .network : .missingToken,
-                practiceOnlyRejected: session.environment != .practice)
+                practiceOnlyRejected: requiredEnvironment == .practice && session.environment != .practice,
+                liveOnlyRejected: requiredEnvironment == .live && session.environment != .live)
         }
         guard let instrumentName = instrument(for: asset),
               await OandaRateLimit.shared.acquire(timeout: 15),
@@ -561,11 +710,11 @@ public enum OandaClient {
             // BA requests bid and ask OHLC together.
             URLQueryItem(name: "price", value: "BA"),
             URLQueryItem(name: "smooth", value: "false"),
-            URLQueryItem(name: "includeFirst", value: "true")
+            URLQueryItem(name: "includeFirst", value: includeFirst ? "true" : "false")
         ]
         guard let url = components.url else { return base }
         do {
-            let (data, response) = try await URLSession.shared.data(for: authorized(url, session: session, timeout: 20))
+            let (data, response) = try await requestSession.data(for: authorized(url, session: session, timeout: 20))
             guard let http = response as? HTTPURLResponse else { return base }
             if http.statusCode == 401 || http.statusCode == 403 {
             return OandaHistoricalBidAskBatch(instrument: instrumentName, granularity: granularity,
@@ -578,6 +727,11 @@ public enum OandaClient {
                     httpStatus: http.statusCode)
             }
             guard http.statusCode < 400 else {
+                guard requiredEnvironment == .practice else {
+                    return OandaHistoricalBidAskBatch(instrument: instrumentName, granularity: granularity,
+                        requestedFrom: from, requestedTo: to, candles: [], transport: .network,
+                        httpStatus: http.statusCode)
+                }
                 let error = try? decoder.decode(OandaErrorResponse.self, from: data)
                 return OandaHistoricalBidAskBatch(instrument: instrumentName, granularity: granularity,
                     requestedFrom: from, requestedTo: to, candles: [], transport: .network,
@@ -590,7 +744,9 @@ public enum OandaClient {
             }
             return OandaHistoricalBidAskBatch(instrument: instrumentName, granularity: granularity,
                 requestedFrom: from, requestedTo: to,
-                candles: parsed, transport: .ok, httpStatus: http.statusCode)
+                candles: parsed, transport: .ok,
+                liveOnlyRejected: requiredEnvironment == .live ? false : nil,
+                httpStatus: http.statusCode)
         } catch let error as URLError where error.code == .timedOut {
             return OandaHistoricalBidAskBatch(instrument: instrumentName, granularity: granularity,
                 requestedFrom: from, requestedTo: to, candles: [], transport: .timeout)
@@ -605,22 +761,20 @@ public enum OandaClient {
         asset: String, duration: TimeInterval = 30, maxQuotes: Int = 100,
         session: OandaSession
     ) async -> OandaForwardQuoteCapture {
+        let started = Date()
         let instrumentName = instrument(for: asset) ?? asset
         guard session.isConfigured, session.environment == .practice,
               let mapped = instrument(for: asset), duration > 0, maxQuotes > 0 else {
             return OandaForwardQuoteCapture(instrument: instrumentName,
-                environment: session.environment, startedAt: Date(), endedAt: Date(),
+                environment: session.environment, startedAt: started, endedAt: Date(),
                 quotes: [], transport: session.isConfigured ? .network : .missingToken)
         }
         guard await OandaRateLimit.shared.acquire(timeout: 15),
-               var components = URLComponents(
-                   string: "\(session.environment.streamHost)/v3/accounts/\(session.accountId)/pricing/stream") else {
+              var components = URLComponents(
+                  string: "\(session.environment.streamHost)/v3/accounts/\(session.accountId)/pricing/stream") else {
             return OandaForwardQuoteCapture(instrument: mapped, environment: session.environment,
-                startedAt: Date(), endedAt: Date(), quotes: [], transport: .network)
+                startedAt: started, endedAt: Date(), quotes: [], transport: .network)
         }
-        // The requested observation interval begins only after rate limiting has
-        // admitted the request; waiting for a token is not capture time.
-        let started = Date()
         components.queryItems = [URLQueryItem(name: "instruments", value: mapped)]
         guard let url = components.url else {
             return OandaForwardQuoteCapture(instrument: mapped, environment: session.environment,
@@ -639,15 +793,17 @@ public enum OandaClient {
                     termination: "invalid_response")
             }
             let contentType = http.value(forHTTPHeaderField: "Content-Type")
-            let httpTransport = forwardHTTPTransport(statusCode: http.statusCode)
-            if httpTransport != .ok {
-                let termination = httpTransport == .rateLimited
-                    ? "http_rate_limited"
-                    : (httpTransport == .unauthorized ? "http_auth_rejected" : "http_failure")
+            if http.statusCode == 401 || http.statusCode == 403 {
                 return OandaForwardQuoteCapture(instrument: mapped, environment: session.environment,
-                    startedAt: started, endedAt: Date(), quotes: [], transport: httpTransport,
+                    startedAt: started, endedAt: Date(), quotes: [], transport: .unauthorized,
                     httpStatus: http.statusCode, contentType: contentType,
-                    termination: termination)
+                    termination: "http_auth_rejected")
+            }
+            guard http.statusCode < 400 else {
+                return OandaForwardQuoteCapture(instrument: mapped, environment: session.environment,
+                    startedAt: started, endedAt: Date(), quotes: [], transport: .network,
+                    httpStatus: http.statusCode, contentType: contentType,
+                    termination: "http_failure")
             }
             var termination = "stream_ended"
             for try await line in bytes.lines {
@@ -676,21 +832,21 @@ public enum OandaClient {
                 }
                 quotes.append(quote)
             }
-            let endedAt = Date()
-            let final = finalizeForwardStream(endedAt: endedAt, startedAt: started,
-                duration: duration, quoteCount: quotes.count, maxQuotes: maxQuotes,
-                termination: termination)
             return OandaForwardQuoteCapture(instrument: mapped, environment: session.environment,
-                startedAt: started, endedAt: endedAt, quotes: quotes, transport: final.transport,
+                startedAt: started, endedAt: Date(), quotes: quotes, transport: .ok,
                 httpStatus: http.statusCode, contentType: contentType,
                 heartbeatCount: heartbeatCount, parseFailures: parseFailures,
-                termination: final.termination)
-        } catch {
-            let failure = classifyForwardError(error)
+                termination: termination)
+        } catch let error as URLError where error.code == .timedOut {
             return OandaForwardQuoteCapture(instrument: mapped, environment: session.environment,
-                startedAt: started, endedAt: Date(), quotes: quotes, transport: failure.transport,
+                startedAt: started, endedAt: Date(), quotes: quotes, transport: .timeout,
                 heartbeatCount: heartbeatCount, parseFailures: parseFailures,
-                termination: failure.termination, errorCode: failure.errorCode)
+                termination: "timeout", errorCode: error.code.rawValue.description)
+        } catch {
+            return OandaForwardQuoteCapture(instrument: mapped, environment: session.environment,
+                startedAt: started, endedAt: Date(), quotes: quotes, transport: .network,
+                heartbeatCount: heartbeatCount, parseFailures: parseFailures,
+                termination: "network_failure", errorCode: (error as NSError).code.description)
         }
     }
 
@@ -741,6 +897,7 @@ public enum OandaClient {
     private struct CandleFetch: Sendable {
         var candles: [Candle]
         var transport: OandaTransport
+        var httpStatus: Int? = nil
     }
 
     private static func fetchCandlesResult(
@@ -771,7 +928,7 @@ public enum OandaClient {
         let timeout: TimeInterval = granularity == "M1" && count <= 80 ? 8 : 12
         let request = authorized(url, session: session, timeout: timeout)
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await finiteRequestSession.data(for: request)
             guard let http = response as? HTTPURLResponse else {
                 oandaLogger.error("BlazerCore fetchCandles response not HTTP for \(asset, privacy: .public)")
                 return CandleFetch(candles: [], transport: .network)
@@ -782,7 +939,7 @@ public enum OandaClient {
             }
             if http.statusCode == 401 || http.statusCode == 403 {
                 oandaLogger.warning("BlazerCore fetchCandles 401/403 unauthorized for \(asset, privacy: .public)")
-                return CandleFetch(candles: [], transport: .unauthorized)
+                return CandleFetch(candles: [], transport: .unauthorized, httpStatus: http.statusCode)
             }
             guard http.statusCode < 400 else {
                 oandaLogger.error("BlazerCore fetchCandles HTTP \(http.statusCode) for \(asset, privacy: .public)")
@@ -865,7 +1022,7 @@ public enum OandaClient {
         let ask =
             Double(row.asks?.first?.price ?? "")
             ?? Double(row.closeoutAsk ?? "")
-        guard let bid, let ask, isValidForwardBidAsk(bid: bid, ask: ask) else { return nil }
+        guard let bid, let ask, bid.isFinite, ask.isFinite, ask > bid else { return nil }
         guard let raw = row.time, let asOf = parseOandaTimeMs(raw) else { return nil }
         let mid = (bid + ask) / 2
         guard mid.isFinite else { return nil }

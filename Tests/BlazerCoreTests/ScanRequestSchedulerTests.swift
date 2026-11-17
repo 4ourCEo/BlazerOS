@@ -20,6 +20,31 @@ import BlazerCore
     #expect(scheduler.pending == nil)
 }
 
+@Test func fxScanScopePreservesAllMarketsAndCanTargetOneSelectedPair() {
+    let pairs = Assets.watchlist
+    #expect(pairs.count == 6)
+    let all = FXScanScope.request(market: .fx, selectedPair: "GBP/JPY",
+                                  availablePairs: pairs, selectedOnly: false)
+    #expect(all == FXScanScope.Request(asset: nil, assets: pairs))
+    let one = FXScanScope.request(market: .fx, selectedPair: "GBP/JPY",
+                                  availablePairs: pairs, selectedOnly: true)
+    #expect(one == FXScanScope.Request(asset: "GBP/JPY", assets: ["GBP/JPY"]))
+    #expect(FXScanScope.request(market: .fx, selectedPair: "BTC/USDT",
+                                availablePairs: pairs, selectedOnly: true) == nil)
+    #expect(FXScanScope.request(market: .crypto, selectedPair: "GBP/JPY",
+                                availablePairs: pairs, selectedOnly: true) == nil)
+}
+
+@MainActor
+@Test func selectedFXScanScopePreservesAssetAndExactAssetListInScheduler() {
+    let scheduler = ScanRequestScheduler()
+    let request = scheduler.submit(market: .fx, asset: "GBP/JPY", assets: ["GBP/JPY"])
+
+    #expect(request.asset == "GBP/JPY")
+    #expect(request.assets == ["GBP/JPY"])
+    #expect(scheduler.isCurrent(request))
+}
+
 private actor CancellationIgnoringGate {
     private var continuation: CheckedContinuation<Void, Never>?
     private(set) var waiting = false
