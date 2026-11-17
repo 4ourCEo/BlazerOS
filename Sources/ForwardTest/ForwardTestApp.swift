@@ -603,9 +603,14 @@ final class ResearchRunner {
 struct ForwardTestApp {
     @MainActor static func main() async {
         do {
-            let options = try Options(Array(CommandLine.arguments.dropFirst()))
+            let arguments = Array(CommandLine.arguments.dropFirst())
+            if let replayIndex = arguments.firstIndex(of: "--london-archive-replay") {
+                try GBPJPYLondonArchiveReplayCommand.run(arguments: Array(arguments.dropFirst(replayIndex + 1)))
+                return
+            }
+            let options = try Options(arguments)
             if options.help {
-                 print("ForwardTest [--edge-report --root DESK_PATH --as-of UNIX_SECONDS | --policy-funnel | --historical-bid-ask --historical-hours N --historical-offset-hours N | --live-historical-bid-ask --confirm-live-market-data-read --interactive-credentials --historical-days N [--historical-offset-days N] --asset GBP/JPY | --forward-quotes --capture-seconds N | --authentic-replay | --benchmark | --stats | --bootstrap | --replay | --experiment | --adaptive | --adaptive-diagnostic] [--root PATH] [--policy baseline|continuation|reversal|regime|control | --all-policies] [--max-events N] [--prime-only] [--continuous | --daemon]")
+                 print("ForwardTest [--london-archive-replay --archive DIR --configuration JSON --session JSON --provenance JSON | --edge-report --root DESK_PATH --as-of UNIX_SECONDS | --policy-funnel | --historical-bid-ask --historical-hours N --historical-offset-hours N | --live-historical-bid-ask --confirm-live-market-data-read --interactive-credentials --historical-days N [--historical-offset-days N] --asset GBP/JPY | --forward-quotes --capture-seconds N | --authentic-replay | --benchmark | --stats | --bootstrap | --replay | --experiment | --adaptive | --adaptive-diagnostic] [--root PATH] [--policy baseline|continuation|reversal|regime|control | --all-policies] [--max-events N] [--prime-only] [--continuous | --daemon]")
                  return
             }
             let runner = ResearchRunner(options: options)
