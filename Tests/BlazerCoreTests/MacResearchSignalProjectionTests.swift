@@ -30,13 +30,16 @@ private func macSignalCandidate(id: String = "orb-1", instrument: String = macSi
                                 configDigest: String? = nil,
                                 evaluatorDigest: String? = nil,
                                 adapterDigest: String? = nil,
-                                selectorDigest: String? = nil) -> AdaptiveOpportunityCandidate {
+                                selectorDigest: String? = nil,
+                                plan: V3TradePlan? = nil,
+                                reasons: [String] = []) -> AdaptiveOpportunityCandidate {
     let config = AdaptiveOpportunityAdapters.effectiveConfiguration(
         strategyID: macSignalStrategy, instrument: instrument)!.sha256()!
     return .init(id: id, strategyID: macSignalStrategy, strategyVersion: macSignalVersion,
         instrument: instrument, provider: provider, direction: direction, observedAt: observedAt,
         validUntil: validUntil, evaluationStartedAt: observedAt ?? Date(timeIntervalSince1970: 1_000),
         evaluationCompletedAt: Date(timeIntervalSince1970: 1_000), state: state,
+        rejectionReasons: reasons, entryReference: nil, plan: plan,
         evidenceReferences: ["event-1", "bar-2"], provenance: "test",
         freshness: freshness, spreadState: spreadState,
         effectiveConfigurationSHA256: configDigest ?? config,
@@ -336,7 +339,7 @@ private func diagnosticCandidate(family: MacResearchEvaluatorFamily,
         instrument: macSignalInstrument, scanGeneration: 1, sourceInputIdentity: "input", now: now).isEmpty)
 }
 
-@Test func projectionRetainsDistinctConflictingCandidatesAndRequiresRegisteredShadow() {
+@Test func projectionRetainsDistinctConflictingCandidatesWithoutPromotionProfile() {
     let now = Date(timeIntervalSince1970: 1_001)
     let candidates = [macSignalCandidate(id: "candidate-a"), macSignalCandidate(id: "candidate-b", direction: .short)]
     let projected = MacResearchSignalProjector.project(candidates: candidates,
@@ -352,6 +355,57 @@ private func diagnosticCandidate(family: MacResearchEvaluatorFamily,
         evaluatorCodeSHA256: StrategyImplementationDigests.evaluatorCodeSHA256["ORB_BREAK_RETEST"],
         adapterCodeSHA256: StrategyImplementationDigests.adapterCodeSHA256,
         selectorCodeSHA256: StrategyImplementationDigests.selectorCodeSHA256)
-    #expect(MacResearchSignalProjector.project(candidates: candidates, profiles: [live],
-        instrument: macSignalInstrument, scanGeneration: 4, sourceInputIdentity: "input", now: now).isEmpty)
+    let visibleWithLiveRoleProfile = MacResearchSignalProjector.project(candidates: candidates, profiles: [live],
+        instrument: macSignalInstrument, scanGeneration: 4, sourceInputIdentity: "input", now: now)
+    #expect(visibleWithLiveRoleProfile.map(\.id) == ["candidate-a", "candidate-b"])
+}
+
+@Test func practiceResearchProjectsWithoutPromotionAndBindsProvider() {
+    let now = Date(timeIntervalSince1970: 1_001)
+    let practiceCandidate = macSignalCandidate(provider: "OANDA_PRACTICE")
+    let projected = MacResearchSignalProjector.project(candidates: [practiceCandidate], profiles: [],
+        instrument: macSignalInstrument, scanGeneration: 13, sourceInputIdentity: "practice-snapshot",
+        now: now, environment: .practice, expectedProvider: "OANDA_PRACTICE")
+    #expect(projected.count == 1)
+    #expect(projected[0].environment == .practice)
+    #expect(projected[0].stage == .confirmed)
+    #expect(projected[0].profileID == "research:\(macSignalStrategy)")
+
+    #expect(MacResearchSignalProjector.project(candidates: [practiceCandidate], profiles: [],
+        instrument: macSignalInstrument, scanGeneration: 13, sourceInputIdentity: "practice-snapshot",
+        now: now, environment: .practice, expectedProvider: "OANDA_LIVE").isEmpty)
+    #expect(MacResearchSignalProjector.project(candidates: [macSignalCandidate()], profiles: [],
+        instrument: macSignalInstrument, scanGeneration: 13, sourceInputIdentity: "practice-snapshot",
+        now: now, environment: .practice).isEmpty)
+}
+
+@Test func projectionKeepsFormingCandidatesAndAttachesOnlyValidatedPlanPreview() {
+    let now = Date(timeIntervalSince1970: 1_001)
+    let plan = V3TradePlan(id: "preview", instrument: macSignalInstrument,
+        strategyID: macSignalStrategy, strategyVersion: macSignalVersion,
+        engineVersion: "test", sourceObservationID: "observation", state: .draft,
+        side: .long, entryPrice: 1.1, stopPrice: 1.0, targetPrice: 1.3,
+        units: 1, maxSpread: 0.01, riskFraction: 0.01,
+        evidenceIDs: ["plan-event"], createdAt: now)
+    let candidates = [
+        macSignalCandidate(id: "forming", state: .rejected,
+            reasons: ["breakout_confirmed_retest_pending"]),
+        macSignalCandidate(id: "with-plan", plan: plan)
+    ]
+    let projected = MacResearchSignalProjector.project(candidates: candidates,
+        profiles: [], instrument: macSignalInstrument, scanGeneration: 2,
+        sourceInputIdentity: "input", now: now)
+    #expect(projected.map(\.id) == ["forming", "with-plan"])
+    #expect(projected[0].stage == .forming)
+    #expect(projected[0].planPreview == nil)
+    #expect(projected[1].planPreview?.entryPrice == 1.1)
+    #expect(abs((projected[1].planPreview?.rewardRisk ?? 0) - 2) < 1e-9)
+
+    let rejected = [
+        macSignalCandidate(id: "risk-rejected", state: .rejected, reasons: ["invalid_long_structure"]),
+        macSignalCandidate(id: "data-rejected", state: .rejected, reasons: ["m15_context_unavailable"]),
+        macSignalCandidate(id: "unknown-rejected", state: .rejected, reasons: ["unknown"])
+    ]
+    #expect(MacResearchSignalProjector.project(candidates: rejected, profiles: [],
+        instrument: macSignalInstrument, scanGeneration: 2, sourceInputIdentity: "input", now: now).isEmpty)
 }

@@ -1,8 +1,45 @@
 import Foundation
 import BlazerCore
 
-/// A display-only research observation. It intentionally carries no plan, price,
-/// ranking score, or order authority.
+public enum MacResearchSignalEnvironment: String, Sendable, Equatable {
+    case practice = "PRACTICE"
+    case live = "LIVE"
+    case replay = "REPLAY"
+}
+
+public enum MacResearchSignalStage: String, Sendable, Equatable {
+    case forming = "FORMING"
+    case confirmed = "CONFIRMED"
+    case actionable = "ACTIONABLE"
+}
+
+/// A validated research plan preview. It has no submission or approval authority.
+public struct MacResearchPlanPreview: Sendable, Equatable {
+    public let entryPrice: Double
+    public let stopPrice: Double
+    public let targetPrice: Double
+    public let rewardRisk: Double
+    public let maxSpread: Double
+    public let evidenceReferences: [String]
+
+    fileprivate init?(_ plan: V3TradePlan, candidate: AdaptiveOpportunityCandidate) {
+        guard plan.instrument == candidate.instrument,
+              plan.strategyID == candidate.strategyID,
+              plan.strategyVersion == candidate.strategyVersion,
+              plan.validation().isEmpty,
+              let rewardRisk = plan.rewardRisk, rewardRisk.isFinite,
+              plan.side == (candidate.direction == .long ? .long : .short) else { return nil }
+        self.entryPrice = plan.entryPrice
+        self.stopPrice = plan.stopPrice
+        self.targetPrice = plan.targetPrice
+        self.rewardRisk = rewardRisk
+        self.maxSpread = plan.maxSpread
+        self.evidenceReferences = plan.evidenceIDs
+    }
+}
+
+/// A research observation that can be shown to the user. Any attached plan is a
+/// preview only; risk approval and manual Practice execution are separate checks.
 public struct MacResearchSignal: Sendable, Equatable, Identifiable {
     public let id: String
     public let profileID: String
@@ -10,6 +47,10 @@ public struct MacResearchSignal: Sendable, Equatable, Identifiable {
     public let strategyVersion: String
     public let instrument: String
     public let direction: AdaptiveDirection
+    public let environment: MacResearchSignalEnvironment
+    public let stage: MacResearchSignalStage
+    public let timeframe: String?
+    public let planPreview: MacResearchPlanPreview?
     public let observedAt: Date
     public let validUntil: Date
     public let reasons: [String]
@@ -20,10 +61,15 @@ public struct MacResearchSignal: Sendable, Equatable, Identifiable {
     public init(id: String, profileID: String, strategyID: String, strategyVersion: String,
                 instrument: String, direction: AdaptiveDirection, observedAt: Date,
                 validUntil: Date, reasons: [String], evidenceReferences: [String],
-                sourceInputIdentity: String, scanGeneration: Int) {
+                sourceInputIdentity: String, scanGeneration: Int,
+                environment: MacResearchSignalEnvironment = .live,
+                stage: MacResearchSignalStage = .actionable, timeframe: String? = nil,
+                planPreview: MacResearchPlanPreview? = nil) {
         self.id = id; self.profileID = profileID; self.strategyID = strategyID
         self.strategyVersion = strategyVersion; self.instrument = instrument
         self.direction = direction; self.observedAt = observedAt; self.validUntil = validUntil
+        self.environment = environment; self.stage = stage; self.timeframe = timeframe
+        self.planPreview = planPreview
         self.reasons = reasons; self.evidenceReferences = evidenceReferences
         self.sourceInputIdentity = sourceInputIdentity; self.scanGeneration = scanGeneration
     }
@@ -34,15 +80,29 @@ public enum MacResearchSignalProjector {
     public static func project(candidates: [AdaptiveOpportunityCandidate],
                                profiles: [StrategyResearchProfile],
                                instrument: String, scanGeneration: Int,
-                               sourceInputIdentity: String, now: Date) -> [MacResearchSignal] {
+                               sourceInputIdentity: String, now: Date,
+                               environment: MacResearchSignalEnvironment = .live,
+                               expectedProvider: String? = nil) -> [MacResearchSignal] {
         guard !instrument.isEmpty, !sourceInputIdentity.isEmpty,
               now.timeIntervalSince1970.isFinite else { return [] }
         var result: [MacResearchSignal] = []
         var seen = Set<String>()
         for candidate in candidates {
+            let provider = candidate.provider.uppercased().replacingOccurrences(of: "_", with: "-")
+            let providerMatchesEnvironment: Bool
+            if let expectedProvider {
+                providerMatchesEnvironment = provider == expectedProvider.uppercased()
+                    .replacingOccurrences(of: "_", with: "-")
+            } else {
+                switch environment {
+                case .live: providerMatchesEnvironment = provider == "OANDA-LIVE"
+                case .practice: providerMatchesEnvironment = provider == "OANDA-PRACTICE" || provider == "OANDA"
+                case .replay: providerMatchesEnvironment = provider == "REPLAY" || provider == "OANDA-REPLAY"
+                }
+            }
             guard candidate.instrument == instrument,
-                  candidate.provider.uppercased().replacingOccurrences(of: "_", with: "-") == "OANDA-LIVE",
-                  candidate.state == .eligible, candidate.direction == .long || candidate.direction == .short,
+                  providerMatchesEnvironment,
+                  candidate.direction == .long || candidate.direction == .short,
                   candidate.spreadState == .accepted, candidate.freshness == .fresh,
                   let observedAt = candidate.observedAt, observedAt.timeIntervalSince1970.isFinite,
                   now.timeIntervalSince(observedAt) >= -1,
@@ -53,32 +113,75 @@ public enum MacResearchSignalProjector {
                   let evaluatorDigest = candidate.evaluatorCodeSHA256,
                   let adapterDigest = candidate.adapterCodeSHA256,
                   let selectorDigest = candidate.selectorCodeSHA256,
+                  Self.isSHA256(evaluatorDigest), Self.isSHA256(adapterDigest),
+                  Self.isSHA256(selectorDigest),
+                  let evaluatorKey = Self.evaluatorDigestKey(for: candidate.strategyID),
+                  StrategyImplementationDigests.evaluatorCodeSHA256[evaluatorKey]?
+                    .caseInsensitiveCompare(evaluatorDigest) == .orderedSame,
+                  StrategyImplementationDigests.adapterCodeSHA256
+                    .caseInsensitiveCompare(adapterDigest) == .orderedSame,
+                  StrategyImplementationDigests.selectorCodeSHA256
+                    .caseInsensitiveCompare(selectorDigest) == .orderedSame,
                   let config = AdaptiveOpportunityAdapters.effectiveConfiguration(
                     strategyID: candidate.strategyID, instrument: instrument),
                   let computedConfigDigest = config.sha256(),
                   computedConfigDigest.caseInsensitiveCompare(configDigest) == .orderedSame else { continue }
 
-            let exact = profiles.filter { profile in
+            let stage: MacResearchSignalStage
+            switch candidate.state {
+            case .eligible:
+                stage = candidate.plan.flatMap { MacResearchPlanPreview($0, candidate: candidate) } == nil
+                    ? .confirmed : .actionable
+            case .rejected:
+                guard !candidate.rejectionReasons.isEmpty,
+                      candidate.rejectionReasons.allSatisfy(Self.isFormingReason) else { continue }
+                stage = .forming
+            case .unavailable:
+                continue
+            }
+            guard seen.insert(candidate.id).inserted else { continue }
+
+            let displayProfile = profiles.first { profile in
                 profile.acceptedCandidateIdentities.contains(.init(
                     strategyID: candidate.strategyID, strategyVersion: candidate.strategyVersion))
             }
-            guard exact.count == 1, let profile = exact.first,
-                  profile.decisionRole == .shadow, !profile.mayAuthorizeOrder,
-                  profile.status == .researchCandidate || profile.status == .partialResearch,
-                  profile.configurationSHA256ByInstrument?[instrument]?.caseInsensitiveCompare(configDigest) == .orderedSame,
-                  profile.evaluatorCodeSHA256?.caseInsensitiveCompare(evaluatorDigest) == .orderedSame,
-                  profile.adapterCodeSHA256?.caseInsensitiveCompare(adapterDigest) == .orderedSame,
-                  profile.selectorCodeSHA256?.caseInsensitiveCompare(selectorDigest) == .orderedSame,
-                  seen.insert(candidate.id).inserted else { continue }
-
-            result.append(MacResearchSignal(id: candidate.id, profileID: profile.id,
+            result.append(MacResearchSignal(id: candidate.id,
+                profileID: displayProfile?.id ?? "research:\(candidate.strategyID)",
                 strategyID: candidate.strategyID, strategyVersion: candidate.strategyVersion,
                 instrument: instrument, direction: candidate.direction, observedAt: observedAt,
                 validUntil: validUntil, reasons: candidate.rejectionReasons,
                 evidenceReferences: candidate.evidenceReferences,
-                sourceInputIdentity: sourceInputIdentity, scanGeneration: scanGeneration))
+                sourceInputIdentity: sourceInputIdentity, scanGeneration: scanGeneration,
+                environment: environment, stage: stage,
+                planPreview: candidate.plan.flatMap { MacResearchPlanPreview($0, candidate: candidate) }))
         }
         return result
+    }
+
+    private static func isSHA256(_ value: String) -> Bool {
+        value.utf8.count == 64 && value.utf8.allSatisfy {
+            ($0 >= 48 && $0 <= 57) || ($0 >= 97 && $0 <= 102) || ($0 >= 65 && $0 <= 70)
+        }
+    }
+
+    private static func isFormingReason(_ reason: String) -> Bool {
+        switch reason {
+        case "before_opening_range", "opening_range_incomplete", "opening_range_forming",
+             "range_sealed", "boundary_approaching", "breakout_not_detected",
+             "breakout_confirmed_retest_pending", "retest_confirmation_pending": true
+        default: false
+        }
+    }
+
+    private static func evaluatorDigestKey(for strategyID: String) -> String? {
+        switch strategyID {
+        case "ORB_BREAK_RETEST_V1": "ORB_BREAK_RETEST"
+        case "CANDIDATE_001_CHOCH_FVG_FIB": "CHOCH_FVG_FIB"
+        case "CANDIDATE_002_AUCTION_FAILURE": "AUCTION_FAILURE"
+        case "LEGACY_V1", "JSC_baseline", "JSC_conservative", "JSC_momentum",
+             "JSC_reversion", "JSC_volatility": strategyID
+        default: nil
+        }
     }
 }
 
