@@ -89,33 +89,13 @@ private struct SystemVoiceAudioSessionDriver: VoiceAudioSessionDriving {
     func activate(_ mode: VoiceAudioSessionCoordinator.Mode) async throws {
         #if os(iOS)
         let session = AVAudioSession.sharedInstance()
-        if #available(iOS 27.0, *) {
-            try await withCheckedThrowingContinuation { continuation in
-                Self.queue.async {
-                    do {
-                        try Self.configure(session, mode: mode)
-                        continuation.resume()
-                    } catch {
-                        continuation.resume(throwing: error)
-                    }
-                }
-            }
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-                session.activate(options: []) { activated, error in
-                    if let error { continuation.resume(throwing: error) }
-                    else if activated { continuation.resume() }
-                    else { continuation.resume(throwing: AudioSessionOperationError.activationFailed) }
-                }
-            }
-        } else {
-            try await withCheckedThrowingContinuation { continuation in
-                Self.queue.async {
-                    do {
-                        try Self.configure(session, mode: mode)
-                        try session.setActive(true, options: .notifyOthersOnDeactivation)
-                        continuation.resume()
-                    } catch { continuation.resume(throwing: error) }
-                }
+        try await withCheckedThrowingContinuation { continuation in
+            Self.queue.async {
+                do {
+                    try Self.configure(session, mode: mode)
+                    try session.setActive(true, options: .notifyOthersOnDeactivation)
+                    continuation.resume()
+                } catch { continuation.resume(throwing: error) }
             }
         }
         #endif
@@ -124,22 +104,12 @@ private struct SystemVoiceAudioSessionDriver: VoiceAudioSessionDriving {
     func deactivate() async throws {
         #if os(iOS)
         let session = AVAudioSession.sharedInstance()
-        if #available(iOS 27.0, *) {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-                session.deactivate(options: .notifyOthersOnDeactivation) { deactivated, error in
-                    if let error { continuation.resume(throwing: error) }
-                    else if deactivated { continuation.resume() }
-                    else { continuation.resume(throwing: AudioSessionOperationError.deactivationFailed) }
-                }
-            }
-        } else {
-            try await withCheckedThrowingContinuation { continuation in
-                Self.queue.async {
-                    do {
-                        try session.setActive(false, options: .notifyOthersOnDeactivation)
-                        continuation.resume()
-                    } catch { continuation.resume(throwing: error) }
-                }
+        try await withCheckedThrowingContinuation { continuation in
+            Self.queue.async {
+                do {
+                    try session.setActive(false, options: .notifyOthersOnDeactivation)
+                    continuation.resume()
+                } catch { continuation.resume(throwing: error) }
             }
         }
         #endif

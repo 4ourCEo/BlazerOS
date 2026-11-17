@@ -44,4 +44,6 @@ This is a source-control and generated-cache cleanup task over an already implem
 
 ## Completion record
 
-Initial consolidation commit: `536480c`. Merge commit, push, PR, and final merge result will be recorded here.
+Initial consolidation commit: `536480c`. Upstream merge commit: `ed383b5`.
+
+PR #35 CI found two portability issues after the initial push: SwiftPM treats an `@main` type in a file named `main.swift` as top-level code, and the newer AVAudioSession activation/deactivation methods are unavailable on iOS. Renamed the entry point to `ForwardTestApp.swift` and restored the serialized iOS `setActive` path. `swift build --scratch-path /tmp/blazer-ci-build` and the iOS Simulator build both pass locally after these fixes. The PR CI rerun is pending.
