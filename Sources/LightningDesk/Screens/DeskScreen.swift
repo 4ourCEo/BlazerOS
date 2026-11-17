@@ -260,6 +260,7 @@ struct DeskScreen: View {
             .strokeBorder(tint.opacity(0.22), lineWidth: 0.7))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("GBP/JPY strategy opportunity: \(state). Review the displayed plan and complete required checks before placing any order manually in OANDA Practice.")
+        .accessibilityIdentifier("strategy.opportunity")
     }
 
     private func adaptiveValue(_ title: String, _ value: String) -> some View {
