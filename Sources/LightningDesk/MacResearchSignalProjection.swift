@@ -7,6 +7,30 @@ public enum MacResearchSignalEnvironment: String, Sendable, Equatable {
     case replay = "REPLAY"
 }
 
+/// The source label binds provider aliases to one execution environment. Construct
+/// OANDA cases from the environment of the loaded authenticated `OandaSession`.
+public enum MacResearchSignalSource: Sendable, Equatable {
+    case oandaPractice
+    case oandaLive
+    case replay
+
+    public var environment: MacResearchSignalEnvironment {
+        switch self {
+        case .oandaPractice: .practice
+        case .oandaLive: .live
+        case .replay: .replay
+        }
+    }
+
+    fileprivate var acceptedProviders: Set<String> {
+        switch self {
+        case .oandaPractice: ["OANDA-PRACTICE", "OANDA"]
+        case .oandaLive: ["OANDA-LIVE"]
+        case .replay: ["REPLAY", "OANDA-REPLAY"]
+        }
+    }
+}
+
 public enum MacResearchSignalStage: String, Sendable, Equatable {
     case forming = "FORMING"
     case confirmed = "CONFIRMED"
@@ -81,27 +105,15 @@ public enum MacResearchSignalProjector {
                                profiles: [StrategyResearchProfile],
                                instrument: String, scanGeneration: Int,
                                sourceInputIdentity: String, now: Date,
-                               environment: MacResearchSignalEnvironment = .live,
-                               expectedProvider: String? = nil) -> [MacResearchSignal] {
+                               source: MacResearchSignalSource = .oandaLive) -> [MacResearchSignal] {
         guard !instrument.isEmpty, !sourceInputIdentity.isEmpty,
               now.timeIntervalSince1970.isFinite else { return [] }
         var result: [MacResearchSignal] = []
         var seen = Set<String>()
         for candidate in candidates {
             let provider = candidate.provider.uppercased().replacingOccurrences(of: "_", with: "-")
-            let providerMatchesEnvironment: Bool
-            if let expectedProvider {
-                providerMatchesEnvironment = provider == expectedProvider.uppercased()
-                    .replacingOccurrences(of: "_", with: "-")
-            } else {
-                switch environment {
-                case .live: providerMatchesEnvironment = provider == "OANDA-LIVE"
-                case .practice: providerMatchesEnvironment = provider == "OANDA-PRACTICE" || provider == "OANDA"
-                case .replay: providerMatchesEnvironment = provider == "REPLAY" || provider == "OANDA-REPLAY"
-                }
-            }
             guard candidate.instrument == instrument,
-                  providerMatchesEnvironment,
+                  source.acceptedProviders.contains(provider),
                   candidate.direction == .long || candidate.direction == .short,
                   candidate.spreadState == .accepted, candidate.freshness == .fresh,
                   let observedAt = candidate.observedAt, observedAt.timeIntervalSince1970.isFinite,
@@ -152,7 +164,7 @@ public enum MacResearchSignalProjector {
                 validUntil: validUntil, reasons: candidate.rejectionReasons,
                 evidenceReferences: candidate.evidenceReferences,
                 sourceInputIdentity: sourceInputIdentity, scanGeneration: scanGeneration,
-                environment: environment, stage: stage,
+                environment: source.environment, stage: stage,
                 planPreview: candidate.plan.flatMap { MacResearchPlanPreview($0, candidate: candidate) }))
         }
         return result

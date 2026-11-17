@@ -365,18 +365,23 @@ private func diagnosticCandidate(family: MacResearchEvaluatorFamily,
     let practiceCandidate = macSignalCandidate(provider: "OANDA_PRACTICE")
     let projected = MacResearchSignalProjector.project(candidates: [practiceCandidate], profiles: [],
         instrument: macSignalInstrument, scanGeneration: 13, sourceInputIdentity: "practice-snapshot",
-        now: now, environment: .practice, expectedProvider: "OANDA_PRACTICE")
+        now: now, source: .oandaPractice)
     #expect(projected.count == 1)
     #expect(projected[0].environment == .practice)
     #expect(projected[0].stage == .confirmed)
     #expect(projected[0].profileID == "research:\(macSignalStrategy)")
 
-    #expect(MacResearchSignalProjector.project(candidates: [practiceCandidate], profiles: [],
+    let genericOandaPractice = macSignalCandidate(provider: "OANDA")
+    #expect(MacResearchSignalProjector.project(candidates: [genericOandaPractice], profiles: [],
         instrument: macSignalInstrument, scanGeneration: 13, sourceInputIdentity: "practice-snapshot",
-        now: now, environment: .practice, expectedProvider: "OANDA_LIVE").isEmpty)
+        now: now, source: .oandaPractice).count == 1)
+
     #expect(MacResearchSignalProjector.project(candidates: [macSignalCandidate()], profiles: [],
         instrument: macSignalInstrument, scanGeneration: 13, sourceInputIdentity: "practice-snapshot",
-        now: now, environment: .practice).isEmpty)
+        now: now, source: .oandaPractice).isEmpty)
+    #expect(MacResearchSignalProjector.project(candidates: [practiceCandidate], profiles: [],
+        instrument: macSignalInstrument, scanGeneration: 13, sourceInputIdentity: "live-snapshot",
+        now: now, source: .oandaLive).isEmpty)
 }
 
 @Test func projectionKeepsFormingCandidatesAndAttachesOnlyValidatedPlanPreview() {
