@@ -6,6 +6,7 @@ import SwiftUI
 struct MacTradingWorkspace: View {
     @ObservedObject var model: LightningDeskModel
     @State private var destination = "Trade"
+    @State private var selectedPracticeSignalID: String?
     @ScaledMetric(relativeTo: .caption) private var diagnosticFontSize = 9.0
 
     private let ink = Color(red: 0.12, green: 0.19, blue: 0.29)
@@ -180,6 +181,13 @@ struct MacTradingWorkspace: View {
                             Text(signal.reasons.joined(separator: " · "))
                                 .font(.system(size: max(8, diagnosticFontSize - 1)))
                                     .foregroundStyle(muted).lineLimit(2)
+                            Button(selectedPracticeSignalID == signal.id ? "Selected for setup" : "Use in setup") {
+                                selectedPracticeSignalID = signal.id
+                            }
+                            .font(.system(size: max(8, diagnosticFontSize - 1), weight: .semibold))
+                            .buttonStyle(.bordered).tint(blue)
+                            .disabled(signal.environment != .practice)
+                            .accessibilityIdentifier("mac.use-practice-signal.\(signal.id)")
                         }
                         .padding(6).frame(maxWidth: .infinity, alignment: .leading)
                         .background(.white, in: RoundedRectangle(cornerRadius: 7))
@@ -390,7 +398,8 @@ struct MacTradingWorkspace: View {
             HStack {
                 Text("TRADE SETUP").font(.system(size: 11, weight: .bold)).tracking(0.7)
                 Spacer()
-                Text("OANDA LIVE").font(.system(size: 9, weight: .bold)).foregroundStyle(blue)
+                Text(model.connectedOandaEnvironment?.rawValue.uppercased() ?? "DISCONNECTED")
+                    .font(.system(size: 9, weight: .bold)).foregroundStyle(blue)
                     .padding(.horizontal, 7).padding(.vertical, 4).background(blue.opacity(0.08), in: Capsule())
             }
             HStack(spacing: 8) {
@@ -412,17 +421,27 @@ struct MacTradingWorkspace: View {
                     .accessibilityIdentifier("mac.scan-selected-pair")
                     .help("Run the normal OANDA FX scan for \(model.pair) only")
             }
-            let decision = model.strategyDecision(for: model.pair)
+            let practiceSignal = practiceSignalForSetup
+            let decision = practiceSignal == nil ? model.strategyDecision(for: model.pair) : nil
             let plan = decision?.plan
-            value("Status", decision?.action.rawValue ?? (model.scanning ? "Scanning" : "Waiting for scan"))
-            value("Direction", decision?.action == .buy ? "BUY" : decision?.action == .sell ? "SELL" : "WAIT / NO TRADE")
-            value("Entry", plan.map { PriceFormat.px($0.entryPrice) } ?? "—")
-            value("Stop", plan.map { PriceFormat.px($0.stopPrice) } ?? "—")
-            value("Target", plan.map { PriceFormat.px($0.targetPrice) } ?? "—")
-            if let plan {
-                let pipSize = Assets.pipScale(for: plan.instrument)
-                let stopPips = abs(plan.entryPrice - plan.stopPrice) / pipSize
-                let targetPips = abs(plan.targetPrice - plan.entryPrice) / pipSize
+            let entry = practiceSignal?.entryReference ?? practiceSignal?.planPreview?.entryPrice ?? plan?.entryPrice
+            let stop = practiceSignal?.stopPrice ?? practiceSignal?.planPreview?.stopPrice ?? plan?.stopPrice
+            let target = practiceSignal?.targetPrice ?? practiceSignal?.planPreview?.targetPrice ?? plan?.targetPrice
+            value("Status", practiceSignal.map { "\($0.stage.rawValue) · PRACTICE PLAN" }
+                  ?? decision?.action.rawValue ?? (model.scanning ? "Scanning" : "Waiting for scan"))
+            value("Direction", practiceSignal.map { $0.direction == .long ? "LONG" : "SHORT" }
+                  ?? (decision?.action == .buy ? "BUY" : decision?.action == .sell ? "SELL" : "WAIT / NO TRADE"))
+            if let practiceSignal {
+                value("Strategy", practiceSignal.strategyID)
+                value("Timeframe", practiceSignal.timeframe ?? "unspecified")
+            }
+            value("Entry", entry.map(PriceFormat.px) ?? "—")
+            value("Stop", stop.map(PriceFormat.px) ?? "—")
+            value("Target", target.map(PriceFormat.px) ?? "—")
+            if let entry, let stop, let target {
+                let pipSize = Assets.pipScale(for: model.pair)
+                let stopPips = abs(entry - stop) / pipSize
+                let targetPips = abs(target - entry) / pipSize
                 if pipSize.isFinite && pipSize > 0 && stopPips.isFinite && targetPips.isFinite {
                     value("Stop distance", String(format: "%.1f pips", stopPips))
                     value("Target distance", String(format: "%.1f pips", targetPips))
@@ -435,6 +454,10 @@ struct MacTradingWorkspace: View {
                 value("Target distance", "—")
             }
             value("Risk", "risk_missing · units withheld")
+            if practiceSignal != nil {
+                Text("Practice plan preview · verify account risk and margin in OANDA before manual entry.")
+                    .font(.system(size: 10)).foregroundStyle(muted).lineLimit(3)
+            }
             if let decision {
                 let reasons = decision.reasons.joined(separator: ", ")
                 let strategies = decision.supportingStrategies.map(strategyName).joined(separator: " · ")
@@ -448,6 +471,18 @@ struct MacTradingWorkspace: View {
             Spacer(minLength: 0)
             Text("No broker orders · review before acting").font(.system(size: 9)).foregroundStyle(muted)
         }.padding(14).background(.white, in: RoundedRectangle(cornerRadius: 10)).overlay(RoundedRectangle(cornerRadius: 10).stroke(line))
+    }
+
+    private var practiceSignalForSetup: MacResearchSignal? {
+        guard model.connectedOandaEnvironment == .practice else { return nil }
+        let currentSignals = model.macResearchSignals.filter {
+            $0.instrument == model.pair && $0.environment == .practice
+        }
+        if let selectedPracticeSignalID,
+           let selected = currentSignals.first(where: { $0.id == selectedPracticeSignalID }) {
+            return selected
+        }
+        return currentSignals.first
     }
 
     private var strategySignalSummaryPanel: some View {
