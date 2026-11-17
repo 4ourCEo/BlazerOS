@@ -1,0 +1,34 @@
+Building for debugging...
+[Computing dependencies]
+[1 / 1]
+[2 / 7] BlazerCoreTests-product
+[3 / 11]
+[6 / 11] BlazerCoreTests-product
+[12 / 16] BlazerCoreTests-product
+Build complete! (4.33 sec)
+◇ Test run started.
+↳ Testing Library Version: 2403
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite AdaptiveMarketRehearsalTests started.
+◇ Test nativeProjectionExpiresAStaleSelectedDecision() started.
+◇ Test selectedHorizonRequiresRecordedResearchEvidence() started.
+◇ Test horizonIsNotPresentedAsSupportedWithoutEvidence() started.
+◇ Test unavailableCandidateProducesUnavailableNativeState() started.
+◇ Test actionableStateRequiresSelectedCandidate() started.
+◇ Test boundedDiagnosticFailsClosedWithoutCredentials() started.
+◇ Test decisionStateDoesNotTreatUnsafeCandidateAsForming() started.
+◇ Test adaptiveRehearsalPersistsAndReloadsDeterministically() started.
+◇ Test decisionStateRetainsDevelopingSetup() started.
+◇ Test rehearsalRecordPreservesDecisionStatesAndInputIdentity() started.
+✔ Test decisionStateDoesNotTreatUnsafeCandidateAsForming() passed after 0.001 seconds.
+✔ Test unavailableCandidateProducesUnavailableNativeState() passed after 0.001 seconds.
+✔ Test decisionStateRetainsDevelopingSetup() passed after 0.001 seconds.
+✔ Test nativeProjectionExpiresAStaleSelectedDecision() passed after 0.001 seconds.
+✔ Test horizonIsNotPresentedAsSupportedWithoutEvidence() passed after 0.002 seconds.
+✔ Test selectedHorizonRequiresRecordedResearchEvidence() passed after 0.002 seconds.
+✔ Test actionableStateRequiresSelectedCandidate() passed after 0.002 seconds.
+✔ Test rehearsalRecordPreservesDecisionStatesAndInputIdentity() passed after 0.002 seconds.
+✔ Test boundedDiagnosticFailsClosedWithoutCredentials() passed after 0.003 seconds.
+✔ Test adaptiveRehearsalPersistsAndReloadsDeterministically() passed after 0.007 seconds.
+✔ Suite AdaptiveMarketRehearsalTests passed after 0.007 seconds.
+✔ Test run with 10 tests in 1 suite passed after 0.007 seconds.

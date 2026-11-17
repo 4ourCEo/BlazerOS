@@ -225,7 +225,7 @@ public struct StrategyValidationCohort: Codable, Sendable, Equatable {
     public let effectiveSampleSize: Double
     public let payoutAdjustedExpectancy: Double?
     public let breakEvenWinRate: Double?
-    public let maximumConsecutiveLosses: Int
+    public let maximumConsecutiveLosses: Int?
     public let maximumUnitDrawdown: Double?
 }
 
@@ -742,11 +742,16 @@ public enum StrategyValidationEngine {
             }.reduce(0, +) / Double(payoutRows.count)
             : nil
         let minimumPayout = payouts.min()
+        let pathCoverageComplete = !records.contains {
+            $0.entryTimestamp != nil && $0.resolution == .unresolved
+        }
         var streak = 0, maximumStreak = 0
         var balance = 0.0, peak = 0.0, drawdown = 0.0
-        let sequenced = (directional + refundableOrUnknownTies).sorted(by: {
-            ($0.entryTimestamp ?? $0.signalTimestamp) < ($1.entryTimestamp ?? $1.signalTimestamp)
-        })
+        let sequenced = (directional + refundableOrUnknownTies).sorted {
+            let left = $0.entryTimestamp ?? $0.signalTimestamp
+            let right = $1.entryTimestamp ?? $1.signalTimestamp
+            return left == right ? $0.id < $1.id : left < right
+        }
         for record in sequenced {
             if record.resolution == .loss
                 || (record.resolution == .tie && (record.tiePolicy ?? .unknown) == .loss) {
@@ -772,8 +777,8 @@ public enum StrategyValidationEngine {
             effectiveSampleSize: clustered.effectiveSize,
             payoutAdjustedExpectancy: expectancy,
             breakEvenWinRate: minimumPayout.map { 1 / (1 + $0) },
-            maximumConsecutiveLosses: maximumStreak,
-            maximumUnitDrawdown: !directional.isEmpty && tiesAreScorable
+            maximumConsecutiveLosses: pathCoverageComplete ? maximumStreak : nil,
+            maximumUnitDrawdown: pathCoverageComplete && !directional.isEmpty && tiesAreScorable
                 && payouts.count == payoutRows.count ? drawdown : nil
         )
     }

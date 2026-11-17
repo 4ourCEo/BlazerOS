@@ -40,11 +40,22 @@ public struct Candidate002Configuration: Codable, Sendable, Equatable {
     public let confirmationBars: Int
     public let locationTolerance: Double
     public let fibonacciRatio: Double
+    /// TTL after confirmation-bar close. Nil on legacy config decodes and resolves
+    /// to the prior adapter default derived from the confirmation horizon.
+    public let signalFreshnessSeconds: Int?
+
+    public var resolvedSignalFreshnessSeconds: Int {
+        if let signalFreshnessSeconds { return signalFreshnessSeconds }
+        let (seconds, overflow) = confirmationBars.multipliedReportingOverflow(by: 60)
+        return overflow ? 0 : seconds
+    }
 
     public init(lookbackBars: Int = 12, confirmationBars: Int = 2,
-                locationTolerance: Double = 0.10, fibonacciRatio: Double = 0.705) {
+                locationTolerance: Double = 0.10, fibonacciRatio: Double = 0.705,
+                signalFreshnessSeconds: Int? = nil) {
         self.lookbackBars = lookbackBars; self.confirmationBars = confirmationBars
         self.locationTolerance = locationTolerance; self.fibonacciRatio = fibonacciRatio
+        self.signalFreshnessSeconds = signalFreshnessSeconds
     }
 }
 
@@ -68,10 +79,17 @@ public enum Candidate002Error: Error, Sendable, Equatable {
 }
 
 public enum Candidate002Analyzer {
-    public static let version = "candidate-002-auction-failure-v1"
+    public static let version = "candidate-002-auction-failure-v2"
     public static let unavailableCapabilities = [
         "order-flow absorption", "footprint delta", "volume-at-price", "gamma exposure"
     ]
+
+    /// Latest epoch-aligned M15 interval fully closed by the supplied M1 close time.
+    static func expectedLatestCompletedM15Start(m1Close: Date) -> Date {
+        let interval = 900.0
+        let currentIntervalStart = floor(m1Close.timeIntervalSince1970 / interval) * interval
+        return Date(timeIntervalSince1970: currentIntervalStart - interval)
+    }
 
     public static func analyze(
         candles: [Candidate002Candle],
@@ -79,16 +97,17 @@ public enum Candidate002Analyzer {
         configuration: Candidate002Configuration = .init()
     ) throws -> [Candidate002Candidate] {
         guard configuration.lookbackBars >= 3, configuration.confirmationBars > 0,
+              configuration.confirmationBars <= Int.max / 60,
               configuration.locationTolerance.isFinite, configuration.locationTolerance > 0,
               configuration.fibonacciRatio.isFinite, configuration.fibonacciRatio > 0,
-              configuration.fibonacciRatio < 1 else { throw Candidate002Error.invalidConfiguration }
+              configuration.fibonacciRatio < 1,
+              configuration.signalFreshnessSeconds.map({ $0 > 0 }) ?? true
+        else { throw Candidate002Error.invalidConfiguration }
         guard candles.allSatisfy(\.isValid), higherTimeframe.allSatisfy(\.isValid),
               candles.count >= configuration.lookbackBars + 2 else {
             throw Candidate002Error.invalidCandles
         }
-        guard !higherTimeframe.isEmpty else { throw Candidate002Error.unavailableHigherTimeframe }
-
-        let environment = classifyEnvironment(higherTimeframe)
+        let orderedHigherTimeframe = higherTimeframe.sorted { $0.time < $1.time }
         var output: [Candidate002Candidate] = []
         for index in configuration.lookbackBars..<(candles.count - 1) {
             let prior = candles[(index - configuration.lookbackBars)..<index]
@@ -115,6 +134,7 @@ public enum Candidate002Analyzer {
                 direction == .bullish ? $0.close < low : $0.close > high
             }
             let terminal: Candidate002TerminalState
+            let environment = environment(at: bar, higherTimeframe: orderedHigherTimeframe)
             if let confirmation, invalidation == nil || confirmation.time <= invalidation!.time {
                 terminal = .confirmed
                 output.append(Candidate002Candidate(
@@ -150,5 +170,17 @@ public enum Candidate002Analyzer {
         else { return .unavailable }
         let displacement = abs(last.close - first.open) / (high - low)
         return displacement >= 0.35 ? .trending : .balanced
+    }
+
+    private static func environment(at failureBar: Candidate002Candle,
+                                    higherTimeframe: [Candidate002Candle]) -> Candidate002Environment {
+        let eventClose = failureBar.time.addingTimeInterval(60)
+        let interval = 900.0
+        let expectedStart = expectedLatestCompletedM15Start(m1Close: eventClose)
+        let causalPrefix = higherTimeframe.filter {
+            $0.time.addingTimeInterval(interval) <= eventClose
+        }
+        guard causalPrefix.last?.time == expectedStart else { return .unavailable }
+        return classifyEnvironment(causalPrefix)
     }
 }

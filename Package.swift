@@ -11,13 +11,14 @@ let package = Package(
         .library(name: "BlazerCore", type: .static, targets: ["BlazerCore"]),
         .library(name: "BlazerCrypto", type: .static, targets: ["BlazerCrypto"]),
         .library(name: "LightningDesk", type: .static, targets: ["LightningDesk"]),
-        .executable(name: "BlazerOS", targets: ["BlazerOS"]),
+        .executable(name: "BlazerOS", targets: ["BlazerOSMac"]),
         .executable(name: "ForwardTest", targets: ["ForwardTest"]),
     ],
     targets: [
         .executableTarget(name: "EdgeReport", dependencies: ["BlazerCore"]),
         .executableTarget(name: "ScanBenchmark", dependencies: ["BlazerCore"]),
         .executableTarget(name: "CoreAudit", dependencies: ["BlazerCore", "BlazerCrypto"]),
+        .executableTarget(name: "StrategyManifestTool", dependencies: ["BlazerCore"], path: "Sources/StrategyManifestTool"),
         .target(
             name: "BlazerCore",
             resources: [
@@ -41,8 +42,9 @@ let package = Package(
             ]
         ),
         .executableTarget(
-            name: "BlazerOS",
-            dependencies: ["LightningDesk"]
+            name: "BlazerOSMac",
+            dependencies: ["LightningDesk"],
+            path: "Sources/BlazerOSMac"
         ),
         .executableTarget(
             name: "Persist",

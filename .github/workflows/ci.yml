@@ -1,8 +1,9 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
-    branches: [main, master]
+    branches: [main, master, rc1/**]
   pull_request:
 
 permissions:
@@ -24,6 +25,11 @@ jobs:
       # The image's default Xcode trails the SDK this app targets, so select the
       # newest installed one before building.
       - uses: ./.github/actions/select-xcode
+
+      - name: Repository and saved-plan checks
+        run: |
+          git diff --check
+          python3 -m json.tool iPhone/BlazerOS.xctestplan >/dev/null
 
       - name: Engine pin drift
         run: ./scripts/check-engine-pin.sh
@@ -70,13 +76,14 @@ jobs:
             -destination 'generic/platform=iOS Simulator' \
             -configuration Debug \
             CODE_SIGNING_ALLOWED=NO \
+            BLAZER_BUILD_ID=${GITHUB_SHA} \
             build
 
       - name: Release simulator build
         run: |
           xcodebuild -project iPhone/BlazerOS.xcodeproj -scheme BlazerOS \
             -destination 'generic/platform=iOS Simulator' -configuration Release \
-            CODE_SIGNING_ALLOWED=NO build
+            CODE_SIGNING_ALLOWED=NO BLAZER_BUILD_ID=${GITHUB_SHA} build
 
       # BlazerTests covers the desk layout and the iPhone execution flow. It only
       # runs from the Xcode project, so it needs a concrete simulator. Ask
@@ -108,5 +115,6 @@ jobs:
             -scheme BlazerOS \
             -destination "platform=iOS Simulator,id=$udid" \
             -configuration Debug \
+            BLAZER_BUILD_ID=${GITHUB_SHA} \
             CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=YES \
             test

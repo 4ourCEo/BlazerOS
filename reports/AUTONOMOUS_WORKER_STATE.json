@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "project": "BlazerOS",
+  "runs": [
+    {
+      "taskID": "adaptive-selector-verification",
+      "startedAt": "2026-11-11T12:53:51.049363+00:00",
+      "finishedAt": "2026-11-11T12:53:53.100372+00:00",
+      "exitCode": 0,
+      "evidence": "reports/autonomous-worker/adaptive-selector-verification.log"
+    },
+    {
+      "taskID": "adaptive-rehearsal-verification",
+      "startedAt": "2026-11-11T12:53:57.531701+00:00",
+      "finishedAt": "2026-11-11T12:53:59.093440+00:00",
+      "exitCode": 0,
+      "evidence": "reports/autonomous-worker/adaptive-rehearsal-verification.log"
+    },
+    {
+      "taskID": "full-regression-verification",
+      "startedAt": "2026-11-11T12:54:02.555136+00:00",
+      "finishedAt": "2026-11-11T12:54:37.641390+00:00",
+      "exitCode": 0,
+      "evidence": "reports/autonomous-worker/full-regression-verification.log"
+    },
+    {
+      "taskID": "adaptive-persistence-verification",
+      "startedAt": "2026-11-11T18:56:14.640604+00:00",
+      "finishedAt": "2026-11-11T18:56:17.071520+00:00",
+      "status": "COMPLETED",
+      "exitCode": 0,
+      "evidence": "reports/autonomous-worker/adaptive-persistence-verification.log",
+      "sourceIdentity": "2aa339958c906ca48647cd638cd1ae07996e01e5"
+    },
+    {
+      "taskID": "full-regression-after-persistence",
+      "startedAt": "2026-11-11T18:56:22.751749+00:00",
+      "finishedAt": "2026-11-11T18:57:00.797869+00:00",
+      "status": "COMPLETED",
+      "exitCode": 0,
+      "evidence": "reports/autonomous-worker/full-regression-after-persistence.log",
+      "sourceIdentity": "2aa339958c906ca48647cd638cd1ae07996e01e5"
+    },
+    {
+      "taskID": "adaptive-native-projection-verification",
+      "startedAt": "2026-11-11T19:25:16.105305+00:00",
+      "finishedAt": "2026-11-11T19:25:21.892037+00:00",
+      "status": "COMPLETED",
+      "exitCode": 0,
+      "evidence": "reports/autonomous-worker/adaptive-native-projection-verification.log",
+      "sourceIdentity": "2aa339958c906ca48647cd638cd1ae07996e01e5"
+    },
+    {
+      "taskID": "full-regression-after-native-projection",
+      "startedAt": "2026-11-11T19:25:25.904987+00:00",
+      "finishedAt": "2026-11-11T19:26:00.797339+00:00",
+      "status": "COMPLETED",
+      "exitCode": 0,
+      "evidence": "reports/autonomous-worker/full-regression-after-native-projection.log",
+      "sourceIdentity": "2aa339958c906ca48647cd638cd1ae07996e01e5"
+    },
+    {
+      "taskID": "adaptive-live-snapshot-path-verification",
+      "startedAt": "2026-11-11T19:32:32.545624+00:00",
+      "finishedAt": "2026-11-11T19:32:37.382437+00:00",
+      "status": "COMPLETED",
+      "exitCode": 0,
+      "evidence": "reports/autonomous-worker/adaptive-live-snapshot-path-verification.log",
+      "sourceIdentity": "2aa339958c906ca48647cd638cd1ae07996e01e5"
+    },
+    {
+      "taskID": "full-regression-after-live-snapshot",
+      "startedAt": "2026-11-11T19:32:37.458914+00:00",
+      "finishedAt": "2026-11-11T19:33:11.909840+00:00",
+      "status": "COMPLETED",
+      "exitCode": 0,
+      "evidence": "reports/autonomous-worker/full-regression-after-live-snapshot.log",
+      "sourceIdentity": "2aa339958c906ca48647cd638cd1ae07996e01e5"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+[
+  {
+    "attachments" : [
+      {
+        "configurationName" : "V3 UI Tests",
+        "deviceId" : "7F53C963-3A26-416E-A729-1EF10150E240",
+        "deviceName" : "iPhone 17e",
+        "exportedFileName" : "BA6C3574-8EF2-4431-8B57-598D2E2CD0F6.png",
+        "isAssociatedWithFailure" : false,
+        "suggestedHumanReadableName" : "blazer-trade-screen_0_1A42AE54-B47B-4578-9EE8-6C6EF250DA3A.png",
+        "timestamp" : 1794425683.177
+      }
+    ],
+    "testIdentifier" : "BlazerUITests/testPrimaryDestinationsAreTradeMarketsReview()",
+    "testIdentifierURL" : "test://com.apple.xcode/BlazerOS/BlazerUITests/BlazerUITests/testPrimaryDestinationsAreTradeMarketsReview"
+  }
+]

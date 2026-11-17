@@ -33,6 +33,15 @@ private func bar(_ time: Double, _ close: Double) -> Candle {
     #expect(ids.count == 5)
 }
 
+@Test func researchSignalInputIdentityIncludesQuoteObservationTime() {
+    let m1 = [bar(60_000, 1.10)]
+    let base = ScanInputSnapshot(pair: "EUR/USD", m1: m1, bid: 1.0999, ask: 1.1001,
+        spread: 0.0002, quoteAsOfMs: 1_000, expirySeconds: 60, engineSHA: "ENGINE-A")
+    let newerQuote = ScanInputSnapshot(pair: "EUR/USD", m1: m1, bid: 1.0999, ask: 1.1001,
+        spread: 0.0002, quoteAsOfMs: 2_000, expirySeconds: 60, engineSHA: "ENGINE-A")
+    #expect(base.identity != newerQuote.identity)
+}
+
 @Test func commitUsesFullInputIdentity() {
     let m1 = [bar(60_000, 1.10), bar(120_000, 1.11)]
     let signal = EngineSignal(

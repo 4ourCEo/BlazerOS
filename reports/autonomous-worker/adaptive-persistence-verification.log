@@ -1,0 +1,26 @@
+Building for debugging...
+[Computing dependencies]
+[1 / 34] Parity-product
+Build complete! (0.69 sec)
+◇ Test run started.
+↳ Testing Library Version: 2403
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite AdaptiveMarketRehearsalTests started.
+◇ Test actionableStateRequiresSelectedCandidate() started.
+◇ Test decisionStateRetainsDevelopingSetup() started.
+◇ Test selectedHorizonRequiresRecordedResearchEvidence() started.
+◇ Test decisionStateDoesNotTreatUnsafeCandidateAsForming() started.
+◇ Test rehearsalRecordPreservesDecisionStatesAndInputIdentity() started.
+◇ Test boundedDiagnosticFailsClosedWithoutCredentials() started.
+◇ Test adaptiveRehearsalPersistsAndReloadsDeterministically() started.
+◇ Test horizonIsNotPresentedAsSupportedWithoutEvidence() started.
+✔ Test decisionStateRetainsDevelopingSetup() passed after 0.002 seconds.
+✔ Test decisionStateDoesNotTreatUnsafeCandidateAsForming() passed after 0.002 seconds.
+✔ Test selectedHorizonRequiresRecordedResearchEvidence() passed after 0.004 seconds.
+✔ Test horizonIsNotPresentedAsSupportedWithoutEvidence() passed after 0.004 seconds.
+✔ Test actionableStateRequiresSelectedCandidate() passed after 0.005 seconds.
+✔ Test rehearsalRecordPreservesDecisionStatesAndInputIdentity() passed after 0.005 seconds.
+✔ Test boundedDiagnosticFailsClosedWithoutCredentials() passed after 0.005 seconds.
+✔ Test adaptiveRehearsalPersistsAndReloadsDeterministically() passed after 0.010 seconds.
+✔ Suite AdaptiveMarketRehearsalTests passed after 0.010 seconds.
+✔ Test run with 8 tests in 1 suite passed after 0.011 seconds.

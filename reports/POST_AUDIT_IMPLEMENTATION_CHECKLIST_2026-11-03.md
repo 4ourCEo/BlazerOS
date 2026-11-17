@@ -134,6 +134,26 @@ Chunk 1 result: no PR was merged, closed, replayed, or force-pushed. Duplicate s
 - [x] Preserved STRIKE styling, signal/entry logic, eight-second eligibility, and research/live-capital boundaries.
 - [x] Focused iPhone simulator verification: **18/18 passed**.
 
+## STRIKE Desk hierarchy follow-up
+
+- [x] Made the decision primary: WAIT/SCAN/active verdict is shown before the confidence score, with an explicit `Confidence: n/100` label.
+- [x] Added complete expandable explanation text and explicit Capital Shield / no-qualifying-setup state labels.
+- [x] Added selected-pair M1 context and market-observation age with live/stale coloring.
+- [x] Compact watchlist rows and labeled confidence values; retained distinct unavailable/scanning states.
+- [x] Removed the redundant Track Strike Contract action without changing manual-entry behavior.
+- [x] Focused simulator build and regression suite passed: **18/18**.
+- [x] Signed physical-device build installed and launched; updated STRIKE hierarchy, scan control, freshness row, and expanded chart were captured in `.build/iphone-rc1-usability-device/physical-hierarchy.png`.
+- [ ] Full interactive hardware verification remains open for scan tapping, chart gestures, manual/late entry, notifications, backgrounding, weak network, recovery, and settlement.
+
+## Research horizon options
+
+- [x] Preserved the existing default horizon: **60 seconds**.
+- [x] Retained the existing **3-minute** and **5-minute** choices.
+- [x] Added **10-minute** as an additional selectable horizon; no default, engine, or eight-second eligibility change.
+- [x] Accepted the 10-minute duration in execution metadata and manual-entry validation.
+- [x] macOS Desk commands now expose 60s, 3m, 5m, and 10m selection.
+- [x] Focused iPhone regression suite passed: **18/18**.
+
 ## Authorized milestones
 
 - [x] **A — Research infrastructure:** add a shadow-only signal-support contract without changing engine or entry eligibility.

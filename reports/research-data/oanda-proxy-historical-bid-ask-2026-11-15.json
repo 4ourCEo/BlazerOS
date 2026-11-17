@@ -1,0 +1,783 @@
+{
+  "archiveIntegrityValid": true,
+  "campaignReadiness": "NOT_ASSESSED_BY_ARCHIVE_VALIDATOR",
+  "fileCount": 20,
+  "files": [
+    {
+      "conflictingDuplicateCandles": 0,
+      "exactDuplicateCandles": 0,
+      "firstCandleUTC": "2026-11-01T22:04:00Z",
+      "granularity": "M1",
+      "instrument": "EUR_USD",
+      "issues": [],
+      "lastCandleUTC": "2026-11-03T02:06:00Z",
+      "rawCandles": 1665,
+      "relativePath": "oanda-practice-EUR_USD-M1-1793412374-1793671574.json",
+      "requestFromGridFloorUTC": "2026-10-31T02:06:00Z",
+      "requestToGridFloorUTC": "2026-11-03T02:06:00Z",
+      "requestedFromUTC": "2026-10-31T02:06:14.302590Z",
+      "requestedToUTC": "2026-11-03T02:06:14.302590Z",
+      "sha256": "43568633c95ba7dd6082c294423245cf5a3b94264dcec94398b2022fb76719b5",
+      "sourceLabel": "PRACTICE_LABEL_FROM_FILENAME",
+      "valid": true
+    },
+    {
+      "conflictingDuplicateCandles": 0,
+      "exactDuplicateCandles": 0,
+      "firstCandleUTC": "2026-11-03T02:06:00Z",
+      "granularity": "M1",
+      "instrument": "EUR_USD",
+      "issues": [],
+      "lastCandleUTC": "2026-11-06T02:06:00Z",
+      "rawCandles": 4297,
+      "relativePath": "oanda-practice-EUR_USD-M1-1793671573-1793930773.json",
+      "requestFromGridFloorUTC": "2026-11-03T02:06:00Z",
+      "requestToGridFloorUTC": "2026-11-06T02:06:00Z",
+      "requestedFromUTC": "2026-11-03T02:06:13.337417Z",
+      "requestedToUTC": "2026-11-06T02:06:13.337417Z",
+      "sha256": "88115f2afb3298b29361a704bb918ac1eba9289918a52ba78b6d7b13ef9b5ae1",
+      "sourceLabel": "PRACTICE_LABEL_FROM_FILENAME",
+      "valid": true
+    },
+    {
+      "conflictingDuplicateCandles": 0,
+      "exactDuplicateCandles": 0,
+      "firstCandleUTC": "2026-11-06T02:06:00Z",
+      "granularity": "M1",
+      "instrument": "EUR_USD",
+      "issues": [],
+      "lastCandleUTC": "2026-11-09T02:06:00Z",
+      "rawCandles": 1433,
+      "relativePath": "oanda-practice-EUR_USD-M1-1793930772-1794189972.json",
+      "requestFromGridFloorUTC": "2026-11-06T02:06:00Z",
+      "requestToGridFloorUTC": "2026-11-09T02:06:00Z",
+      "requestedFromUTC": "2026-11-06T02:06:12.941628Z",
+      "requestedToUTC": "2026-11-09T02:06:12.941628Z",
+      "sha256": "156bf4bd1184aa487a86a585a1535fafb00eb84b4e23e3de865fabcf2fd2ece7",
+      "sourceLabel": "PRACTICE_LABEL_FROM_FILENAME",
+      "valid": true
+    },
+    {
+      "conflictingDuplicateCandles": 0,
+      "exactDuplicateCandles": 0,
+      "firstCandleUTC": "2026-11-09T01:04:00Z",
+      "granularity": "M1",
+      "instrument": "EUR_USD",
+      "issues": [],
+      "lastCandleUTC": "2026-11-12T01:04:00Z",
+      "rawCandles": 4299,
+      "relativePath": "oanda-practice-EUR_USD-M1-1794186276-1794445476.json",
+      "requestFromGridFloorUTC": "2026-11-09T01:04:00Z",
+      "requestToGridFloorUTC": "2026-11-12T01:04:00Z",
+      "requestedFromUTC": "2026-11-09T01:04:36.513088Z",
+      "requestedToUTC": "2026-11-12T01:04:36.513088Z",
+      "sha256": "7ef5862d3d614c1f1ce92a0a72ec5053f316368454cd17707f0feec308c4ef0e",
+      "sourceLabel": "PRACTICE_LABEL_FROM_FILENAME",
+      "valid": true
+    },
+    {
+      "conflictingDuplicateCandles": 0,
+      "exactDuplicateCandles": 0,
+      "firstCandleUTC": "2026-11-11T00:49:00Z",
+      "granularity": "M1",
+      "instrument": "EUR_USD",
+      "issues": [],
+      "lastCandleUTC": "2026-11-12T00:49:00Z",
+      "rawCandles": 1436,
+      "relativePath": "oanda-practice-EUR_USD-M1-1794358199-1794444599.json",
+      "requestFromGridFloorUTC": "2026-11-11T00:49:00Z",
+      "requestToGridFloorUTC": "2026-11-12T00:49:00Z",
+      "requestedFromUTC": "2026-11-11T00:49:59.154084Z",
+      "requestedToUTC": "2026-11-12T00:49:59.154084Z",
+      "sha256": "d3aea5ec6801845b7ab7508aebadbcc80e834960e087d1e30a743007ac9ad09e",
+      "sourceLabel": "PRACTICE_LABEL_FROM_FILENAME",
+      "valid": true
+    },
+    {
+      "conflictingDuplicateCandles": 0,
+      "exactDuplicateCandles": 0,
+      "firstCandleUTC": "2026-11-01T22:00:00Z",
+      "granularity": "M5",
+      "instrument": "EUR_USD",
+      "issues": [],
+      "lastCandleUTC": "2026-11-03T02:05:00Z",
+      "rawCandles": 338,
+      "relativePath": "oanda-practice-EUR_USD-M5-1793412374-1793671574.json",
+      "requestFromGridFloorUTC": "2026-10-31T02:05:00Z",
+      "requestToGridFloorUTC": "2026-11-03T02:05:00Z",
+      "requestedFromUTC": "2026-10-31T02:06:14.302590Z",
+      "requestedToUTC": "2026-11-03T02:06:14.302590Z",
+      "sha256": "1e18848826271c3d885e4a076a4236dda92b4662c19b0ff1b7da96f048b04547",
+      "sourceLabel": "PRACTICE_LABEL_FROM_FILENAME",
+      "valid": true
+    },
+    {
+      "conflictingDuplicateCandles": 0,
+      "exactDuplicateCandles": 0,
+      "firstCandleUTC": "2026-11-03T02:05:00Z",
+      "granularity": "M5",
+      "instrument": "EUR_USD",
+      "issues": [],
+      "lastCandleUTC": "2026-11-06T02:05:00Z",
+      "rawCandles": 865,
+      "relativePath": "oanda-practice-EUR_USD-M5-1793671573-1793930773.json",
+      "requestFromGridFloorUTC": "2026-11-03T02:05:00Z",
+      "requestToGridFloorUTC": "2026-11-06T02:05:00Z",
+      "requestedFromUTC": "2026-11-03T02:06:13.337417Z",
+      "requestedToUTC": "2026-11-06T02:06:13.337417Z",
+      "sha256": "b22e4de01b65364b94e135b9eff94715bba15d630a8a3fe9254ac294f6149252",
+      "sourceLabel": "PRACTICE_LABEL_FROM_FILENAME",
+      "valid": true
+    },
+    {
+      "conflictingDuplicateCandles": 0,
+      "exactDuplicateCandles": 0,
+      "firstCandleUTC": "2026-11-06T02:05:00Z",
+      "granularity": "M5",
+      "instrument": "EUR_USD",
+      "issues": [],
+      "lastCandleUTC": "2026-11-09T02:05:00Z",
+      "rawCandles": 289,
+      "relativePath": "oanda-practice-EUR_USD-M5-1793930772-1794189972.json",
+      "requestFromGridFloorUTC": "2026-11-06T02:05:00Z",
+      "requestToGridFloorUTC": "2026-11-09T02:05:00Z",
+      "requestedFromUTC": "2026-11-06T02:06:12.941628Z",
+      "requestedToUTC": "2026-11-09T02:06:12.941628Z",
+      "sha256": "e3aa2fd98a79b0d766be1793cc15aaf119e40d6f2ee9a1e9e1977534093c7515",
+      "sourceLabel": "PRACTICE_LABEL_FROM_FILENAME",
+      "valid": true
+    },
+    {
+      "conflictingDuplicateCandles": 0,
+      "exactDuplicateCandles": 0,
+      "firstCandleUTC": "2026-11-09T01:00:00Z",
+      "granularity": "M5",
+      "instrument": "EUR_USD",
+      "issues": [],
+      "lastCandleUTC": "2026-11-12T01:00:00Z",
+      "rawCandles": 865,
+      "relativePath": "oanda-practice-EUR_USD-M5-1794186276-1794445476.json",
+      "requestFromGridFloorUTC": "2026-11-09T01:00:00Z",
+      "requestToGridFloorUTC": "2026-11-12T01:00:00Z",
+      "requestedFromUTC": "2026-11-09T01:04:36.513088Z",
+      "requestedToUTC": "2026-11-12T01:04:36.513088Z",
+      "sha256": "b5d758dd265d3473d809305d7501dd12572c22ebe5e35e6f5fa2da46e327b7c4",
+      "sourceLabel": "PRACTICE_LABEL_FROM_FILENAME",
+      "valid": true
+    },
+    {
+      "conflictingDuplicateCandles": 0,
+      "exactDuplicateCandles": 0,
+      "firstCandleUTC": "2026-11-11T00:45:00Z",
+      "granularity": "M5",
+      "instrument": "EUR_USD",
+      "issues": [],
+      "lastCandleUTC": "2026-11-12T00:45:00Z",
+      "rawCandles": 289,
+      "relativePath": "oanda-practice-EUR_USD-M5-1794358199-1794444599.json",
+      "requestFromGridFloorUTC": "2026-11-11T00:45:00Z",
+      "requestToGridFloorUTC": "2026-11-12T00:45:00Z",
+      "requestedFromUTC": "2026-11-11T00:49:59.154084Z",
+      "requestedToUTC": "2026-11-12T00:49:59.154084Z",
+      "sha256": "c41e90f93a0c5be7e809bca4dcb66a45900617d0cd16bd6577b9df0d2fe2c9ac",
+      "sourceLabel": "PRACTICE_LABEL_FROM_FILENAME",
+      "valid": true
+    },
+    {
+      "conflictingDuplicateCandles": 0,
+      "exactDuplicateCandles": 0,
+      "firstCandleUTC": "2026-11-01T22:04:00Z",
+      "granularity": "M1",
+      "instrument": "GBP_JPY",
+      "issues": [],
+      "lastCandleUTC": "2026-11-03T02:06:00Z",
+      "rawCandles": 1679,
+      "relativePath": "oanda-practice-GBP_JPY-M1-1793412384-1793671584.json",
+      "requestFromGridFloorUTC": "2026-10-31T02:06:00Z",
+      "requestToGridFloorUTC": "2026-11-03T02:06:00Z",
+      "requestedFromUTC": "2026-10-31T02:06:24.886926Z",
+      "requestedToUTC": "2026-11-03T02:06:24.886926Z",
+      "sha256": "403c664842a001a1fc84340009dd7de71c4794deddab34895a38f5e81b9ed4c2",
+      "sourceLabel": "PRACTICE_LABEL_FROM_FILENAME",
+      "valid": true
+    },
+    {
+      "conflictingDuplicateCandles": 0,
+      "exactDuplicateCandles": 0,
+      "firstCandleUTC": "2026-11-03T02:06:00Z",
+      "granularity": "M1",
+      "instrument": "GBP_JPY",
+      "issues": [],
+      "lastCandleUTC": "2026-11-06T02:06:00Z",
+      "rawCandles": 4308,
+      "relativePath": "oanda-practice-GBP_JPY-M1-1793671583-1793930783.json",
+      "requestFromGridFloorUTC": "2026-11-03T02:06:00Z",
+      "requestToGridFloorUTC": "2026-11-06T02:06:00Z",
+      "requestedFromUTC": "2026-11-03T02:06:23.841689Z",
+      "requestedToUTC": "2026-11-06T02:06:23.841689Z",
+      "sha256": "6913f0dd82de962651a4fabd5eb060e13dd3b816c94aeef12558af15d40f15b2",
+      "sourceLabel": "PRACTICE_LABEL_FROM_FILENAME",
+      "valid": true
+    },
+    {
+      "conflictingDuplicateCandles": 0,
+      "exactDuplicateCandles": 0,
+      "firstCandleUTC": "2026-11-06T02:06:00Z",
+      "granularity": "M1",
+      "instrument": "GBP_JPY",
+      "issues": [],
+      "lastCandleUTC": "2026-11-09T02:06:00Z",
+      "rawCandles": 1435,
+      "relativePath": "oanda-practice-GBP_JPY-M1-1793930783-1794189983.json",
+      "requestFromGridFloorUTC": "2026-11-06T02:06:00Z",
+      "requestToGridFloorUTC": "2026-11-09T02:06:00Z",
+      "requestedFromUTC": "2026-11-06T02:06:23.309073Z",
+      "requestedToUTC": "2026-11-09T02:06:23.309073Z",
+      "sha256": "3b412a5129a749648e9ab5ae7091de516ec67eadb75dcd436c14c57ff50cbdbd",
+      "sourceLabel": "PRACTICE_LABEL_FROM_FILENAME",
+      "valid": true
+    },
+    {
+      "conflictingDuplicateCandles": 0,
+      "exactDuplicateCandles": 0,
+      "firstCandleUTC": "2026-11-09T01:04:00Z",
+      "granularity": "M1",
+      "instrument": "GBP_JPY",
+      "issues": [],
+      "lastCandleUTC": "2026-11-12T01:04:00Z",
+      "rawCandles": 4307,
+      "relativePath": "oanda-practice-GBP_JPY-M1-1794186281-1794445481.json",
+      "requestFromGridFloorUTC": "2026-11-09T01:04:00Z",
+      "requestToGridFloorUTC": "2026-11-12T01:04:00Z",
+      "requestedFromUTC": "2026-11-09T01:04:41.305303Z",
+      "requestedToUTC": "2026-11-12T01:04:41.305303Z",
+      "sha256": "88f4512a36aedd736050aa26c2c402e9ac8edc21b48390698688acd37b0d6146",
+      "sourceLabel": "PRACTICE_LABEL_FROM_FILENAME",
+      "valid": true
+    },
+    {
+      "conflictingDuplicateCandles": 0,
+      "exactDuplicateCandles": 0,
+      "firstCandleUTC": "2026-11-11T00:50:00Z",
+      "granularity": "M1",
+      "instrument": "GBP_JPY",
+      "issues": [],
+      "lastCandleUTC": "2026-11-12T00:50:00Z",
+      "rawCandles": 1437,
+      "relativePath": "oanda-practice-GBP_JPY-M1-1794358206-1794444606.json",
+      "requestFromGridFloorUTC": "2026-11-11T00:50:00Z",
+      "requestToGridFloorUTC": "2026-11-12T00:50:00Z",
+      "requestedFromUTC": "2026-11-11T00:50:06.405398Z",
+      "requestedToUTC": "2026-11-12T00:50:06.405398Z",
+      "sha256": "b3f887d50fed3c3d357ae79c5774ab7485cf3eefa328fd6b3934de928810bf98",
+      "sourceLabel": "PRACTICE_LABEL_FROM_FILENAME",
+      "valid": true
+    },
+    {
+      "conflictingDuplicateCandles": 0,
+      "exactDuplicateCandles": 0,
+      "firstCandleUTC": "2026-11-01T22:00:00Z",
+      "granularity": "M5",
+      "instrument": "GBP_JPY",
+      "issues": [],
+      "lastCandleUTC": "2026-11-03T02:05:00Z",
+      "rawCandles": 338,
+      "relativePath": "oanda-practice-GBP_JPY-M5-1793412384-1793671584.json",
+      "requestFromGridFloorUTC": "2026-10-31T02:05:00Z",
+      "requestToGridFloorUTC": "2026-11-03T02:05:00Z",
+      "requestedFromUTC": "2026-10-31T02:06:24.886926Z",
+      "requestedToUTC": "2026-11-03T02:06:24.886926Z",
+      "sha256": "7a8eb84b3fe00bb1cfe9668a6dc5c3a41ad7b56f63f3dc99049f1a2e6d5d3972",
+      "sourceLabel": "PRACTICE_LABEL_FROM_FILENAME",
+      "valid": true
+    },
+    {
+      "conflictingDuplicateCandles": 0,
+      "exactDuplicateCandles": 0,
+      "firstCandleUTC": "2026-11-03T02:05:00Z",
+      "granularity": "M5",
+      "instrument": "GBP_JPY",
+      "issues": [],
+      "lastCandleUTC": "2026-11-06T02:05:00Z",
+      "rawCandles": 865,
+      "relativePath": "oanda-practice-GBP_JPY-M5-1793671583-1793930783.json",
+      "requestFromGridFloorUTC": "2026-11-03T02:05:00Z",
+      "requestToGridFloorUTC": "2026-11-06T02:05:00Z",
+      "requestedFromUTC": "2026-11-03T02:06:23.841689Z",
+      "requestedToUTC": "2026-11-06T02:06:23.841689Z",
+      "sha256": "2c8267f0b2a7ac59f0bf6a8dd411f023f4b12e1a18ec934efa76206d8f68a039",
+      "sourceLabel": "PRACTICE_LABEL_FROM_FILENAME",
+      "valid": true
+    },
+    {
+      "conflictingDuplicateCandles": 0,
+      "exactDuplicateCandles": 0,
+      "firstCandleUTC": "2026-11-06T02:05:00Z",
+      "granularity": "M5",
+      "instrument": "GBP_JPY",
+      "issues": [],
+      "lastCandleUTC": "2026-11-09T02:05:00Z",
+      "rawCandles": 289,
+      "relativePath": "oanda-practice-GBP_JPY-M5-1793930783-1794189983.json",
+      "requestFromGridFloorUTC": "2026-11-06T02:05:00Z",
+      "requestToGridFloorUTC": "2026-11-09T02:05:00Z",
+      "requestedFromUTC": "2026-11-06T02:06:23.309073Z",
+      "requestedToUTC": "2026-11-09T02:06:23.309073Z",
+      "sha256": "47d24522417c98c0a12b631f32aadf8db289842a3d1973d0d87aa775eb9122d7",
+      "sourceLabel": "PRACTICE_LABEL_FROM_FILENAME",
+      "valid": true
+    },
+    {
+      "conflictingDuplicateCandles": 0,
+      "exactDuplicateCandles": 0,
+      "firstCandleUTC": "2026-11-09T01:00:00Z",
+      "granularity": "M5",
+      "instrument": "GBP_JPY",
+      "issues": [],
+      "lastCandleUTC": "2026-11-12T01:00:00Z",
+      "rawCandles": 865,
+      "relativePath": "oanda-practice-GBP_JPY-M5-1794186281-1794445481.json",
+      "requestFromGridFloorUTC": "2026-11-09T01:00:00Z",
+      "requestToGridFloorUTC": "2026-11-12T01:00:00Z",
+      "requestedFromUTC": "2026-11-09T01:04:41.305303Z",
+      "requestedToUTC": "2026-11-12T01:04:41.305303Z",
+      "sha256": "5355830803b2be870953c3b17e80dd8c448de98e0f47c1093c32be3bdce0f30f",
+      "sourceLabel": "PRACTICE_LABEL_FROM_FILENAME",
+      "valid": true
+    },
+    {
+      "conflictingDuplicateCandles": 0,
+      "exactDuplicateCandles": 0,
+      "firstCandleUTC": "2026-11-11T00:50:00Z",
+      "granularity": "M5",
+      "instrument": "GBP_JPY",
+      "issues": [],
+      "lastCandleUTC": "2026-11-12T00:45:00Z",
+      "rawCandles": 288,
+      "relativePath": "oanda-practice-GBP_JPY-M5-1794358206-1794444606.json",
+      "requestFromGridFloorUTC": "2026-11-11T00:50:00Z",
+      "requestToGridFloorUTC": "2026-11-12T00:50:00Z",
+      "requestedFromUTC": "2026-11-11T00:50:06.405398Z",
+      "requestedToUTC": "2026-11-12T00:50:06.405398Z",
+      "sha256": "eb50bd4a507e83611cc6c16ae3359187d33f3cf4d3b6b802157b0e68e559e57e",
+      "sourceLabel": "PRACTICE_LABEL_FROM_FILENAME",
+      "valid": true
+    }
+  ],
+  "invalidBatchCount": 0,
+  "issues": [],
+  "manifestSHA256": "81db0a0f0433dd255cbcf6ba3b2277247a5661c72429f655298599e0c686a7cc",
+  "pathSetSHA256": "83f3b6ef715192dc92df6cdc4a695ba7fa27bca3f60ddec0f818985763ccddea",
+  "provenanceNote": "Path/file labels are claims only; the batch schema does not authenticate broker, account, or environment.",
+  "readinessNote": "Strategy profile, session-calendar gap classification, costs, and campaign rules are not assessed here.",
+  "schemaVersion": 1,
+  "selectedRelativePaths": [
+    "oanda-practice-EUR_USD-M1-1793412374-1793671574.json",
+    "oanda-practice-EUR_USD-M1-1793671573-1793930773.json",
+    "oanda-practice-EUR_USD-M1-1793930772-1794189972.json",
+    "oanda-practice-EUR_USD-M1-1794186276-1794445476.json",
+    "oanda-practice-EUR_USD-M1-1794358199-1794444599.json",
+    "oanda-practice-EUR_USD-M5-1793412374-1793671574.json",
+    "oanda-practice-EUR_USD-M5-1793671573-1793930773.json",
+    "oanda-practice-EUR_USD-M5-1793930772-1794189972.json",
+    "oanda-practice-EUR_USD-M5-1794186276-1794445476.json",
+    "oanda-practice-EUR_USD-M5-1794358199-1794444599.json",
+    "oanda-practice-GBP_JPY-M1-1793412384-1793671584.json",
+    "oanda-practice-GBP_JPY-M1-1793671583-1793930783.json",
+    "oanda-practice-GBP_JPY-M1-1793930783-1794189983.json",
+    "oanda-practice-GBP_JPY-M1-1794186281-1794445481.json",
+    "oanda-practice-GBP_JPY-M1-1794358206-1794444606.json",
+    "oanda-practice-GBP_JPY-M5-1793412384-1793671584.json",
+    "oanda-practice-GBP_JPY-M5-1793671583-1793930783.json",
+    "oanda-practice-GBP_JPY-M5-1793930783-1794189983.json",
+    "oanda-practice-GBP_JPY-M5-1794186281-1794445481.json",
+    "oanda-practice-GBP_JPY-M5-1794358206-1794444606.json"
+  ],
+  "selectedRootLabel": "oanda-proxy/historical-bid-ask",
+  "series": [
+    {
+      "conflictingDuplicateRows": 0,
+      "exactDuplicateRows": 1501,
+      "firstCandleUTC": "2026-11-01T22:04:00Z",
+      "gapCount": 41,
+      "gaps": [
+        {
+          "elapsedMicroseconds": 180000000,
+          "fromUTC": "2026-11-01T22:05:00Z",
+          "missingExpectedGridCandles": 2,
+          "toUTC": "2026-11-01T22:08:00Z"
+        },
+        {
+          "elapsedMicroseconds": 120000000,
+          "fromUTC": "2026-11-01T22:18:00Z",
+          "missingExpectedGridCandles": 1,
+          "toUTC": "2026-11-01T22:20:00Z"
+        },
+        {
+          "elapsedMicroseconds": 120000000,
+          "fromUTC": "2026-11-01T22:27:00Z",
+          "missingExpectedGridCandles": 1,
+          "toUTC": "2026-11-01T22:29:00Z"
+        },
+        {
+          "elapsedMicroseconds": 120000000,
+          "fromUTC": "2026-11-01T22:38:00Z",
+          "missingExpectedGridCandles": 1,
+          "toUTC": "2026-11-01T22:40:00Z"
+        },
+        {
+          "elapsedMicroseconds": 120000000,
+          "fromUTC": "2026-11-01T22:53:00Z",
+          "missingExpectedGridCandles": 1,
+          "toUTC": "2026-11-01T22:55:00Z"
+        },
+        {
+          "elapsedMicroseconds": 120000000,
+          "fromUTC": "2026-11-01T22:57:00Z",
+          "missingExpectedGridCandles": 1,
+          "toUTC": "2026-11-01T22:59:00Z"
+        },
+        {
+          "elapsedMicroseconds": 120000000,
+          "fromUTC": "2026-11-02T21:20:00Z",
+          "missingExpectedGridCandles": 1,
+          "toUTC": "2026-11-02T21:22:00Z"
+        },
+        {
+          "elapsedMicroseconds": 300000000,
+          "fromUTC": "2026-11-02T21:59:00Z",
+          "missingExpectedGridCandles": 4,
+          "toUTC": "2026-11-02T22:04:00Z"
+        },
+        {
+          "elapsedMicroseconds": 120000000,
+          "fromUTC": "2026-11-02T22:17:00Z",
+          "missingExpectedGridCandles": 1,
+          "toUTC": "2026-11-02T22:19:00Z"
+        },
+        {
+          "elapsedMicroseconds": 120000000,
+          "fromUTC": "2026-11-02T22:39:00Z",
+          "missingExpectedGridCandles": 1,
+          "toUTC": "2026-11-02T22:41:00Z"
+        },
+        {
+          "elapsedMicroseconds": 240000000,
+          "fromUTC": "2026-11-02T22:42:00Z",
+          "missingExpectedGridCandles": 3,
+          "toUTC": "2026-11-02T22:46:00Z"
+        },
+        {
+          "elapsedMicroseconds": 120000000,
+          "fromUTC": "2026-11-02T22:52:00Z",
+          "missingExpectedGridCandles": 1,
+          "toUTC": "2026-11-02T22:54:00Z"
+        },
+        {
+          "elapsedMicroseconds": 300000000,
+          "fromUTC": "2026-11-03T21:59:00Z",
+          "missingExpectedGridCandles": 4,
+          "toUTC": "2026-11-03T22:04:00Z"
+        },
+        {
+          "elapsedMicroseconds": 120000000,
+          "fromUTC": "2026-11-03T22:05:00Z",
+          "missingExpectedGridCandles": 1,
+          "toUTC": "2026-11-03T22:07:00Z"
+        },
+        {
+          "elapsedMicroseconds": 120000000,
+          "fromUTC": "2026-11-03T22:52:00Z",
+          "missingExpectedGridCandles": 1,
+          "toUTC": "2026-11-03T22:54:00Z"
+        },
+        {
+          "elapsedMicroseconds": 120000000,
+          "fromUTC": "2026-11-03T23:06:00Z",
+          "missingExpectedGridCandles": 1,
+          "toUTC": "2026-11-03T23:08:00Z"
+        },
+        {
+          "elapsedMicroseconds": 300000000,
+          "fromUTC": "2026-11-04T21:59:00Z",
+          "missingExpectedGridCandles": 4,
+          "toUTC": "2026-11-04T22:04:00Z"
+        },
+        {
+          "elapsedMicroseconds": 120000000,
+          "fromUTC": "2026-11-04T22:23:00Z",
+          "missingExpectedGridCandles": 1,
+          "toUTC": "2026-11-04T22:25:00Z"
+        },
+        {
+          "elapsedMicroseconds": 300000000,
+          "fromUTC": "2026-11-05T21:59:00Z",
+          "missingExpectedGridCandles": 4,
+          "toUTC": "2026-11-05T22:04:00Z"
+        },
+        {
+          "elapsedMicroseconds": 240000000,
+          "fromUTC": "2026-11-05T22:14:00Z",
+          "missingExpectedGridCandles": 3,
+          "toUTC": "2026-11-05T22:18:00Z"
+        },
+        {
+          "elapsedMicroseconds": 120000000,
+          "fromUTC": "2026-11-05T22:29:00Z",
+          "missingExpectedGridCandles": 1,
+          "toUTC": "2026-11-05T22:31:00Z"
+        },
+        {
+          "elapsedMicroseconds": 120000000,
+          "fromUTC": "2026-11-05T22:45:00Z",
+          "missingExpectedGridCandles": 1,
+          "toUTC": "2026-11-05T22:47:00Z"
+        },
+        {
+          "elapsedMicroseconds": 180000000,
+          "fromUTC": "2026-11-05T22:47:00Z",
+          "missingExpectedGridCandles": 2,
+          "toUTC": "2026-11-05T22:50:00Z"
+        },
+        {
+          "elapsedMicroseconds": 120000000,
+          "fromUTC": "2026-11-05T22:50:00Z",
+          "missingExpectedGridCandles": 1,
+          "toUTC": "2026-11-05T22:52:00Z"
+        },
+        {
+          "elapsedMicroseconds": 120000000,
+          "fromUTC": "2026-11-06T21:47:00Z",
+          "missingExpectedGridCandles": 1,
+          "toUTC": "2026-11-06T21:49:00Z"
+        },
+        {
+          "elapsedMicroseconds": 173100000000,
+          "fromUTC": "2026-11-06T21:59:00Z",
+          "missingExpectedGridCandles": 2884,
+          "toUTC": "2026-11-08T22:04:00Z"
+        },
+        {
+          "elapsedMicroseconds": 120000000,
+          "fromUTC": "2026-11-08T22:06:00Z",
+          "missingExpectedGridCandles": 1,
+          "toUTC": "2026-11-08T22:08:00Z"
+        },
+        {
+          "elapsedMicroseconds": 120000000,
+          "fromUTC": "2026-11-08T22:18:00Z",
+          "missingExpectedGridCandles": 1,
+          "toUTC": "2026-11-08T22:20:00Z"
+        },
+        {
+          "elapsedMicroseconds": 120000000,
+          "fromUTC": "2026-11-08T22:25:00Z",
+          "missingExpectedGridCandles": 1,
+          "toUTC": "2026-11-08T22:27:00Z"
+        },
+        {
+          "elapsedMicroseconds": 120000000,
+          "fromUTC": "2026-11-09T19:14:00Z",
+          "missingExpectedGridCandles": 1,
+          "toUTC": "2026-11-09T19:16:00Z"
+        },
+        {
+          "elapsedMicroseconds": 300000000,
+          "fromUTC": "2026-11-09T21:59:00Z",
+          "missingExpectedGridCandles": 4,
+          "toUTC": "2026-11-09T22:04:00Z"
+        },
+        {
+          "elapsedMicroseconds": 120000000,
+          "fromUTC": "2026-11-09T22:07:00Z",
+          "missingExpectedGridCandles": 1,
+          "toUTC": "2026-11-09T22:09:00Z"
+        },
+        {
+          "elapsedMicroseconds": 120000000,
+          "fromUTC": "2026-11-09T22:13:00Z",
+          "missingExpectedGridCandles": 1,
+          "toUTC": "2026-11-09T22:15:00Z"
+        },
+        {
+          "elapsedMicroseconds": 120000000,
+          "fromUTC": "2026-11-09T22:17:00Z",
+          "missingExpectedGridCandles": 1,
+          "toUTC": "2026-11-09T22:19:00Z"
+        },
+        {
+          "elapsedMicroseconds": 120000000,
+          "fromUTC": "2026-11-10T03:33:00Z",
+          "missingExpectedGridCandles": 1,
+          "toUTC": "2026-11-10T03:35:00Z"
+        },
+        {
+          "elapsedMicroseconds": 300000000,
+          "fromUTC": "2026-11-10T21:59:00Z",
+          "missingExpectedGridCandles": 4,
+          "toUTC": "2026-11-10T22:04:00Z"
+        },
+        {
+          "elapsedMicroseconds": 180000000,
+          "fromUTC": "2026-11-10T22:06:00Z",
+          "missingExpectedGridCandles": 2,
+          "toUTC": "2026-11-10T22:09:00Z"
+        },
+        {
+          "elapsedMicroseconds": 120000000,
+          "fromUTC": "2026-11-10T22:21:00Z",
+          "missingExpectedGridCandles": 1,
+          "toUTC": "2026-11-10T22:23:00Z"
+        },
+        {
+          "elapsedMicroseconds": 120000000,
+          "fromUTC": "2026-11-10T23:41:00Z",
+          "missingExpectedGridCandles": 1,
+          "toUTC": "2026-11-10T23:43:00Z"
+        },
+        {
+          "elapsedMicroseconds": 300000000,
+          "fromUTC": "2026-11-11T21:59:00Z",
+          "missingExpectedGridCandles": 4,
+          "toUTC": "2026-11-11T22:04:00Z"
+        },
+        {
+          "elapsedMicroseconds": 120000000,
+          "fromUTC": "2026-11-11T22:11:00Z",
+          "missingExpectedGridCandles": 1,
+          "toUTC": "2026-11-11T22:13:00Z"
+        }
+      ],
+      "granularity": "M1",
+      "instrument": "EUR_USD",
+      "lastCandleUTC": "2026-11-12T01:04:00Z",
+      "rawRows": 13130,
+      "uniqueTimestamps": 11629
+    },
+    {
+      "conflictingDuplicateRows": 0,
+      "exactDuplicateRows": 305,
+      "firstCandleUTC": "2026-11-01T22:00:00Z",
+      "gapCount": 1,
+      "gaps": [
+        {
+          "elapsedMicroseconds": 173100000000,
+          "fromUTC": "2026-11-06T21:55:00Z",
+          "missingExpectedGridCandles": 576,
+          "toUTC": "2026-11-08T22:00:00Z"
+        }
+      ],
+      "granularity": "M5",
+      "instrument": "EUR_USD",
+      "lastCandleUTC": "2026-11-12T01:00:00Z",
+      "rawRows": 2646,
+      "uniqueTimestamps": 2341
+    },
+    {
+      "conflictingDuplicateRows": 0,
+      "exactDuplicateRows": 1502,
+      "firstCandleUTC": "2026-11-01T22:04:00Z",
+      "gapCount": 12,
+      "gaps": [
+        {
+          "elapsedMicroseconds": 300000000,
+          "fromUTC": "2026-11-02T21:59:00Z",
+          "missingExpectedGridCandles": 4,
+          "toUTC": "2026-11-02T22:04:00Z"
+        },
+        {
+          "elapsedMicroseconds": 300000000,
+          "fromUTC": "2026-11-03T21:59:00Z",
+          "missingExpectedGridCandles": 4,
+          "toUTC": "2026-11-03T22:04:00Z"
+        },
+        {
+          "elapsedMicroseconds": 120000000,
+          "fromUTC": "2026-11-03T22:41:00Z",
+          "missingExpectedGridCandles": 1,
+          "toUTC": "2026-11-03T22:43:00Z"
+        },
+        {
+          "elapsedMicroseconds": 300000000,
+          "fromUTC": "2026-11-04T21:59:00Z",
+          "missingExpectedGridCandles": 4,
+          "toUTC": "2026-11-04T22:04:00Z"
+        },
+        {
+          "elapsedMicroseconds": 300000000,
+          "fromUTC": "2026-11-05T21:59:00Z",
+          "missingExpectedGridCandles": 4,
+          "toUTC": "2026-11-05T22:04:00Z"
+        },
+        {
+          "elapsedMicroseconds": 173100000000,
+          "fromUTC": "2026-11-06T21:59:00Z",
+          "missingExpectedGridCandles": 2884,
+          "toUTC": "2026-11-08T22:04:00Z"
+        },
+        {
+          "elapsedMicroseconds": 180000000,
+          "fromUTC": "2026-11-08T22:07:00Z",
+          "missingExpectedGridCandles": 2,
+          "toUTC": "2026-11-08T22:10:00Z"
+        },
+        {
+          "elapsedMicroseconds": 300000000,
+          "fromUTC": "2026-11-09T21:59:00Z",
+          "missingExpectedGridCandles": 4,
+          "toUTC": "2026-11-09T22:04:00Z"
+        },
+        {
+          "elapsedMicroseconds": 300000000,
+          "fromUTC": "2026-11-10T21:59:00Z",
+          "missingExpectedGridCandles": 4,
+          "toUTC": "2026-11-10T22:04:00Z"
+        },
+        {
+          "elapsedMicroseconds": 120000000,
+          "fromUTC": "2026-11-10T22:24:00Z",
+          "missingExpectedGridCandles": 1,
+          "toUTC": "2026-11-10T22:26:00Z"
+        },
+        {
+          "elapsedMicroseconds": 120000000,
+          "fromUTC": "2026-11-10T23:03:00Z",
+          "missingExpectedGridCandles": 1,
+          "toUTC": "2026-11-10T23:05:00Z"
+        },
+        {
+          "elapsedMicroseconds": 300000000,
+          "fromUTC": "2026-11-11T21:59:00Z",
+          "missingExpectedGridCandles": 4,
+          "toUTC": "2026-11-11T22:04:00Z"
+        }
+      ],
+      "granularity": "M1",
+      "instrument": "GBP_JPY",
+      "lastCandleUTC": "2026-11-12T01:04:00Z",
+      "rawRows": 13166,
+      "uniqueTimestamps": 11664
+    },
+    {
+      "conflictingDuplicateRows": 0,
+      "exactDuplicateRows": 304,
+      "firstCandleUTC": "2026-11-01T22:00:00Z",
+      "gapCount": 1,
+      "gaps": [
+        {
+          "elapsedMicroseconds": 173100000000,
+          "fromUTC": "2026-11-06T21:55:00Z",
+          "missingExpectedGridCandles": 576,
+          "toUTC": "2026-11-08T22:00:00Z"
+        }
+      ],
+      "granularity": "M5",
+      "instrument": "GBP_JPY",
+      "lastCandleUTC": "2026-11-12T01:00:00Z",
+      "rawRows": 2645,
+      "uniqueTimestamps": 2341
+    }
+  ],
+  "toolVersion": "1",
+  "validBatchCount": 20
+}

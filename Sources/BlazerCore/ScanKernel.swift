@@ -7,7 +7,7 @@ public enum ScanKernel {
         asset: String,
         session: OandaSession,
         expiry: Int = Timing.expirySec,
-        ring: CompletedBarRing = CompletedBarRing()
+        ring: CompletedBarRing = CompletedBarRing(capacity: 512)
     ) async throws -> ScanEnvelope {
         guard StrategyEngine.isReady else {
             throw ScanError.failed("SCAN ENGINE OFFLINE")
@@ -31,7 +31,7 @@ public enum ScanKernel {
         input: inout StrategyEngine.MarketInput,
         asset: String,
         expiry: Int = Timing.expirySec,
-        ring: CompletedBarRing = CompletedBarRing()
+        ring: CompletedBarRing = CompletedBarRing(capacity: 512)
     ) async throws -> ScanEnvelope {
         guard StrategyEngine.isReady else {
             throw ScanError.failed("SCAN ENGINE OFFLINE")

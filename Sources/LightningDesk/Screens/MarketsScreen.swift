@@ -68,8 +68,41 @@ struct MarketsScreen: View {
 
             RadarPlot(model: model, reduceMotion: reduceMotion)
 
+            radarStatusStrip
+
             radarDetailCard
         }
+    }
+
+    private var radarStatusStrip: some View {
+        let eligible = model.pairs.filter { ["HIGH", "LOW"].contains(model.side(for: $0)) }.count
+        return HStack(spacing: 0) {
+            radarStatusCell(title: "MONITORED", value: "\(model.pairs.count)")
+            Divider().frame(height: 28).overlay(Color.white.opacity(0.08))
+            radarStatusCell(title: "ELIGIBLE", value: eligible == 0 ? "—" : "\(eligible)")
+            Divider().frame(height: 28).overlay(Color.white.opacity(0.08))
+            radarStatusCell(title: "FEED", value: feedWord)
+        }
+        .padding(.vertical, 10)
+        .background(DeskInk.surface.opacity(0.78), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.white.opacity(0.06), lineWidth: 0.6))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Monitored \(model.pairs.count), eligible \(eligible), feed \(feedWord)")
+    }
+
+    private func radarStatusCell(title: String, value: String) -> some View {
+        VStack(spacing: 3) {
+            Text(title)
+                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                .tracking(0.7)
+                .foregroundStyle(DeskInk.slate)
+            Text(value)
+                .font(.system(size: 14, weight: .bold, design: .monospaced))
+                .foregroundStyle(DeskInk.ink)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private var radarDetailCard: some View {
@@ -96,9 +129,14 @@ struct MarketsScreen: View {
                             .font(.system(size: 9, weight: .medium, design: .monospaced))
                             .foregroundStyle(DeskInk.slate)
                     }
-                    Text("Research preview · tap for full scan")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(DeskInk.slate)
+                     Text("Research preview · tap for full scan")
+                         .font(.system(size: 10, weight: .medium))
+                         .foregroundStyle(DeskInk.slate)
+                     if let orb = model.orbDecision(for: pair) {
+                         Text("ORB · \(orb.stage.rawValue.replacingOccurrences(of: "_", with: " "))")
+                             .font(.system(size: 9, weight: .bold, design: .monospaced))
+                             .foregroundStyle(orb.stage == .setupConfirmed ? DeskInk.electric : DeskInk.slate)
+                     }
                 }
 
                 Spacer()
@@ -351,12 +389,16 @@ private struct RadarGrid: View {
         .overlay {
             if !reduceMotion {
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
-                    let angle = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 4) / 4 * .pi * 2
+                    let period = 7.0
+                    let angle = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) / period * .pi * 2
                     Canvas { sweepContext, _ in
-                        var path = Path()
-                        path.move(to: center)
-                        path.addLine(to: CGPoint(x: center.x + cos(angle) * radius, y: center.y + sin(angle) * radius))
-                        sweepContext.stroke(path, with: .color(DeskInk.electric.opacity(0.65)), lineWidth: 1)
+                        for offset in stride(from: 0.22, through: 0.02, by: -0.04) {
+                            var path = Path()
+                            let trailAngle = angle - offset * .pi
+                            path.move(to: center)
+                            path.addLine(to: CGPoint(x: center.x + cos(trailAngle) * radius, y: center.y + sin(trailAngle) * radius))
+                            sweepContext.stroke(path, with: .color(DeskInk.electric.opacity(0.10 + (0.22 - offset) * 1.7)), lineWidth: offset < 0.06 ? 1.2 : 0.8)
+                        }
                     }
                 }
             }

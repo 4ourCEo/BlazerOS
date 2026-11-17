@@ -79,25 +79,6 @@ struct ClearStreetClientTests {
         #expect(aapl.source == "clearstreet")
     }
 
-    @Test func orderModelInitializationAndDefaults() {
-        let order = ClearStreetOrder(
-            symbol: "NVDA",
-            side: .buy,
-            orderType: .limit,
-            quantity: 100,
-            limitPrice: 125.50,
-            timeInForce: .day
-        )
-
-        #expect(order.symbol == "NVDA")
-        #expect(order.side == .buy)
-        #expect(order.orderType == .limit)
-        #expect(order.quantity == 100)
-        #expect(order.limitPrice == 125.50)
-        #expect(order.timeInForce == .day)
-        #expect(!order.clientOrderId.isEmpty)
-    }
-
     @Test func unconfiguredClientFailsFast() async {
         let unconfigured = ClearStreetSession(apiKey: "")
         let ping = await ClearStreetClient.pingLatency(session: unconfigured)

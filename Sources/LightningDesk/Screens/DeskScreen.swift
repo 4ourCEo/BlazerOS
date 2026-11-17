@@ -5,9 +5,13 @@ struct DeskScreen: View {
     @ObservedObject var model: LightningDeskModel
     var reduceMotion: Bool
     @State private var showingPrimeSchedule = false
-    @State private var showingStrikeSheet = false
     @State private var showingEntryDetails = false
+    @State private var showingLateEntry = false
+    @State private var showingChartFocus = false
+    @State private var showingExplanation = false
     @State private var pressingOutcome: DeskOutcome?
+    @State private var reportingPositionPlan: V3TradePlan?
+    @State private var reportingClosePlan: V3TradePlan?
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -40,10 +44,22 @@ struct DeskScreen: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
 
+            scanActionBar
+                .padding(.horizontal, 20)
+                .padding(.top, 10)
+
             hero
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
                 .offset(y: reduceMotion ? 0 : model.heroLift)
+
+            adaptiveResearchCard
+                .padding(.horizontal, 20)
+                .padding(.top, 10)
+
+            orbPlanCard
+                .padding(.horizontal, 20)
+                .padding(.top, 10)
 
             if let receipt = model.settleReceipt {
                 settleReceiptCard(receipt)
@@ -59,40 +75,30 @@ struct DeskScreen: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 14)
 
-            ScanControl(
-                scanning: model.scanning,
-                pair: model.pair,
-                title: model.scanStep ?? "Scan"
-            ) {
-                Task { await model.scan() }
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
-
-            Button {
-                DeskHaptics.tabSwitch()
-                showingStrikeSheet = true
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "target")
-                    Text("Track Strike Contract")
-                }
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(DeskInk.electric)
-            }
-            .buttonStyle(.plain)
-            .padding(.vertical, 12)
             }
         }
         .animation(.easeOut(duration: 0.22), value: model.settleReceipt)
         .sheet(isPresented: $showingPrimeSchedule) {
             PrimeScheduleSheet()
         }
-        .sheet(isPresented: $showingStrikeSheet) {
-            StrikeTradeSheet(model: model)
-        }
         .sheet(isPresented: $showingEntryDetails) {
             ManualEntryDetailsSheet(model: model)
+        }
+        .sheet(isPresented: $showingLateEntry) {
+            LateEntrySheet(model: model)
+        }
+        .sheet(isPresented: $showingChartFocus) {
+            chartFocusSheet
+        }
+        .sheet(item: $reportingPositionPlan) { plan in
+            V3UserReportedPositionForm(plan: plan, model: model) { _ in
+                reportingPositionPlan = nil
+            }
+        }
+        .sheet(item: $reportingClosePlan) { plan in
+            V3UserReportedPositionCloseForm(plan: plan, model: model) { _ in
+                reportingClosePlan = nil
+            }
         }
         .onChange(of: model.marketMode) { _, _ in
             Task { await model.scan() }
@@ -100,36 +106,216 @@ struct DeskScreen: View {
     }
 
     private var marketSelector: some View {
-        HStack(spacing: 3) {
-            marketOption(.fx, title: "FX")
-            marketOption(.crypto, title: "Crypto")
-        }
-        .padding(3)
+        Text("FX · OANDA")
+            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+            .foregroundStyle(DeskInk.ink)
+            .frame(maxWidth: .infinity)
+            .frame(height: 38)
+            .background(DeskInk.indigo.opacity(0.9), in: Capsule())
+            .padding(3)
         .background(DeskInk.surface.opacity(0.82), in: Capsule())
         .overlay(Capsule().strokeBorder(Color.white.opacity(0.07), lineWidth: 0.6))
-        .disabled(model.activeTrade != nil || model.awaitingOutcome || model.isSettlementInFlight)
+        .accessibilityLabel("FX market using OANDA")
     }
 
-    private func marketOption(_ market: DeskMarket, title: String) -> some View {
-        let selected = model.marketMode == market
-        return Button {
-            guard !selected else { return }
-            DeskHaptics.tabSwitch()
-            model.marketMode = market
-        } label: {
-            Text(title)
-                .font(.system(size: 12, weight: selected ? .semibold : .medium))
-                .foregroundStyle(selected ? DeskInk.ink : DeskInk.slate)
-                .frame(maxWidth: .infinity)
-                .frame(height: 32)
-                .background(
-                    Capsule()
-                        .fill(selected ? DeskInk.indigo.opacity(0.9) : .clear)
-                )
+    private var orbPlanCard: some View {
+        let decision = model.orbDecision(for: model.pair)
+        let plan = model.orbPlan(for: model.pair)
+        let lifecycleStatus = model.orbLifecycleStatus(for: model.pair)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("ORB BREAK · RETEST")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .tracking(0.7)
+                    .foregroundStyle(DeskInk.electric)
+                Spacer()
+                Text(decision?.stage.rawValue.replacingOccurrences(of: "_", with: " ") ?? "UNAVAILABLE")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundStyle(decision == nil ? DeskInk.slate : DeskInk.ink)
+            }
+            Text("Lifecycle evidence · \(lifecycleStatus.displayText)")
+                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .foregroundStyle(lifecycleStatus == .unavailable ? DeskInk.coral : DeskInk.slate)
+                .accessibilityIdentifier("orb.lifecycle.status")
+            if let decision {
+                HStack(spacing: 12) {
+                    orbLevel("RANGE HIGH", decision.rangeHigh)
+                    orbLevel("RANGE LOW", decision.rangeLow)
+                }
+                if let plan {
+                    let pipScale = Assets.pipScale(for: plan.instrument)
+                    let stopPips = abs(plan.entryPrice - plan.stopPrice) / pipScale
+                    let targetPips = abs(plan.targetPrice - plan.entryPrice) / pipScale
+                    HStack(spacing: 12) {
+                        orbLevel("ENTRY", plan.entryPrice)
+                        orbLevel("STOP", plan.stopPrice)
+                        orbLevel("TARGET", plan.targetPrice)
+                    }
+                    HStack(spacing: 10) {
+                        Text(plan.side == .long ? "LONG · CALL / HIGH" : "SHORT · PUT / LOW")
+                            .foregroundStyle(plan.side == .long ? DeskInk.emerald : DeskInk.coral)
+                        Text(String(format: "STOP %.1f PIPS", stopPips))
+                        Text(String(format: "TARGET %.1f PIPS", targetPips))
+                        Text("R:R \(plan.rewardRisk ?? 0, specifier: "%.1f")")
+                    }
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundStyle(DeskInk.slate)
+                    Text("\(plan.strategyVersion) · reference \(plan.units, specifier: "%.0f") units · research plan only")
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundStyle(DeskInk.slate)
+                    if let entryStatus = model.orbEntryObservationStatus(for: model.pair) {
+                        Text(entryStatus)
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundStyle(DeskInk.slate)
+                            .accessibilityIdentifier("orb.entry-observation.status")
+                    }
+                    Button("Record position I opened") {
+                        reportingPositionPlan = plan
+                    }
+                    .font(.system(size: 10, weight: .semibold))
+                    .accessibilityIdentifier("orb.user-reported-position")
+                    Button("Report position closed outside BlazerOS") {
+                        reportingClosePlan = plan
+                    }
+                    .font(.system(size: 10, weight: .semibold))
+                    .accessibilityIdentifier("orb.user-reported-position-close")
+                } else {
+                    Text(orbExplanation(decision))
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(DeskInk.slate)
+                }
+            } else {
+                Text("Scan with completed OANDA M1 evidence to establish the opening range.")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(DeskInk.slate)
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(title)
-        .accessibilityAddTraits(selected ? .isSelected : [])
+        .padding(13)
+        .background(DeskInk.surface.opacity(0.84), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous)
+            .strokeBorder(DeskInk.electric.opacity(0.18), lineWidth: 0.7))
+        .accessibilityElement(children: .contain)
+    }
+
+    private var adaptiveResearchCard: some View {
+        let projection = model.adaptiveResearchProjection
+        let state = projection?.decisionState.rawValue.replacingOccurrences(of: "_", with: " ") ?? "UNAVAILABLE"
+        let tint: Color = switch projection?.decisionState {
+        case .actionableOpportunity: DeskInk.electric
+        case .opportunityForming: .orange
+        case .noOpportunity, .unavailable, nil: DeskInk.slate
+        }
+        return VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Text("ADAPTIVE RESEARCH")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .tracking(0.7)
+                    .foregroundStyle(tint)
+                Spacer()
+                Text(state)
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundStyle(tint)
+            }
+            if let projection {
+                HStack(spacing: 12) {
+                    adaptiveValue("MARKET", projection.instrument)
+                    adaptiveValue("DIRECTION", projection.direction?.rawValue ?? "WAIT")
+                    adaptiveValue("HORIZON", projection.horizonSeconds.map(formatHorizon) ?? "UNVALIDATED")
+                }
+                Text(adaptiveExplanation(projection))
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(DeskInk.slate)
+            } else {
+#if os(macOS)
+                Text("Adaptive candidate rehearsal is Practice-only and is intentionally not evaluated on the OANDA Live feed. The Live desk keeps its current scan evidence separate while the Live monitor contract is completed.")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(DeskInk.slate)
+#else
+                Text("No persisted adaptive decision is available. Connect OANDA Practice to evaluate research candidates.")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(DeskInk.slate)
+#endif
+            }
+        }
+        .padding(13)
+        .background(DeskInk.surface.opacity(0.84), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous)
+            .strokeBorder(tint.opacity(0.22), lineWidth: 0.7))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Adaptive research: \(state). Research-only, manual execution remains required.")
+    }
+
+    private func adaptiveValue(_ title: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundStyle(DeskInk.slate)
+            Text(value).font(.system(size: 11, weight: .bold, design: .monospaced)).foregroundStyle(DeskInk.ink)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func formatHorizon(_ seconds: Int) -> String {
+        seconds >= 60 && seconds % 60 == 0 ? "\(seconds / 60)m" : "\(seconds)s"
+    }
+
+    private func adaptiveExplanation(_ projection: AdaptiveResearchProjection) -> String {
+        if let reason = projection.invalidationReason { return "\(reason) · research-only" }
+        switch projection.decisionState {
+        case .actionableOpportunity: return "Evidence-qualified research candidate; revalidate before any manual action."
+        case .opportunityForming: return "Candidate is developing; entry confirmation is incomplete."
+        case .noOpportunity: return "No qualifying candidate; no trade."
+        case .unavailable: return "Provider or required observation unavailable."
+        }
+    }
+
+    private func orbLevel(_ title: String, _ value: Double?) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(.system(size: 8, weight: .bold, design: .monospaced)).foregroundStyle(DeskInk.slate)
+            Text(value.map(PriceFormat.px) ?? "—")
+                .font(.system(size: 12, weight: .bold, design: .monospaced)).foregroundStyle(DeskInk.ink)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func orbExplanation(_ decision: ORBDecision) -> String {
+        switch decision.stage {
+        case .rangeForming: return "Opening range is forming; no plan is eligible yet."
+        case .rangeSealed: return "Opening range sealed; waiting for a completed-candle breakout."
+        case .boundaryApproaching: return "Boundary approaching; wait for a confirmed break."
+        case .breakoutConfirmed, .retestPending: return "Breakout observed; waiting for a retest."
+        case .retestInProgress: return "Retest observed; confirmation remains pending."
+        case .invalidated: return "Retest invalidated; no entry is available."
+        case .expired: return "Setup expired without a complete plan."
+        default: return decision.reason
+        }
+    }
+
+    private var scanActionBar: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.pair)
+                        .font(.system(size: 15, weight: .bold, design: .monospaced))
+                        .foregroundStyle(DeskInk.ink)
+                    Text(model.scanning ? (model.scanStep ?? "Scanning") : "Signal-first scan")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(model.scanning ? DeskInk.electric : DeskInk.slate)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                ScanControl(
+                    scanning: model.scanning,
+                    pair: model.pair,
+                    title: model.scanStep ?? "Scanning"
+                ) {
+                    Task { await model.scan() }
+                }
+                .frame(width: 176)
+            }
+            scanFreshnessBadge(asOf: model.lastScanAt, now: Date())
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Scan now for \(model.pair). \(model.scanning ? (model.scanStep ?? "Scanning") : "Ready")")
     }
 
     private var watchlistSection: some View {
@@ -207,10 +393,10 @@ struct DeskScreen: View {
 
                 if let score = model.score(for: pair) {
                     VStack(alignment: .trailing, spacing: 2) {
-                        Text(model.strike(for: pair).map { PriceFormat.px($0) } ?? "—")
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        Text("CONF")
+                            .font(.system(size: 8, weight: .bold, design: .monospaced))
                             .foregroundStyle(DeskInk.ink)
-                        Text("\(score)")
+                        Text("\(score)/100")
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
                             .foregroundStyle(tint)
                     }
@@ -220,7 +406,7 @@ struct DeskScreen: View {
                         .foregroundStyle(DeskInk.slate.opacity(0.55))
                 }
             }
-            .padding(.vertical, 10)
+            .padding(.vertical, 7)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(pair), \(side)")
@@ -254,7 +440,7 @@ struct DeskScreen: View {
             // Left: Session / Prime Intel (Tappable to jump to Intel tab)
             Button {
                 DeskHaptics.tabSwitch()
-                model.activeTab = .intel
+                model.activeTab = .review
             } label: {
                 let cryptoMode = model.marketMode == .crypto
                 let sessionColor: Color = cryptoMode
@@ -333,7 +519,7 @@ struct DeskScreen: View {
             } else {
                 Button {
                     DeskHaptics.tabSwitch()
-                    model.activeTab = .intel
+                    model.activeTab = .review
                 } label: {
                     HStack(spacing: 4) {
                         Text(edgeWindow.detailText)
@@ -373,13 +559,31 @@ struct DeskScreen: View {
             pairRow
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Label("Market movement", systemImage: "chart.xyaxis.line")
+                    Label("\(model.pair) · M1", systemImage: "chart.xyaxis.line")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(DeskInk.slate)
                     Spacer()
                     Text(feedWord)
                         .font(.system(size: 10, weight: .medium, design: .monospaced))
                         .foregroundStyle(feedColor)
+                    Button {
+                        showingChartFocus = true
+                    } label: {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(DeskInk.electric)
+                            .frame(width: 28, height: 28)
+                            .background(DeskInk.surface, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Open full-screen chart")
+                }
+                HStack(spacing: 8) {
+                    Text("Market observation")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(DeskInk.slate)
+                    marketFreshnessBadge
+                    Spacer()
                 }
 
                 MiniCandleChart(
@@ -387,10 +591,14 @@ struct DeskScreen: View {
                     strike: model.activeTrade?.strike ?? (isArmed ? model.frame?.strike : nil),
                     currentPrice: model.currentPrice,
                     side: model.activeTrade?.side ?? model.side(for: model.pair),
-                    pair: model.pair
+                    pair: model.pair,
+                    visibleBars: chartVisibleBars,
+                    allowsZoom: true,
+                    isLoading: model.candlesLoading,
+                    emptyMessage: model.candleIssue
                 )
                 .equatable()
-                .frame(height: 104)
+                .frame(height: chartHeight)
                 .frame(maxWidth: .infinity)
             }
             .padding(.horizontal, 12)
@@ -539,6 +747,94 @@ struct DeskScreen: View {
             .animation(.easeInOut(duration: 0.35), value: isArmed)
     }
 
+    private var chartFocusSheet: some View {
+        NavigationStack {
+            ZStack {
+                DeskInk.background.ignoresSafeArea()
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(model.pair)
+                                .font(.system(size: 24, weight: .bold, design: .monospaced))
+                                .foregroundStyle(DeskInk.ink)
+                            Text("Chart Focus · M1")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(DeskInk.slate)
+                        }
+                        Spacer()
+                        Text(model.side(for: model.pair) == "HIGH" ? "CALL" : model.side(for: model.pair) == "LOW" ? "PUT" : "WAIT")
+                            .font(.system(size: 13, weight: .bold, design: .monospaced))
+                            .foregroundStyle(bookInk(model.side(for: model.pair) ?? "WAIT"))
+                    }
+                    MiniCandleChart(
+                        candles: model.candles,
+                        strike: model.activeTrade?.strike ?? (isArmed ? model.frame?.strike : nil),
+                        currentPrice: model.currentPrice,
+                        side: model.activeTrade?.side ?? model.side(for: model.pair),
+                        pair: model.pair,
+                        visibleBars: chartFocusVisibleBars,
+                        allowsZoom: true,
+                        isLoading: model.candlesLoading,
+                        emptyMessage: model.candleIssue
+                    )
+                    .frame(maxWidth: .infinity)
+                    .frame(height: chartFocusHeight)
+                    .padding(12)
+                    .background(DeskInk.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    Text("Pinch to zoom · drag horizontally to browse candles")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(DeskInk.slate)
+                    Spacer()
+                }
+                .padding(20)
+            }
+            .navigationTitle("Chart Focus")
+#if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+#endif
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { showingChartFocus = false }
+                        .foregroundStyle(DeskInk.electric)
+                }
+            }
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private var chartHeight: CGFloat {
+        #if os(macOS)
+        420
+        #else
+        270
+        #endif
+    }
+
+    private var chartVisibleBars: Int {
+        #if os(macOS)
+        48
+        #else
+        18
+        #endif
+    }
+
+    private var chartFocusVisibleBars: Int {
+        #if os(macOS)
+        64
+        #else
+        14
+        #endif
+    }
+
+    private var chartFocusHeight: CGFloat {
+        #if os(macOS)
+        620
+        #else
+        360
+        #endif
+    }
+
     private var ambientColors: [Color] {
         if model.scanning {
             return [DeskInk.violet.opacity(0.8), DeskInk.electric.opacity(0.25), .clear]
@@ -649,22 +945,26 @@ struct DeskScreen: View {
     private var verdict: some View {
         let compact = model.activeTrade == nil && !isArmed
         return VStack(alignment: .leading, spacing: compact ? 4 : 6) {
-            // Header Row: Score + Live Strike
             HStack(alignment: .firstTextBaseline) {
-                Text(scoreText)
-                    .font(.system(size: compact ? 38 : 54, weight: .semibold))
-                    .foregroundStyle(DeskInk.ink)
-                    .monospacedDigit()
+                Text(decisionText)
+                    .font(.system(size: compact ? 34 : 42, weight: .bold, design: .rounded))
+                    .foregroundStyle(verbColor)
                     .contentTransition(.numericText())
-                    .frame(minHeight: compact ? 38 : 56, alignment: .leading)
-                    .animation(.spring(response: 0.45, dampingFraction: 0.72), value: scoreText)
-
                 Spacer()
-
                 Text(strikeText)
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundStyle(DeskInk.slate.opacity(0.85))
                     .monospacedDigit()
+            }
+
+            HStack(spacing: 8) {
+                Text("Confidence: \(scoreText)/100")
+                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .foregroundStyle(DeskInk.ink)
+                Text(telemetryLabel)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(DeskInk.slate)
+                Spacer()
             }
 
             if let trade = model.activeTrade {
@@ -694,62 +994,20 @@ struct DeskScreen: View {
                 }
                 .frame(minHeight: 24, alignment: .leading)
 
-                Text(whyText)
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundStyle(DeskInk.slate)
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, minHeight: 32, alignment: .topLeading)
-            } else {
+                explanationText
+            }
+            else {
                 let telemetry = model.stalkingTelemetry
-                HStack(spacing: 8) {
-                    if isArmed {
-                        Circle()
-                            .fill(verbColor)
-                            .frame(width: 8, height: 8)
-                            .shadow(color: verbColor.opacity(0.9), radius: 4)
-                        Text(verbText)
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundStyle(verbColor)
-
-                        Text(telemetry.badgeLabel)
-                            .font(.system(size: 9, weight: .heavy))
-                            .foregroundStyle(telemetryBadgeColor(telemetry.tier))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2.5)
-                            .background(telemetryBadgeColor(telemetry.tier).opacity(0.16), in: Capsule())
-                    } else {
-                        HStack(spacing: 5) {
-                            Image(systemName: telemetryIcon(telemetry.tier))
-                                .font(.system(size: 9, weight: .bold))
-                            Text(telemetry.badgeLabel)
-                                .font(.system(size: 10, weight: .heavy))
-                        }
-                        .foregroundStyle(telemetryBadgeColor(telemetry.tier))
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(telemetryBadgeColor(telemetry.tier).opacity(0.14), in: Capsule())
-                        .overlay(Capsule().strokeBorder(telemetryBadgeColor(telemetry.tier).opacity(0.35), lineWidth: 0.8))
+                explanationText
+                if !isArmed {
+                    HStack(spacing: 6) {
+                        Image(systemName: telemetryIcon(telemetry.tier))
+                        Text(telemetry.badgeLabel == "CAPITAL SHIELD" ? "Capital Shield active" : telemetry.badgeLabel)
                     }
-
-                    Spacer()
-
-                    HStack(spacing: 4) {
-                        Image(systemName: "shield.lefthalf.filled")
-                            .font(.system(size: 8, weight: .bold))
-                        Text(telemetry.stakeGuidance)
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    }
-                    .foregroundStyle(telemetryBadgeColor(telemetry.tier).opacity(0.85))
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(telemetryBadgeColor(telemetry.tier))
+                    .padding(.top, 2)
                 }
-                .frame(minHeight: 24, alignment: .leading)
-                .animation(.spring(response: 0.35, dampingFraction: 0.7), value: verbText)
-
-                Text(telemetry.telemetryDetail)
-                    .font(.system(size: compact ? 11 : 13, weight: .regular))
-                    .foregroundStyle(DeskInk.slate)
-                    .lineLimit(compact ? 1 : 2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, minHeight: compact ? 20 : 32, alignment: .topLeading)
             }
 
             if model.activeTrade == nil && isArmed {
@@ -758,6 +1016,7 @@ struct DeskScreen: View {
                     horizonPill(seconds: 60, title: "60s")
                     horizonPill(seconds: 180, title: "3m")
                     horizonPill(seconds: 300, title: "5m")
+                    horizonPill(seconds: 600, title: "10m")
                 }
                 .padding(.top, 2)
 
@@ -807,10 +1066,11 @@ struct DeskScreen: View {
                     .shadow(color: verbColor.opacity(0.15), radius: 8, y: 2)
                 }
                 .buttonStyle(SpringPressButtonStyle())
+                .accessibilityIdentifier("legacy.lock-in-trade")
                 .padding(.top, 4)
             } else if model.canLogLateEntry {
                 Button {
-                    Task { await model.lockInTrade(late: true) }
+                    showingLateEntry = true
                 } label: {
                     HStack(spacing: 10) {
                         Image(systemName: "clock.arrow.circlepath")
@@ -855,7 +1115,7 @@ struct DeskScreen: View {
                     Spacer(minLength: 0)
                     if model.canLogLateEntry {
                         Button("Log anyway") {
-                            Task { await model.lockInTrade(late: true) }
+                            showingLateEntry = true
                         }
                         .font(.system(size: 10, weight: .heavy))
                         .foregroundStyle(DeskInk.electric)
@@ -1186,6 +1446,12 @@ struct DeskScreen: View {
 
     private var isArmed: Bool {
         if model.activeTrade != nil { return true }
+        #if os(macOS)
+        // The eight-second V1 action rail belongs to the legacy binary workflow.
+        // It is not a valid spot-FX order ticket and must not appear actionable on
+        // the Mac OANDA desk while the persistent FX plan/confirmation flow is built.
+        if model.marketMode == .fx { return false }
+        #endif
         guard let frame = model.frame else { return false }
         return frame.isActionable
     }
@@ -1352,6 +1618,87 @@ struct DeskScreen: View {
         return "\(frame.score)"
     }
 
+    private var decisionText: String {
+        if model.activeTrade != nil { return verbText }
+        if isArmed { return verbText }
+        return model.frame == nil ? "SCAN" : (verbText == "EXPIRED" ? "EXPIRED" : "WAIT")
+    }
+
+    private var telemetryLabel: String {
+        #if os(macOS)
+        if model.marketMode == .fx && model.activeTrade == nil {
+            return "Spot-FX plan monitor"
+        }
+        #endif
+        if let veto = model.frame?.veto, !veto.isEmpty { return "Capital Shield" }
+        return isArmed ? "Eligible" : "No qualifying setup"
+    }
+
+    private var explanationText: some View {
+        Group {
+#if os(macOS)
+            if model.marketMode == .fx && model.activeTrade == nil {
+                Text("The 8-second V1 tap signal is disabled for spot FX. The ORB card below is a research plan; continuous monitoring and the confirmed OANDA order ticket are not connected yet.")
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(DeskInk.slate)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                standardExplanationText
+            }
+#else
+            standardExplanationText
+#endif
+        }
+        .frame(maxWidth: .infinity, minHeight: 28, alignment: .topLeading)
+    }
+
+    private var standardExplanationText: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(whyText)
+                .font(.system(size: 13, weight: .regular))
+                .foregroundStyle(DeskInk.slate)
+                .lineLimit(showingExplanation ? nil : 2)
+                .fixedSize(horizontal: false, vertical: true)
+            if whyText.count > 90 {
+                Button(showingExplanation ? "Show less" : "Show full explanation") {
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        showingExplanation.toggle()
+                    }
+                }
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(DeskInk.electric)
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var marketFreshnessBadge: some View {
+        let age = model.lastMarketObservationAt.map { max(0, Date().timeIntervalSince($0)) }
+        let stale = age.map { $0 > Timing.quoteStaleMs / 1000 } ?? true
+        return HStack(spacing: 8) {
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(stale ? DeskInk.coral : DeskInk.emerald)
+                    .frame(width: 5, height: 5)
+                Text(age.map { $0 < 1 ? "Quote now" : "Quote \(Int($0))s" } ?? "No quote")
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(stale ? DeskInk.coral : DeskInk.slate)
+            }
+            if model.candlesAreStale || model.candlesLoading {
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(model.candleIssue == nil ? DeskInk.electric : DeskInk.coral)
+                        .frame(width: 5, height: 5)
+                    Text(model.candlesLoading ? "Bars refreshing" : "Cached bars")
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(model.candleIssue == nil ? DeskInk.electric : DeskInk.coral)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(age.map { "Quote observation \(Int($0)) seconds ago" } ?? "No quote observation")
+    }
+
     private var verbText: String { model.frame?.verb ?? "SCAN" }
 
     private var whyText: String {
@@ -1469,5 +1816,279 @@ struct DeskScreen: View {
         case .capitalShield: return "shield.fill"
         case .safetyBrake, .pairWarning: return "exclamationmark.shield.fill"
         }
+    }
+}
+
+struct V3UserReportedPositionForm: View {
+    let plan: V3TradePlan
+    @ObservedObject var model: LightningDeskModel
+    let onSaved: (V3PositionRecord) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var unitsText = ""
+    @State private var entryPriceText = ""
+    @State private var includesEntryTime = false
+    @State private var enteredAt = Date()
+    @State private var confirmsAlreadyOpened = false
+    @State private var existing: V3PositionRecord?
+    @State private var terminalSourceTime: Date?
+    @State private var issue: String?
+    @State private var loading = true
+    @State private var saving = false
+
+    private var units: Double? { Double(unitsText.trimmingCharacters(in: .whitespacesAndNewlines)) }
+    private var entryPrice: Double? {
+        let value = entryPriceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : Double(value)
+    }
+    private var validFields: Bool {
+        guard let units, units.isFinite, units > 0 else { return false }
+        if !entryPriceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            guard let entryPrice, entryPrice.isFinite, entryPrice > 0 else { return false }
+        }
+        return !includesEntryTime || enteredAt >= plan.createdAt
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text("Record a position you already opened outside BlazerOS. This saves only your statement. It does not place an order or verify a broker fill.")
+                        .font(.footnote)
+                        .accessibilityIdentifier("v3.position.report-copy")
+                    Text("Plan \(plan.id) · \(plan.instrument) · \(plan.side.rawValue)")
+                        .font(.caption.monospaced())
+                    Text(String(format: "Plan reference units: %.0f", plan.units))
+                        .font(.caption)
+                    if let existing {
+                        Text("Correcting your report from \(existing.updatedAt.formatted(date: .numeric, time: .standard))")
+                            .font(.caption)
+                    }
+                } header: {
+                    Text("User-reported · unverified")
+                }
+
+                Section("Your reported position") {
+                    TextField("Actual total units", text: $unitsText)
+                    TextField("Actual entry price (optional)", text: $entryPriceText)
+                    Toggle("Include actual entry time", isOn: $includesEntryTime)
+                    if includesEntryTime {
+                        DatePicker("You entered at", selection: $enteredAt,
+                                   displayedComponents: [.date, .hourAndMinute])
+                    }
+                    if let terminalSourceTime {
+                        if includesEntryTime, enteredAt > terminalSourceTime {
+                            Text("Outside plan window. This remains your historical report and does not reopen the expired or invalidated plan.")
+                                .font(.caption).foregroundStyle(.orange)
+                        } else if !includesEntryTime {
+                            Text("Entry time unavailable; timing relative to plan expiry or invalidation cannot be established.")
+                                .font(.caption).foregroundStyle(.orange)
+                        } else {
+                            Text("Reported entry time is before the plan's terminal observation; it is still unverified.")
+                                .font(.caption)
+                        }
+                    }
+                }
+
+                Section {
+                    Toggle("I already opened this position outside BlazerOS", isOn: $confirmsAlreadyOpened)
+                        .accessibilityIdentifier("v3.position.already-opened-confirmation")
+                }
+
+                if loading {
+                    Section { ProgressView("Loading exact plan evidence") }
+                }
+                if let issue {
+                    Section {
+                        Text(issue).font(.footnote).foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle(existing == nil ? "Record Position" : "Correct Report")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(existing == nil ? "Record" : "Save Correction") {
+                        Task { await submit() }
+                    }
+                    .disabled(loading || saving || issue != nil || !validFields || !confirmsAlreadyOpened)
+                }
+            }
+            .task { await loadExisting() }
+        }
+    }
+
+    private func loadExisting() async {
+        do {
+            existing = try await model.userReportedPosition(forPlanID: plan.id)
+            terminalSourceTime = try await model.terminalLifecycleSourceTime(forPlanID: plan.id)
+            if let existing {
+                unitsText = String(existing.units)
+                entryPriceText = existing.entryPrice.map(String.init(describing:)) ?? ""
+                if let time = existing.userReportedEnteredAt {
+                    includesEntryTime = true
+                    enteredAt = time
+                }
+            }
+        } catch V3UserPositionReportError.legacyReportRequiresReview {
+            issue = "An older user-reported position is already stored for this plan. Review it before creating a new report."
+        } catch {
+            issue = "The exact Live OANDA position evidence is unavailable. The plan remains unchanged."
+        }
+        loading = false
+    }
+
+    private func submit() async {
+        guard let units, validFields, confirmsAlreadyOpened else { return }
+        saving = true
+        defer { saving = false }
+        do {
+            let record = try await model.recordUserReportedPosition(planID: plan.id,
+                units: units, entryPrice: entryPrice,
+                enteredAt: includesEntryTime ? enteredAt : nil,
+                supersedesRecordID: existing?.id)
+            onSaved(record)
+            dismiss()
+        } catch let reportError as V3UserPositionReportError {
+            issue = reportError.localizedDescription
+        } catch {
+            issue = "Could not save the report. The plan and lifecycle evidence remain unchanged."
+        }
+    }
+}
+
+struct V3UserReportedPositionCloseForm: View {
+    let plan: V3TradePlan
+    @ObservedObject var model: LightningDeskModel
+    let onSaved: (V3UserReportedPositionClose) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var opening: V3PositionRecord?
+    @State private var currentOpening: V3PositionRecord?
+    @State private var existing: V3UserReportedPositionClose?
+    @State private var closedAt = Date()
+    @State private var includesCloseTime = false
+    @State private var exitPriceText = ""
+    @State private var confirmsClosed = false
+    @State private var loading = true
+    @State private var saving = false
+    @State private var issue: String?
+
+    private var exitPrice: Double? {
+        let text = exitPriceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : Double(text)
+    }
+    private var validFields: Bool {
+        if !exitPriceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            guard let exitPrice, exitPrice.isFinite, exitPrice > 0 else { return false }
+        }
+        if includesCloseTime, let enteredAt = opening?.userReportedEnteredAt, closedAt < enteredAt {
+            return false
+        }
+        if includesCloseTime, closedAt > Date().addingTimeInterval(1) { return false }
+        return opening != nil
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text("User-reported manual close only. BlazerOS does not verify this statement or confirm it with a broker.")
+                        .font(.footnote).accessibilityIdentifier("v3.position-close.report-copy")
+                    Text("Plan \(plan.id) · \(plan.instrument)").font(.caption.monospaced())
+                    if let opening {
+                        Text("Opening revision \(opening.id)").font(.caption.monospaced())
+                    }
+                    if let opening, let currentOpening, opening.id != currentOpening.id {
+                        Text("This close remains bound to its original opening revision. A later opening correction superseded it.")
+                            .font(.caption).foregroundStyle(.orange)
+                            .accessibilityIdentifier("v3.position-close.opening-superseded")
+                    }
+                    if let existing {
+                        Text("Correcting close report \(existing.id)").font(.caption.monospaced())
+                    }
+                } header: { Text("Manual close · unverified") }
+
+                Section("Optional exit details") {
+                    Toggle("Include reported close time", isOn: $includesCloseTime)
+                    if includesCloseTime {
+                        DatePicker("Closed at", selection: $closedAt,
+                                   displayedComponents: [.date, .hourAndMinute])
+                    }
+                    TextField("Exit price (optional)", text: $exitPriceText)
+                    if includesCloseTime, let enteredAt = opening?.userReportedEnteredAt,
+                       closedAt < enteredAt {
+                        Text("Close time cannot precede the referenced opening report.")
+                            .font(.caption).foregroundStyle(.red)
+                    }
+                    if includesCloseTime, closedAt > Date().addingTimeInterval(1) {
+                        Text("Close time cannot be more than one second after this report.")
+                            .font(.caption).foregroundStyle(.red)
+                            .accessibilityIdentifier("v3.position-close.future-time-warning")
+                    }
+                }
+                Section {
+                    Toggle("I already closed this position outside BlazerOS", isOn: $confirmsClosed)
+                        .accessibilityIdentifier("v3.position-close.confirmation")
+                }
+                if loading { Section { ProgressView("Loading opening report") } }
+                if let issue { Section { Text(issue).font(.footnote).foregroundStyle(.red) } }
+            }
+            .navigationTitle(existing == nil ? "Report Position Closed" : "Correct Close Report")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(existing == nil ? "Record" : "Save Correction") { Task { await submit() } }
+                        .disabled(loading || saving || issue != nil || !validFields || !confirmsClosed)
+                }
+            }
+            .task { await load() }
+        }
+    }
+
+    private func load() async {
+        do {
+            guard let latestOpening = try await model.userReportedPosition(forPlanID: plan.id),
+                  let positionID = latestOpening.positionID else {
+                issue = "No current user-reported opening exists for this plan."
+                loading = false
+                return
+            }
+            currentOpening = latestOpening
+            let closes = try await model.userReportedPositionCloses(forPlanID: plan.id)
+                .filter { $0.positionID == positionID }
+            let supersededCloseIDs = Set(closes.compactMap(\.supersedesCloseID))
+            existing = closes.first { !supersededCloseIDs.contains($0.id) }
+            if let existing {
+                guard let referencedOpening = try await model.userReportedPositionRevision(
+                    positionID: existing.positionID, recordID: existing.openingRecordID),
+                      referencedOpening.planID == plan.id else {
+                    issue = "The opening revision referenced by this close is unavailable."
+                    loading = false
+                    return
+                }
+                opening = referencedOpening
+            } else {
+                opening = latestOpening
+            }
+            if let existing {
+                exitPriceText = existing.exitPrice.map(String.init(describing:)) ?? ""
+                if let value = existing.closedAt { includesCloseTime = true; closedAt = value }
+            }
+        } catch { issue = "The exact opening or close archive is unavailable." }
+        loading = false
+    }
+
+    private func submit() async {
+        guard let opening, validFields, confirmsClosed, let positionID = opening.positionID else { return }
+        saving = true
+        defer { saving = false }
+        do {
+            let close = try await model.recordUserReportedPositionClose(positionID: positionID,
+                closedAt: includesCloseTime ? closedAt : nil, exitPrice: exitPrice,
+                supersedesCloseID: existing?.id)
+            onSaved(close)
+            dismiss()
+        } catch { issue = error.localizedDescription }
     }
 }

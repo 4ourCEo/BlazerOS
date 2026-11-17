@@ -1,0 +1,37 @@
+{
+  "configurations" : [
+    {
+      "id" : "C4E2B6D1-9B8D-4FD1-9B7E-5A7B4D0C2E11",
+      "name" : "V3 UI Tests",
+      "options" : {
+        "testTimeoutsEnabled" : true
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "testInteropMode" : "complete",
+    "maximumTestExecutionTimeAllowance" : 600
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:BlazerOS.xcodeproj",
+        "identifier" : "A10000000000000000000006",
+        "name" : "BlazerTests"
+      }
+    },
+    {
+      "target" : {
+        "containerPath" : "container:BlazerOS.xcodeproj",
+        "identifier" : "A10000000000000000000007",
+        "name" : "BlazerUITests"
+      },
+      "targetForUITesting" : {
+        "containerPath" : "container:BlazerOS.xcodeproj",
+        "identifier" : "A10000000000000000000001",
+        "name" : "BlazerOS"
+      }
+    }
+  ],
+  "version" : 1
+}

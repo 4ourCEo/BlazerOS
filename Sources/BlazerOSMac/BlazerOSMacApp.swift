@@ -1,7 +1,6 @@
 import BlazerCore
 import LightningDesk
 import SwiftUI
-#if os(macOS)
 import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -10,53 +9,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 }
-#endif
 
 @main
 struct BlazerOSMain: App {
-    #if os(macOS)
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    #endif
-    @StateObject private var model = LightningDeskModel()
+    @StateObject private var model: LightningDeskModel
     @Environment(\.scenePhase) private var scenePhase
+
+    init() {
+        let promotionConfiguration = StrategyPromotionRuntime.load(from: .main)
+        _model = StateObject(wrappedValue: LightningDeskModel(
+            liveStrategyProfiles: promotionConfiguration.profiles,
+            strategyPromotionRecords: promotionConfiguration.promotions,
+            macResearchSourceAttestationVerified: promotionConfiguration.sourceAttestationVerified))
+    }
 
     var body: some Scene {
         WindowGroup("BlazerOS — Lightning Desk") {
             LightningDeskView(model: model)
-                #if os(macOS)
-                .frame(width: PhoneTarget.width, height: PhoneTarget.height)
-                #endif
-                .onChange(of: scenePhase) { _, phase in
-                    switch phase {
-                    case .active: model.handleAppForegrounded()
-                    case .background: model.handleAppBackgrounded()
-                    default: break
-                    }
+            .onChange(of: scenePhase) { _, phase in
+                switch phase {
+                case .active: model.handleAppForegrounded()
+                case .background: model.handleAppBackgrounded()
+                default: break
                 }
-                .task {
-                    #if DEBUG
-                    if ProcessInfo.processInfo.environment["BLAZER_FM_COACH_SELFTEST"] == "1" {
-                        await model.assistant.runBoundedCoachSelfTestForTesting()
-                    }
-                    #endif
+            }
+            .onReceive(NotificationCenter.default.publisher(for: MarketNotificationService.orbNotificationReceived)) { event in
+                if let link = event.object as? String {
+                    model.handleORBDeepLink(link)
                 }
+            }
         }
-        #if os(macOS)
-        .defaultSize(width: PhoneTarget.width, height: PhoneTarget.height)
-        .windowResizability(.contentSize)
+        .defaultSize(width: 1440, height: 920)
+        .windowResizability(.contentMinSize)
         .commands {
             CommandMenu("Desk") {
                 Button("Scan Now") {
                     Task { await model.scan() }
                 }
                 .keyboardShortcut("r", modifiers: [.command])
-
-                Button("Lock In Trade") {
-                    Task { await model.lockInTrade() }
-                }
-                .keyboardShortcut(.space, modifiers: [])
-
-                Divider()
 
                 Button("Select 60s Horizon") {
                     model.selectedHorizonSec = 60
@@ -72,6 +63,11 @@ struct BlazerOSMain: App {
                     model.selectedHorizonSec = 300
                 }
                 .keyboardShortcut("5", modifiers: [.command, .option])
+
+                Button("Select 10m Horizon") {
+                    model.selectedHorizonSec = 600
+                }
+                .keyboardShortcut("0", modifiers: [.command, .option])
             }
 
             CommandMenu("Navigation") {
@@ -86,17 +82,17 @@ struct BlazerOSMain: App {
                 .keyboardShortcut("2", modifiers: [.command])
 
                 Button("Edge Intel") {
-                    model.activeTab = .intel
+                    model.activeTab = .review
                 }
                 .keyboardShortcut("3", modifiers: [.command])
 
                 Button("Coach Intelligence") {
-                    model.activeTab = .coach
+                    model.activeTab = .review
                 }
                 .keyboardShortcut("4", modifiers: [.command])
 
                 Button("Journal & Ledger") {
-                    model.activeTab = .journal
+                    model.activeTab = .review
                 }
                 .keyboardShortcut("5", modifiers: [.command])
             }
@@ -110,6 +106,5 @@ struct BlazerOSMain: App {
                 }
             }
         }
-        #endif
     }
 }

@@ -6,7 +6,18 @@ public enum FileLocations {
     public static let snapshotFileName = "scan_snapshots.jsonl"
     public static let journalFileName = "journal.jsonl"
 
+    #if DEBUG && targetEnvironment(simulator)
+    private static let reviewInsightFixtureRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("blazer-review-insight-\(UUID().uuidString)", isDirectory: true)
+    #endif
+
     public static func applicationSupport() -> URL {
+        #if DEBUG && targetEnvironment(simulator)
+        // This simulator-only UI fixture must never read or write ordinary app-group data.
+        if ProcessInfo.processInfo.arguments.contains("--ui-testing-review-insight") {
+            return reviewInsightFixtureRoot
+        }
+        #endif
         #if os(iOS)
         if let group = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: PhoneTarget.appGroup

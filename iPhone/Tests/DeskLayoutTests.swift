@@ -12,7 +12,7 @@ final class DeskLayoutTests: XCTestCase {
         let model = LightningDeskModel(storageRoot: root)
         let host = UIHostingController(rootView: LightningDeskView(model: model))
         let canvas = CGRect(x: 0, y: 0, width: CGFloat(PhoneTarget.width), height: CGFloat(PhoneTarget.height))
-        let window = UIWindow(frame: canvas)
+        let window = makeWindow()
         window.rootViewController = host
         window.isHidden = false
         host.view.frame = canvas
@@ -32,7 +32,7 @@ final class DeskLayoutTests: XCTestCase {
         model.showingLaunch = false
         let host = UIHostingController(rootView: LightningDeskView(model: model))
         let canvas = CGRect(x: 0, y: 0, width: CGFloat(PhoneTarget.width), height: CGFloat(PhoneTarget.height))
-        let window = UIWindow(frame: canvas)
+        let window = makeWindow()
         window.rootViewController = host
         window.isHidden = false
         host.view.frame = canvas
@@ -58,7 +58,7 @@ final class DeskLayoutTests: XCTestCase {
         model.showingLaunch = false
         let host = UIHostingController(rootView: LightningDeskView(model: model))
         let canvas = CGRect(x: 0, y: 0, width: CGFloat(PhoneTarget.width), height: CGFloat(PhoneTarget.height))
-        let window = UIWindow(frame: canvas)
+        let window = makeWindow()
         window.rootViewController = host
         window.isHidden = false
         host.view.frame = canvas
@@ -78,6 +78,13 @@ final class DeskLayoutTests: XCTestCase {
 
     private func extendsOutside(_ view: UIView, of root: UIView) -> Bool {
         firstOverflow(view, of: root) != nil
+    }
+
+    private func makeWindow() -> UIWindow {
+        let scene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first!
+        return UIWindow(windowScene: scene)
     }
 
     private func firstOverflow(_ view: UIView, of root: UIView) -> String? {

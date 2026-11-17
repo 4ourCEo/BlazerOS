@@ -186,6 +186,27 @@ private func row(for commit: ScanCommit, outcome: String = "HIT", label: String?
     #expect(try await store.rows().count == 1)
 }
 
+@Test func sharedSignalIdentityCannotStampAnotherArmsOutcome() async throws {
+    let root = temporaryRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let sameCommit = commit()
+    let coordinator = PersistenceCoordinator(root: root)
+    try await coordinator.recordScan(entry(for: sameCommit, id: "arm-a"), snapshot: snapshot(for: sameCommit))
+    try await coordinator.recordScan(entry(for: sameCommit, id: "arm-b"), snapshot: snapshot(for: sameCommit))
+
+    #expect(try await coordinator.settle(
+        armID: "arm-a", row: row(for: sameCommit, outcome: "HIT", arm: "arm-a"),
+        snapshot: snapshot(for: sameCommit)))
+    #expect(try await coordinator.settle(
+        armID: "arm-b", row: row(for: sameCommit, outcome: "MISS", arm: "arm-b"),
+        snapshot: snapshot(for: sameCommit)) == false)
+
+    let restored = await coordinator.restore()
+    #expect(restored.entries.first(where: { $0.id == "arm-a" })?.outcome == "HIT")
+    #expect(restored.entries.first(where: { $0.id == "arm-b" })?.outcome == nil)
+    #expect(restored.ledgerRows.count == 1)
+}
+
 // MARK: - Interrupted settlement
 
 @Test func failedSettlementSurvivesAndReconcilesOnceWithoutDuplicating() async throws {
@@ -244,6 +265,27 @@ private func row(for commit: ScanCommit, outcome: String = "HIT", label: String?
     #expect(domains.contains(.journal))
     #expect(domains.contains(.snapshots))
     #expect(!restored.issues.first!.userMessage.isEmpty)
+}
+
+@Test func corruptSnapshotLineCannotBeErasedByNextArchive() async throws {
+    let root = temporaryRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = SnapshotStore(root: root)
+    let valid = snapshot(for: commit())
+    #expect(try await store.archive(valid))
+    let url = FileLocations.snapshots(in: root)
+    var bytes = try Data(contentsOf: url)
+    bytes.append(Data("not-json\n".utf8))
+    try bytes.write(to: url)
+    let before = try Data(contentsOf: url)
+
+    await #expect(throws: (any Error).self) {
+        try await store.archive(snapshot(for: commit(pair: "GBP/USD", seed: 0.001)))
+    }
+    #expect(try Data(contentsOf: url) == before)
+    #expect((await PersistenceCoordinator(root: root).restore()).issues.contains {
+        $0.domain == .snapshots
+    })
 }
 
 @Test func corruptPendingSettlementIsSurfacedNotDiscarded() async throws {
