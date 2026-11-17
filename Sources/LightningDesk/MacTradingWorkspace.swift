@@ -550,8 +550,8 @@ struct MacTradingWorkspace: View {
         case "Settings":
             VStack(alignment: .leading, spacing: 12) {
                 Text("Settings").font(.system(size: 20, weight: .semibold))
-                Text("OANDA Live credentials are stored in this Mac’s Keychain.").font(.system(size: 12)).foregroundStyle(muted)
-                Button("Manage OANDA Live credentials") { model.showingCredentials = true }.buttonStyle(.borderedProminent).tint(blue)
+                Text("OANDA credentials are stored in this Mac’s Keychain.").font(.system(size: 12)).foregroundStyle(muted)
+                Button("Manage OANDA credentials") { model.showingCredentials = true }.buttonStyle(.borderedProminent).tint(blue)
             }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         case "Learn": infoPanel("LEARN · ORB", "Opening Range Breakout: the engine evaluates a defined opening range and subsequent market structure. A forming condition is not an entry confirmation.").padding(22)
         default: ReviewScreen(model: model).padding(14)
