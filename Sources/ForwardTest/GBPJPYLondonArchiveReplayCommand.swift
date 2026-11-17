@@ -18,8 +18,10 @@ enum GBPJPYLondonArchiveReplayCommand {
               let sessionPath = values["--session"], let provenancePath = values["--provenance"] else {
             throw ScanError.failed("London archive replay requires explicit archive, configuration, session, and provenance files")
         }
+        // Archive batches and Codable session inputs use JSONEncoder's default Date
+        // representation (seconds since the 2001 reference date). Do not decode them
+        // as Unix seconds: that would shift valid 2026 archive data back to 1995.
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .secondsSince1970
         func read<T: Decodable>(_ type: T.Type, _ path: String) throws -> T {
             try decoder.decode(type, from: Data(contentsOf: URL(fileURLWithPath: path)))
         }
