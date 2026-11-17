@@ -74,6 +74,9 @@ public struct MacResearchSignal: Sendable, Equatable, Identifiable {
     public let environment: MacResearchSignalEnvironment
     public let stage: MacResearchSignalStage
     public let timeframe: String?
+    public let entryReference: Double?
+    public let stopPrice: Double?
+    public let targetPrice: Double?
     public let planPreview: MacResearchPlanPreview?
     public let observedAt: Date
     public let validUntil: Date
@@ -88,11 +91,15 @@ public struct MacResearchSignal: Sendable, Equatable, Identifiable {
                 sourceInputIdentity: String, scanGeneration: Int,
                 environment: MacResearchSignalEnvironment = .live,
                 stage: MacResearchSignalStage = .actionable, timeframe: String? = nil,
+                entryReference: Double? = nil, stopPrice: Double? = nil,
+                targetPrice: Double? = nil,
                 planPreview: MacResearchPlanPreview? = nil) {
         self.id = id; self.profileID = profileID; self.strategyID = strategyID
         self.strategyVersion = strategyVersion; self.instrument = instrument
         self.direction = direction; self.observedAt = observedAt; self.validUntil = validUntil
         self.environment = environment; self.stage = stage; self.timeframe = timeframe
+        self.entryReference = entryReference; self.stopPrice = stopPrice
+        self.targetPrice = targetPrice
         self.planPreview = planPreview
         self.reasons = reasons; self.evidenceReferences = evidenceReferences
         self.sourceInputIdentity = sourceInputIdentity; self.scanGeneration = scanGeneration
@@ -165,6 +172,10 @@ public enum MacResearchSignalProjector {
                 evidenceReferences: candidate.evidenceReferences,
                 sourceInputIdentity: sourceInputIdentity, scanGeneration: scanGeneration,
                 environment: source.environment, stage: stage,
+                timeframe: Self.timeframe(for: candidate.strategyID),
+                entryReference: candidate.plan?.entryPrice ?? candidate.entryReference,
+                stopPrice: candidate.plan?.stopPrice,
+                targetPrice: candidate.plan?.targetPrice,
                 planPreview: candidate.plan.flatMap { MacResearchPlanPreview($0, candidate: candidate) }))
         }
         return result
@@ -195,6 +206,14 @@ public enum MacResearchSignalProjector {
         default: nil
         }
     }
+
+    private static func timeframe(for strategyID: String) -> String? {
+        switch strategyID {
+        case "CANDIDATE_001_CHOCH_FVG_FIB", "CANDIDATE_002_AUCTION_FAILURE": "M1 + M15 context"
+        case "ORB_BREAK_RETEST_V1": "M1"
+        default: nil
+        }
+    }
 }
 
 #if os(macOS)
@@ -221,10 +240,11 @@ public enum MacResearchEvaluatorFamily: String, CaseIterable, Sendable, Equatabl
 public struct MacResearchEvaluationDiagnostic: Sendable, Equatable, Identifiable {
     public enum State: Sendable, Equatable {
         case completedNoCandidate
-        case conditionsNotMet
         case candidateShown
         case candidateWithheld
+        case conditionsNotMet
         case evaluationFailed
+        case dataUnavailable
     }
 
     public let family: MacResearchEvaluatorFamily
@@ -247,10 +267,11 @@ public struct MacResearchEvaluationDiagnostic: Sendable, Equatable, Identifiable
     public var statusLabel: String {
         switch state {
         case .completedNoCandidate: "Completed · no candidate emitted"
-        case .conditionsNotMet: "Completed · candidate conditions not met"
         case .candidateShown: "Eligible candidate shown above"
         case .candidateWithheld: "Candidate withheld by validation"
+        case .conditionsNotMet: "Setup detected · conditions not met"
         case .evaluationFailed: "Evaluation failed"
+        case .dataUnavailable: "Required market data unavailable"
         }
     }
 }
@@ -259,6 +280,8 @@ public struct MacResearchEvaluationDiagnostic: Sendable, Equatable, Identifiable
 public enum MacResearchEvaluationDiagnosticProjector {
     public static func project(candidates: [AdaptiveOpportunityCandidate],
                                failedFamilies: Set<MacResearchEvaluatorFamily>,
+                               unavailableFamilies: Set<MacResearchEvaluatorFamily> = [],
+                               conditionsNotMetReasons: [MacResearchEvaluatorFamily: String] = [:],
                                visibleSignalIDs: Set<String>,
                                quoteAsOf: Date?, scanGeneration: Int,
                                currentScanGeneration: Int,
@@ -290,6 +313,17 @@ public enum MacResearchEvaluationDiagnosticProjector {
                     quoteAsOf: quoteAsOf, validUntil: validUntil,
                     sourceInputIdentity: sourceInputIdentity, scanGeneration: scanGeneration)
             }
+            if unavailableFamilies.contains(family) {
+                return .init(family: family, state: .dataUnavailable, detail: "Required candle history is unavailable",
+                    quoteAsOf: quoteAsOf, validUntil: validUntil,
+                    sourceInputIdentity: sourceInputIdentity, scanGeneration: scanGeneration)
+            }
+            if let reason = conditionsNotMetReasons[family] {
+                return .init(family: family, state: .conditionsNotMet,
+                    detail: safeReasonLabel(reason), quoteAsOf: quoteAsOf,
+                    validUntil: validUntil, sourceInputIdentity: sourceInputIdentity,
+                    scanGeneration: scanGeneration)
+            }
 
             guard let candidate = matching.first else {
                 if !familyCandidates.isEmpty {
@@ -305,10 +339,7 @@ public enum MacResearchEvaluationDiagnosticProjector {
             }
 
             let isDirectional = candidate.direction == .long || candidate.direction == .short
-            let isEligibleAndShown = matching.contains {
-                $0.state == .eligible && ($0.direction == .long || $0.direction == .short)
-                    && visibleSignalIDs.contains($0.id)
-            }
+            let isEligibleAndShown = matching.contains { visibleSignalIDs.contains($0.id) }
             let state: MacResearchEvaluationDiagnostic.State
             if family == .orb && !isDirectional && candidate.state != .unavailable {
                 state = .conditionsNotMet
@@ -337,6 +368,11 @@ public enum MacResearchEvaluationDiagnosticProjector {
         case "quote_future": "Quote timestamp is invalid"
         case "spread_rejected": "Spread filter rejected the candidate"
         case "m15_context_unavailable": "15-minute context is unavailable"
+        case "m15_confirmation_missing": "15-minute confirmation is missing"
+        case "setup_expired", "confirmation_window_expired", "entry_window_expired": "Setup entry window expired"
+        case "setup_invalidated": "Setup conditions were invalidated"
+        case "trigger_time_missing", "confirmation_missing": "Setup confirmation is incomplete"
+        case "conditions_not_met": "Setup conditions were not met"
         default: "Additional validation required"
         }
     }

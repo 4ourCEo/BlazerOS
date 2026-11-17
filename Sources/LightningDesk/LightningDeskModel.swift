@@ -36,6 +36,8 @@ public enum MacResearchSignalStatus: Equatable {
     case awaitingFreshScan
     case completedNoCandidate
     case completedWithCandidates
+    case conditionsNotMet
+    case partialResults
     case failed
     case sourceAttestationUnavailable
 }
@@ -1299,7 +1301,9 @@ public final class LightningDeskModel: ObservableObject {
         }
         let store = ResearchStore(root: ResearchStore.defaultRoot())
         guard let records = try? await store.adaptiveRehearsals(),
-              let latest = records.max(by: { $0.receivedAt < $1.receivedAt }) else {
+              let latest = records.filter({
+                  $0.environment == .oandaPractice && $0.validation().isEmpty
+              }).max(by: { $0.receivedAt < $1.receivedAt }) else {
             adaptiveResearchProjection = nil
             return
         }
@@ -1621,6 +1625,14 @@ public final class LightningDeskModel: ObservableObject {
             notice = "Entry is being saved; scan again after it completes"
             return
         }
+#if os(macOS)
+        if market == .fx {
+            macResearchExpiryTask?.cancel()
+            macResearchSignals = []
+            macResearchEvaluationDiagnostics = []
+            macResearchSignalStatus = .awaitingFreshScan
+        }
+#endif
         await scanCoordinator.submit(market: market, asset: asset, assets: assets) { [weak self] request in
             guard let self else { return }
             switch request.market {
@@ -2449,8 +2461,8 @@ public final class LightningDeskModel: ObservableObject {
     }
 
     /// Feeds the exact FX observation already returned by the desk scan into
-    /// adaptive research. This is presentation/evidence work only: it does not
-    /// replace `ScanKernel`, mutate entry gates, or authorize manual execution.
+    /// configured strategy evaluation and the user-facing signal projection.
+    /// This does not replace `ScanKernel` or submit broker orders.
     private func evaluateAdaptiveSnapshot(_ snapshot: MarketScanSnapshot,
                                           asset: String,
                                           signal: EngineSignal,
@@ -2458,7 +2470,8 @@ public final class LightningDeskModel: ObservableObject {
         guard let bid = snapshot.bid, let ask = snapshot.ask,
               let spread = snapshot.spread,
               bid.isFinite, ask.isFinite, spread.isFinite,
-              !snapshot.candles.isEmpty else { return }
+              !snapshot.candles.isEmpty, isCurrentScan(request),
+              session?.environment == .practice else { return }
         let payloads = snapshot.candles.compactMap { candle -> StrategyEngine.CandlePayload? in
             guard let time = candle.time, let open = candle.open,
                   let high = candle.high, let low = candle.low else { return nil }
@@ -2482,9 +2495,63 @@ public final class LightningDeskModel: ObservableObject {
         let store = ResearchStore(root: ResearchStore.defaultRoot())
         guard let result = try? await AdaptiveMarketRehearsal.evaluateSnapshot(
             input, observedAt: Self.evaluationDate(signal.asOfMs, fallback: receivedAt),
-            receivedAt: receivedAt, store: store) else { return }
-        guard isCurrentScan(request) else { return }
+            receivedAt: receivedAt, environment: .oandaPractice, store: nil) else { return }
+        guard isCurrentScan(request), session?.environment == .practice else { return }
+        var persistenceFailed = false
+        do {
+            try await store.record(result.record)
+        } catch {
+            guard isCurrentScan(request) else { return }
+            persistenceFailed = true
+        }
+        guard isCurrentScan(request), session?.environment == .practice else { return }
         adaptiveResearchProjection = AdaptiveResearchProjection(record: result.record, now: receivedAt)
+#if os(macOS)
+        guard let activeSession = session, activeSession.environment == .practice,
+              marketMode == .fx, pair == asset else { return }
+        let sourceInputIdentity = ScanInputSnapshot(pair: asset, m1: snapshot.candles,
+            m5: snapshot.m5Candles, bid: bid, ask: ask, spread: spread,
+            quoteAsOfMs: signal.asOfMs, expirySeconds: snapshot.expirySeconds,
+            engineSHA: snapshot.engineSHA, policy: snapshot.policy).identity
+        let visibleSignals = MacResearchSignalProjector.project(
+            candidates: result.record.candidates, profiles: [], instrument: asset,
+            scanGeneration: Int(clamping: request.generation),
+            sourceInputIdentity: sourceInputIdentity, now: receivedAt, source: .oandaPractice)
+        var failedFamilies = Set<MacResearchEvaluatorFamily>()
+        var unavailableFamilies = Set<MacResearchEvaluatorFamily>()
+        var conditionReasons = [MacResearchEvaluatorFamily: String]()
+        for outcome in result.record.evaluatorOutcomes ?? [] {
+            guard let family = MacResearchEvaluatorFamily(rawValue: outcome.strategyID == "CANDIDATE_001_CHOCH_FVG_FIB"
+                ? "Candidate001" : outcome.strategyID == "CANDIDATE_002_AUCTION_FAILURE" ? "Candidate002" : "") else { continue }
+            switch outcome.state {
+            case .failed: failedFamilies.insert(family)
+            case .dataUnavailable: unavailableFamilies.insert(family)
+            case .conditionsNotMet:
+                conditionReasons[family] = outcome.rawDiagnostics?.first?.reasonCode ?? outcome.reasonCode
+            case .completed: break
+            }
+        }
+        let diagnostics = MacResearchEvaluationDiagnosticProjector.project(
+            candidates: result.record.candidates, failedFamilies: failedFamilies,
+            unavailableFamilies: unavailableFamilies,
+            conditionsNotMetReasons: conditionReasons,
+            visibleSignalIDs: Set(visibleSignals.map(\.id)),
+            quoteAsOf: signal.asOfMs.flatMap {
+                $0.isFinite ? Date(timeIntervalSince1970: $0 / 1_000) : nil
+            },
+            scanGeneration: Int(clamping: request.generation),
+            currentScanGeneration: Int(clamping: request.generation),
+            sourceInputIdentity: sourceInputIdentity,
+            expectedSourceInputIdentity: sourceInputIdentity, now: receivedAt)
+        guard isCurrentScan(request), session?.environment == .practice, pair == asset else { return }
+        macResearchSignals = visibleSignals
+        macResearchEvaluationDiagnostics = diagnostics
+        updateMacResearchSignalStatus()
+        scheduleMacResearchSignalExpiry()
+        if persistenceFailed {
+            notice = "Signal evaluation is visible, but this scan could not be saved to history"
+        }
+#endif
         if let candidate = result.record.decision.selectedCandidateID.flatMap({ id in
             result.record.candidates.first { $0.id == id }
         }), let notification = AdaptiveNotificationPlanner.plan(
@@ -2634,13 +2701,17 @@ public final class LightningDeskModel: ObservableObject {
 
 #if os(macOS)
     private func updateMacResearchSignalStatus() {
-        if !macResearchSignals.isEmpty
+        if macResearchEvaluationDiagnostics.contains(where: { $0.state == .dataUnavailable }) {
+            macResearchSignalStatus = .partialResults
+        } else if !macResearchSignals.isEmpty
             || macResearchEvaluationDiagnostics.contains(where: {
                 $0.state == .candidateShown || $0.state == .candidateWithheld
             }) {
             macResearchSignalStatus = .completedWithCandidates
         } else if macResearchEvaluationDiagnostics.contains(where: { $0.state == .evaluationFailed }) {
             macResearchSignalStatus = .failed
+        } else if macResearchEvaluationDiagnostics.contains(where: { $0.state == .conditionsNotMet }) {
+            macResearchSignalStatus = .conditionsNotMet
         } else if macResearchEvaluationDiagnostics.isEmpty {
             macResearchSignalStatus = .awaitingFreshScan
         } else {

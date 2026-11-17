@@ -77,7 +77,7 @@ struct MacTradingWorkspace: View {
                     .accessibilityIdentifier("mac.pair.\(pair.replacingOccurrences(of: "/", with: "-"))")
             }
             Spacer()
-            Label("LIVE MARKET · NO ORDERS", systemImage: "waveform.path.ecg")
+            Label("\(model.connectedOandaEnvironment?.rawValue.uppercased() ?? "OANDA") · SIGNALS · MANUAL EXECUTION", systemImage: "waveform.path.ecg")
                 .font(.system(size: 9, weight: .semibold)).foregroundStyle(muted)
         }
         .padding(16).background(.white)
@@ -91,7 +91,7 @@ struct MacTradingWorkspace: View {
                 Text("OANDA FX workstation · structural plans and market evidence").font(.system(size: 11)).foregroundStyle(muted)
             }
             Spacer()
-            Label("OANDA LIVE · \(model.feed.rawValue)", systemImage: model.feed == .live ? "checkmark.circle.fill" : "exclamationmark.circle")
+            Label(oandaEnvironmentLabel, systemImage: model.feed == .live ? "checkmark.circle.fill" : "exclamationmark.circle")
                 .font(.system(size: 11, weight: .medium)).foregroundStyle(model.feed == .live ? blue : muted)
             Button("Credentials") { model.showingCredentials = true }
                 .buttonStyle(.bordered).tint(blue).accessibilityIdentifier("mac.connect-oanda")
@@ -111,13 +111,18 @@ struct MacTradingWorkspace: View {
         }.padding(14).frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    private var oandaEnvironmentLabel: String {
+        guard let environment = model.connectedOandaEnvironment else { return "OANDA DISCONNECTED" }
+        return "OANDA \(environment.rawValue.uppercased()) · \(model.feed.rawValue)"
+    }
+
     private var researchSignalsPanel: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 10) {
-                Text("RESEARCH SIGNALS").font(.system(size: 10, weight: .bold)).tracking(0.7)
-                Text("RESEARCH ONLY · NOT PROMOTED · NO ORDER")
+                Text("STRATEGY SIGNALS").font(.system(size: 10, weight: .bold)).tracking(0.7)
+                Text("SETUP STAGE · PLAN DETAILS · MANUAL BROKER ACTION")
                     .font(.system(size: 9, weight: .semibold)).foregroundStyle(muted)
-                Text("CONNECTED · ORB / CANDIDATE001 / CANDIDATE002")
+                Text("GBP/JPY · CONFIGURED EVALUATORS")
                     .font(.system(size: 8, weight: .medium)).foregroundStyle(muted)
             }
             ScrollView(.vertical) { researchSignalDetails }
@@ -134,7 +139,7 @@ struct MacTradingWorkspace: View {
             Text(researchSignalStatusText).font(.system(size: diagnosticFontSize, weight: .medium))
                 .foregroundStyle(muted)
             if model.macResearchSignals.isEmpty && model.macResearchEvaluationDiagnostics.isEmpty {
-                Text("Signal details appear after a verified, fresh OANDA scan.")
+                Text("Signal details appear after a fresh scan with supported market data.")
                     .font(.system(size: diagnosticFontSize)).foregroundStyle(muted)
             }
             if !model.macResearchSignals.isEmpty {
@@ -142,10 +147,33 @@ struct MacTradingWorkspace: View {
                           alignment: .leading, spacing: 8) {
                     ForEach(model.macResearchSignals) { signal in
                         VStack(alignment: .leading, spacing: 3) {
-                            Text("\(signal.direction == .long ? "LONG" : "SHORT") CANDIDATE · \(signal.instrument)")
+                            Text("\(signal.stage.rawValue) · \(signal.direction == .long ? "LONG" : "SHORT") · \(signal.instrument) · \(signal.environment.rawValue)")
                                 .font(.system(size: diagnosticFontSize, weight: .bold, design: .monospaced))
                             Text("\(signal.strategyID) · \(signal.strategyVersion)")
                                 .font(.system(size: max(8, diagnosticFontSize - 1), weight: .medium))
+                            Text("TIMEFRAME · \(signal.timeframe ?? "UNSPECIFIED")")
+                                .font(.system(size: max(8, diagnosticFontSize - 1), weight: .medium))
+                                .foregroundStyle(muted)
+                            Text("ENTRY \(signal.entryReference.map(PriceFormat.px) ?? "—") · STOP \(signal.stopPrice.map(PriceFormat.px) ?? "—") · TARGET \(signal.targetPrice.map(PriceFormat.px) ?? "—")")
+                                .font(.system(size: max(8, diagnosticFontSize - 1), weight: .semibold, design: .monospaced))
+                            if let plan = signal.planPreview {
+                                Text("R:R \(plan.rewardRisk, specifier: "%.2f") · MAX SPREAD \(PriceFormat.px(plan.maxSpread))")
+                                    .font(.system(size: max(8, diagnosticFontSize - 1), weight: .medium, design: .monospaced))
+                                    .foregroundStyle(muted)
+                                Text("Plan preview only · account risk and margin are not checked here.")
+                                    .font(.system(size: max(8, diagnosticFontSize - 1), weight: .medium))
+                                    .foregroundStyle(muted)
+                            } else {
+                                let missing = [
+                                    signal.entryReference == nil ? "entry" : nil,
+                                    signal.stopPrice == nil ? "stop" : nil,
+                                    signal.targetPrice == nil ? "target" : nil
+                                ].compactMap { $0 }
+                                let blocker = missing.isEmpty ? "plan validation" : missing.joined(separator: ", ")
+                                Text("PLAN PREVIEW BLOCKED · \(blocker)")
+                                    .font(.system(size: max(8, diagnosticFontSize - 1), weight: .medium))
+                                    .foregroundStyle(.orange)
+                            }
                             Text(LiveDecisionAgeLabel.text(observedAt: signal.observedAt))
                                 .font(.system(size: max(8, diagnosticFontSize - 1), weight: .medium))
                                 .foregroundStyle(muted)
@@ -193,6 +221,8 @@ struct MacTradingWorkspace: View {
         case .awaitingFreshScan: "Awaiting fresh scan"
         case .completedNoCandidate: "Scan complete · no candidates"
         case .completedWithCandidates: "Fresh scan complete"
+        case .conditionsNotMet: "Setup detected · waiting on conditions"
+        case .partialResults: "Some evaluators lack required data"
         case .failed: "Evaluation issue"
         case .sourceAttestationUnavailable: "Verified source manifest unavailable"
         }

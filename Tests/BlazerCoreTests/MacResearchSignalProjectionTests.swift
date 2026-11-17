@@ -369,6 +369,8 @@ private func diagnosticCandidate(family: MacResearchEvaluatorFamily,
     #expect(projected.count == 1)
     #expect(projected[0].environment == .practice)
     #expect(projected[0].stage == .confirmed)
+    #expect(projected[0].timeframe == "M1")
+    #expect(projected[0].entryReference == nil)
     #expect(projected[0].profileID == "research:\(macSignalStrategy)")
 
     let genericOandaPractice = macSignalCandidate(provider: "OANDA")
@@ -403,7 +405,11 @@ private func diagnosticCandidate(family: MacResearchEvaluatorFamily,
     #expect(projected.map(\.id) == ["forming", "with-plan"])
     #expect(projected[0].stage == .forming)
     #expect(projected[0].planPreview == nil)
+    #expect(projected[0].timeframe == "M1")
     #expect(projected[1].planPreview?.entryPrice == 1.1)
+    #expect(projected[1].entryReference == 1.1)
+    #expect(projected[1].stopPrice == 1.0)
+    #expect(projected[1].targetPrice == 1.3)
     #expect(abs((projected[1].planPreview?.rewardRisk ?? 0) - 2) < 1e-9)
 
     let rejected = [

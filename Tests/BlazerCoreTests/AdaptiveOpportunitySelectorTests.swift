@@ -92,6 +92,15 @@ struct AdaptiveOpportunitySelectorTests {
             state: .actionableOpportunity, selectedCandidate: forming,
             instrument: "GBP/JPY", sourceTime: now.addingTimeInterval(-60),
             now: now) == nil)
+        let laterScan = AdaptiveNotificationPlanner.plan(
+            state: .opportunityForming, selectedCandidate: forming,
+            instrument: "GBP/JPY", sourceTime: now.addingTimeInterval(1),
+            now: now.addingTimeInterval(1))
+        #expect(laterScan?.id == notification?.id)
+        let confirmed = AdaptiveNotificationPlanner.plan(
+            state: .actionableOpportunity, selectedCandidate: forming,
+            instrument: "GBP/JPY", sourceTime: now, now: now)
+        #expect(confirmed?.id != notification?.id)
     }
 
     @Test func confirmedPlanIncompleteCandidateNeverProducesEntryReadyNotification() {

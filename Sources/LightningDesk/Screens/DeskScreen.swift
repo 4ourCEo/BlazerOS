@@ -202,12 +202,13 @@ struct DeskScreen: View {
         let state = projection?.decisionState.rawValue.replacingOccurrences(of: "_", with: " ") ?? "UNAVAILABLE"
         let tint: Color = switch projection?.decisionState {
         case .actionableOpportunity: DeskInk.electric
+        case .confirmedOpportunity, .conditionsNotMet: .orange
         case .opportunityForming: .orange
         case .noOpportunity, .unavailable, nil: DeskInk.slate
         }
         return VStack(alignment: .leading, spacing: 7) {
             HStack {
-                Text("ADAPTIVE RESEARCH")
+                Text("STRATEGY OPPORTUNITY")
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .tracking(0.7)
                     .foregroundStyle(tint)
@@ -219,19 +220,35 @@ struct DeskScreen: View {
             if let projection {
                 HStack(spacing: 12) {
                     adaptiveValue("MARKET", projection.instrument)
-                    adaptiveValue("DIRECTION", projection.direction?.rawValue ?? "WAIT")
-                    adaptiveValue("HORIZON", projection.horizonSeconds.map(formatHorizon) ?? "UNVALIDATED")
+                    adaptiveValue("DIRECTION", projection.direction?.rawValue ?? "—")
+                    adaptiveValue("TIMEFRAME", projection.timeframe ?? "—")
+                    adaptiveValue("STRATEGY", projection.strategyID ?? "—")
                 }
                 Text(adaptiveExplanation(projection))
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(DeskInk.slate)
+                HStack(spacing: 12) {
+                    adaptiveValue("ENTRY", projection.entryPrice.map(PriceFormat.px) ?? "—")
+                    adaptiveValue("STOP", projection.stopPrice.map(PriceFormat.px) ?? "—")
+                    adaptiveValue("TARGET", projection.targetPrice.map(PriceFormat.px) ?? "—")
+                }
+                if let missing = projection.unavailableFields, !missing.isEmpty {
+                    Text("PLAN INCOMPLETE · Missing: \(missing.joined(separator: ", "))")
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.orange)
+                }
+                if let reasons = projection.remainingReasons, !reasons.isEmpty {
+                    Text("REMAINING CONDITIONS · \(reasons.joined(separator: " · "))")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(DeskInk.slate)
+                }
             } else {
 #if os(macOS)
-                Text("Adaptive candidate rehearsal is Practice-only and is intentionally not evaluated on the OANDA Live feed. The Live desk keeps its current scan evidence separate while the Live monitor contract is completed.")
+                Text("Run a GBP/JPY OANDA Practice scan to evaluate the configured strategies and show forming or qualifying setups with their known plan details.")
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(DeskInk.slate)
 #else
-                Text("No persisted adaptive decision is available. Connect OANDA Practice to evaluate research candidates.")
+                Text("No current GBP/JPY strategy opportunity is available. Connect OANDA Practice and scan to evaluate configured strategies.")
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(DeskInk.slate)
 #endif
@@ -242,7 +259,7 @@ struct DeskScreen: View {
         .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous)
             .strokeBorder(tint.opacity(0.22), lineWidth: 0.7))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Adaptive research: \(state). Research-only, manual execution remains required.")
+        .accessibilityLabel("GBP/JPY strategy opportunity: \(state). Review the displayed plan and complete required checks before placing any order manually in OANDA Practice.")
     }
 
     private func adaptiveValue(_ title: String, _ value: String) -> some View {
@@ -258,12 +275,14 @@ struct DeskScreen: View {
     }
 
     private func adaptiveExplanation(_ projection: AdaptiveResearchProjection) -> String {
-        if let reason = projection.invalidationReason { return "\(reason) · research-only" }
+        if let reason = projection.invalidationReason { return "Signal is no longer current · \(reason)" }
         switch projection.decisionState {
-        case .actionableOpportunity: return "Evidence-qualified research candidate; revalidate before any manual action."
-        case .opportunityForming: return "Candidate is developing; entry confirmation is incomplete."
-        case .noOpportunity: return "No qualifying candidate; no trade."
-        case .unavailable: return "Provider or required observation unavailable."
+        case .actionableOpportunity: return "Setup conditions qualify for review. Check plan completeness, account risk and freshness before placing any Practice order manually."
+        case .confirmedOpportunity: return "Setup is confirmed, but a complete valid entry plan is missing. Review the missing fields before considering manual entry."
+        case .conditionsNotMet: return "The evaluator recognized a setup, but its confirmation or entry window did not pass. Review the recorded reason below."
+        case .opportunityForming: return "A setup is forming; the conditions still needed are listed below."
+        case .noOpportunity: return "Configured evaluators completed; no setup qualifies in this scan."
+        case .unavailable: return "Required market data or an evaluator was unavailable; inspect the scan diagnostics."
         }
     }
 

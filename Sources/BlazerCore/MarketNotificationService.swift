@@ -273,7 +273,20 @@ public final class MarketNotificationService: NSObject, @unchecked Sendable {
         let content = UNMutableNotificationContent()
         content.title = notification.kind.rawValue.replacingOccurrences(of: "_", with: " ")
         content.subtitle = notification.instrument
-        content.body = "Research update. Revalidate current market data before any manual action."
+        content.body = switch notification.kind {
+        case .setupForming:
+            "A \(notification.instrument) setup is forming. Review its remaining conditions."
+        case .setupConfirmed:
+            "A \(notification.instrument) setup is confirmed. Review the entry plan and any missing fields."
+        case .entryReady:
+            "A \(notification.instrument) setup qualifies for review. Check plan completeness, account risk and the current quote before placing any Practice order manually."
+        case .setupInvalidated:
+            "The \(notification.instrument) setup was invalidated. Review the updated signal details."
+        case .opportunityExpired:
+            "The \(notification.instrument) setup expired. Review the signal history for details."
+        case .providerUnavailable:
+            "The \(notification.instrument) scan could not complete because required market data was unavailable."
+        }
         content.sound = .default
         content.userInfo = ["deepLink": notification.deepLink,
                             "notificationID": notification.id,
