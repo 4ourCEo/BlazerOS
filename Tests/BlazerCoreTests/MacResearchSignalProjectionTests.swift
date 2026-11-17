@@ -311,6 +311,13 @@ private func diagnosticCandidate(family: MacResearchEvaluatorFamily,
     #expect(!model.isGBPJPYPracticeMonitoring)
     #expect(model.notice == "Select GBP/JPY before starting the Practice monitor")
 }
+
+@MainActor
+@Test func macCredentialDraftDefaultsToPractice() {
+    let model = LightningDeskModel(storageRoot: FileManager.default.temporaryDirectory
+        .appendingPathComponent("practice-credential-draft-\(UUID().uuidString)", isDirectory: true))
+    #expect(model.draftEnvironment == .practice)
+}
 #endif
 
 @Test func projectionRejectsExpiredUntrustedAndEmptyValidity() {

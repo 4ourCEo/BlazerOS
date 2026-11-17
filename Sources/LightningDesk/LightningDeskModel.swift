@@ -342,13 +342,7 @@ public final class LightningDeskModel: ObservableObject {
     /// Form drafts. Cleared when the Keychain write succeeds. Never synced.
     @Published var draftToken = ""
     @Published var draftAccount = ""
-    @Published var draftEnvironment: OandaEnvironment = {
-        #if os(macOS)
-        .live
-        #else
-        .practice
-        #endif
-    }()
+    @Published var draftEnvironment: OandaEnvironment = .practice
     @Published var isEditingCredentials = false
     @Published var credentialSaveFailed = false
     @Published var credentialConfigurationError: String?
