@@ -120,6 +120,9 @@ private func diagnosticCandidate(family: MacResearchEvaluatorFamily,
     case .orb: ("ORB_BREAK_RETEST_V1", "ORB_BREAK_RETEST_V1")
     case .candidate001: ("CANDIDATE_001_CHOCH_FVG_FIB", "candidate-001-v2")
     case .candidate002: ("CANDIDATE_002_AUCTION_FAILURE", "candidate-002-auction-failure-v2")
+    case .londonBreakRetest: (GBPJPYLondonBreakRetestV1.strategyID, "GBPJPY_LONDON_RANGE_BREAK_RETEST_V1")
+    case .trendPullback: (GBPJPYTrendPullbackV1.strategyID, "PROFILE_REQUIRED")
+    case .rangeRejection: (GBPJPYRangeRejectionV1.strategyID, "PROFILE_REQUIRED")
     }
     return .init(id: "diagnostic-\(family.rawValue)", strategyID: identity.0,
         strategyVersion: identity.1, instrument: "EUR/USD", provider: "OANDA_LIVE",
@@ -143,6 +146,7 @@ private func diagnosticCandidate(family: MacResearchEvaluatorFamily,
     #expect(result[1].statusLabel == "Completed · no candidate emitted")
     #expect(result[2].state == .evaluationFailed)
     #expect(result[2].statusLabel == "Evaluation failed")
+    #expect(result[3].state == .completedNoCandidate)
     #expect(result.allSatisfy { $0.sourceInputIdentity == "snapshot-7" && $0.scanGeneration == 7 })
     #expect(MacResearchEvaluationDiagnosticProjector.project(candidates: [orb], failedFamilies: [],
         visibleSignalIDs: [], quoteAsOf: quote, scanGeneration: 7, currentScanGeneration: 8,
@@ -168,7 +172,7 @@ private func diagnosticCandidate(family: MacResearchEvaluatorFamily,
         failedFamilies: [], visibleSignalIDs: [], quoteAsOf: quote, scanGeneration: 9,
         currentScanGeneration: 9, sourceInputIdentity: "exact-snapshot",
         expectedSourceInputIdentity: "exact-snapshot", now: quote.addingTimeInterval(1))
-    #expect(result.count == 3)
+    #expect(result.count == MacResearchEvaluatorFamily.allCases.count)
     let candidate001 = result.first { $0.family == .candidate001 }
     #expect(candidate001?.state == .candidateWithheld)
     #expect(candidate001?.detail == "Spread filter rejected the candidate")
@@ -205,7 +209,7 @@ private func diagnosticCandidate(family: MacResearchEvaluatorFamily,
     #expect(project(nil).isEmpty)
     #expect(project(Date(timeIntervalSince1970: .infinity)).isEmpty)
     #expect(project(quote.addingTimeInterval(2)).isEmpty)
-    #expect(project(quote.addingTimeInterval(1)).count == 3)
+    #expect(project(quote.addingTimeInterval(1)).count == MacResearchEvaluatorFamily.allCases.count)
     let orbAtBoundary = MacResearchEvaluationDiagnosticProjector.project(candidates: [],
         failedFamilies: [], visibleSignalIDs: [], quoteAsOf: quote, scanGeneration: 2,
         currentScanGeneration: 2, sourceInputIdentity: "snapshot",
@@ -216,15 +220,28 @@ private func diagnosticCandidate(family: MacResearchEvaluatorFamily,
         visibleSignalIDs: [], quoteAsOf: quote, scanGeneration: 2,
         currentScanGeneration: 2, sourceInputIdentity: "snapshot",
         expectedSourceInputIdentity: "snapshot", now: quote.addingTimeInterval(5.001)).map(\.family)
-        == [.candidate001, .candidate002])
+        == [.candidate001, .candidate002, .londonBreakRetest, .trendPullback, .rangeRejection])
     #expect(MacResearchEvaluationDiagnosticProjector.project(candidates: [], failedFamilies: [],
         visibleSignalIDs: [], quoteAsOf: quote, scanGeneration: 2,
         currentScanGeneration: 2, sourceInputIdentity: "snapshot",
-        expectedSourceInputIdentity: "snapshot", now: quote.addingTimeInterval(8)).count == 2)
+        expectedSourceInputIdentity: "snapshot", now: quote.addingTimeInterval(8)).count == 5)
     #expect(MacResearchEvaluationDiagnosticProjector.project(candidates: [], failedFamilies: [],
         visibleSignalIDs: [], quoteAsOf: quote, scanGeneration: 2,
         currentScanGeneration: 2, sourceInputIdentity: "snapshot",
         expectedSourceInputIdentity: "snapshot", now: quote.addingTimeInterval(8.001)).isEmpty)
+}
+
+@Test func macDiagnosticsExposeImplementedButUnconfiguredGBPJPYFamilies() {
+    let quote = Date(timeIntervalSince1970: 10_000)
+    let result = MacResearchEvaluationDiagnosticProjector.project(candidates: [],
+        failedFamilies: [], notConfiguredFamilies: [.londonBreakRetest, .trendPullback, .rangeRejection],
+        visibleSignalIDs: [], quoteAsOf: quote, scanGeneration: 14,
+        currentScanGeneration: 14, sourceInputIdentity: "snapshot",
+        expectedSourceInputIdentity: "snapshot", now: quote.addingTimeInterval(1))
+    let unconfigured = result.filter { $0.state == .notConfigured }
+    #expect(unconfigured.map(\.family) == [.londonBreakRetest, .trendPullback, .rangeRejection])
+    #expect(unconfigured.allSatisfy { $0.statusLabel.contains("approved profile required") })
+    #expect(unconfigured.allSatisfy { $0.detail == "Approved strategy profile is not configured" })
 }
 
 @Test func macDiagnosticReasonAllowlistUsesSafeFallback() {
@@ -269,7 +286,8 @@ private func diagnosticCandidate(family: MacResearchEvaluatorFamily,
         .appendingPathComponent("mac-diagnostic-lifecycle-\(UUID().uuidString)", isDirectory: true))
 
     model.installMacResearchStateForTesting(signals: [signal], diagnostics: diagnostics)
-    #expect(model.macResearchSignals.count == 1 && model.macResearchEvaluationDiagnostics.count == 3)
+    #expect(model.macResearchSignals.count == 1
+        && model.macResearchEvaluationDiagnostics.count == MacResearchEvaluatorFamily.allCases.count)
     _ = model.beginLiveDecisionRefreshForTesting(for: "EUR/USD")
     #expect(model.macResearchSignals.isEmpty && model.macResearchEvaluationDiagnostics.isEmpty)
 

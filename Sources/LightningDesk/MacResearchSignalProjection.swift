@@ -221,6 +221,9 @@ public enum MacResearchEvaluatorFamily: String, CaseIterable, Sendable, Equatabl
     case orb = "ORB"
     case candidate001 = "Candidate001"
     case candidate002 = "Candidate002"
+    case londonBreakRetest = "London Break + Retest"
+    case trendPullback = "Trend Pullback"
+    case rangeRejection = "Range Rejection"
 
     public var id: String { rawValue }
 
@@ -229,6 +232,9 @@ public enum MacResearchEvaluatorFamily: String, CaseIterable, Sendable, Equatabl
         case .orb: ("ORB_BREAK_RETEST_V1", "ORB_BREAK_RETEST_V1")
         case .candidate001: ("CANDIDATE_001_CHOCH_FVG_FIB", "candidate-001-v2")
         case .candidate002: ("CANDIDATE_002_AUCTION_FAILURE", "candidate-002-auction-failure-v2")
+        case .londonBreakRetest: (GBPJPYLondonBreakRetestV1.strategyID, "GBPJPY_LONDON_RANGE_BREAK_RETEST_V1")
+        case .trendPullback: (GBPJPYTrendPullbackV1.strategyID, "PROFILE_REQUIRED")
+        case .rangeRejection: (GBPJPYRangeRejectionV1.strategyID, "PROFILE_REQUIRED")
         }
     }
 
@@ -245,6 +251,7 @@ public struct MacResearchEvaluationDiagnostic: Sendable, Equatable, Identifiable
         case conditionsNotMet
         case evaluationFailed
         case dataUnavailable
+        case notConfigured
     }
 
     public let family: MacResearchEvaluatorFamily
@@ -272,6 +279,7 @@ public struct MacResearchEvaluationDiagnostic: Sendable, Equatable, Identifiable
         case .conditionsNotMet: "Setup detected · conditions not met"
         case .evaluationFailed: "Evaluation failed"
         case .dataUnavailable: "Required market data unavailable"
+        case .notConfigured: "Evaluator not configured · approved profile required"
         }
     }
 }
@@ -281,6 +289,7 @@ public enum MacResearchEvaluationDiagnosticProjector {
     public static func project(candidates: [AdaptiveOpportunityCandidate],
                                failedFamilies: Set<MacResearchEvaluatorFamily>,
                                unavailableFamilies: Set<MacResearchEvaluatorFamily> = [],
+                               notConfiguredFamilies: Set<MacResearchEvaluatorFamily> = [],
                                conditionsNotMetReasons: [MacResearchEvaluatorFamily: String] = [:],
                                visibleSignalIDs: Set<String>,
                                quoteAsOf: Date?, scanGeneration: Int,
@@ -316,6 +325,12 @@ public enum MacResearchEvaluationDiagnosticProjector {
             if unavailableFamilies.contains(family) {
                 return .init(family: family, state: .dataUnavailable, detail: "Required candle history is unavailable",
                     quoteAsOf: quoteAsOf, validUntil: validUntil,
+                    sourceInputIdentity: sourceInputIdentity, scanGeneration: scanGeneration)
+            }
+            if notConfiguredFamilies.contains(family) {
+                return .init(family: family, state: .notConfigured,
+                    detail: "Approved strategy profile is not configured",
+                    quoteAsOf: quoteAsOf, validUntil: quoteDeadline,
                     sourceInputIdentity: sourceInputIdentity, scanGeneration: scanGeneration)
             }
             if let reason = conditionsNotMetReasons[family] {

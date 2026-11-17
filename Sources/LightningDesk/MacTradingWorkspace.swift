@@ -122,7 +122,7 @@ struct MacTradingWorkspace: View {
                 Text("STRATEGY SIGNALS").font(.system(size: 10, weight: .bold)).tracking(0.7)
                 Text("SETUP STAGE · PLAN DETAILS · MANUAL BROKER ACTION")
                     .font(.system(size: 9, weight: .semibold)).foregroundStyle(muted)
-                Text("GBP/JPY · CONFIGURED EVALUATORS")
+                Text("GBP/JPY · EVALUATOR COVERAGE")
                     .font(.system(size: 8, weight: .medium)).foregroundStyle(muted)
             }
             ScrollView(.vertical) { researchSignalDetails }

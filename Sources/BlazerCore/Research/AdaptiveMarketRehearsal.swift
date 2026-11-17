@@ -36,6 +36,7 @@ public struct AdaptiveStrategyEvaluationOutcome: Codable, Sendable, Equatable, I
         case conditionsNotMet = "CONDITIONS_NOT_MET"
         case failed = "FAILED"
         case dataUnavailable = "DATA_UNAVAILABLE"
+        case notConfigured = "NOT_CONFIGURED"
     }
 
     public let evaluatorID: String
@@ -529,6 +530,28 @@ public enum AdaptiveMarketRehearsal {
         let candidate001Configuration = Candidate001Configuration(requireM15Confirmation: true,
                                                                    signalFreshnessSeconds: 300)
         let candidate002Configuration = Candidate002Configuration(signalFreshnessSeconds: 120)
+        // These implemented GBP/JPY evaluators have mandatory, versioned
+        // configurations and no default production profiles. Preserve their
+        // inventory state on every scan rather than making them look absent or
+        // claiming that they completed with no setup.
+        outcomes.append(AdaptiveStrategyEvaluationOutcome(
+            evaluatorID: "londonBreakRetest",
+            strategyID: GBPJPYLondonBreakRetestV1.strategyID,
+            strategyVersion: "GBPJPY_LONDON_RANGE_BREAK_RETEST_V1",
+            timeframe: "UNCONFIGURED", state: .notConfigured,
+            reasonCode: "profile_and_session_calendar_not_configured"))
+        outcomes.append(AdaptiveStrategyEvaluationOutcome(
+            evaluatorID: "trendPullback",
+            strategyID: GBPJPYTrendPullbackV1.strategyID,
+            strategyVersion: "PROFILE_REQUIRED",
+            timeframe: "UNCONFIGURED", state: .notConfigured,
+            reasonCode: "profile_not_configured"))
+        outcomes.append(AdaptiveStrategyEvaluationOutcome(
+            evaluatorID: "rangeRejection",
+            strategyID: GBPJPYRangeRejectionV1.strategyID,
+            strategyVersion: "PROFILE_REQUIRED",
+            timeframe: "UNCONFIGURED", state: .notConfigured,
+            reasonCode: "profile_not_configured"))
         let evaluatorSpecs: [(id: String, strategy: String, version: String, minimumM1: Int)] = [
             ("candidate001", "CANDIDATE_001_CHOCH_FVG_FIB", Candidate001Analyzer.version,
              candidate001Configuration.swingLeftBars + candidate001Configuration.swingRightBars + 1),

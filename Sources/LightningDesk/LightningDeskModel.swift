@@ -2519,13 +2519,23 @@ public final class LightningDeskModel: ObservableObject {
             sourceInputIdentity: sourceInputIdentity, now: receivedAt, source: .oandaPractice)
         var failedFamilies = Set<MacResearchEvaluatorFamily>()
         var unavailableFamilies = Set<MacResearchEvaluatorFamily>()
+        var notConfiguredFamilies = Set<MacResearchEvaluatorFamily>()
         var conditionReasons = [MacResearchEvaluatorFamily: String]()
         for outcome in result.record.evaluatorOutcomes ?? [] {
-            guard let family = MacResearchEvaluatorFamily(rawValue: outcome.strategyID == "CANDIDATE_001_CHOCH_FVG_FIB"
-                ? "Candidate001" : outcome.strategyID == "CANDIDATE_002_AUCTION_FAILURE" ? "Candidate002" : "") else { continue }
+            let family: MacResearchEvaluatorFamily?
+            switch outcome.strategyID {
+            case "CANDIDATE_001_CHOCH_FVG_FIB": family = .candidate001
+            case "CANDIDATE_002_AUCTION_FAILURE": family = .candidate002
+            case GBPJPYLondonBreakRetestV1.strategyID: family = .londonBreakRetest
+            case GBPJPYTrendPullbackV1.strategyID: family = .trendPullback
+            case GBPJPYRangeRejectionV1.strategyID: family = .rangeRejection
+            default: family = nil
+            }
+            guard let family else { continue }
             switch outcome.state {
             case .failed: failedFamilies.insert(family)
             case .dataUnavailable: unavailableFamilies.insert(family)
+            case .notConfigured: notConfiguredFamilies.insert(family)
             case .conditionsNotMet:
                 conditionReasons[family] = outcome.rawDiagnostics?.first?.reasonCode ?? outcome.reasonCode
             case .completed: break
@@ -2533,7 +2543,7 @@ public final class LightningDeskModel: ObservableObject {
         }
         let diagnostics = MacResearchEvaluationDiagnosticProjector.project(
             candidates: result.record.candidates, failedFamilies: failedFamilies,
-            unavailableFamilies: unavailableFamilies,
+            unavailableFamilies: unavailableFamilies, notConfiguredFamilies: notConfiguredFamilies,
             conditionsNotMetReasons: conditionReasons,
             visibleSignalIDs: Set(visibleSignals.map(\.id)),
             quoteAsOf: signal.asOfMs.flatMap {

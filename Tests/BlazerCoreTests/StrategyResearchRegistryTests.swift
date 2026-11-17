@@ -181,7 +181,7 @@ struct StrategyResearchRegistryTests {
 
     @Test func evaluatorAndAdapterSourceDigestsArePinned() {
         #expect(StrategyImplementationDigests.adapterCodeSHA256 ==
-            "e1870e51ad14c0c58338ae403ab9daf8580be3469c9fafaaeff3e20052d9d4a7")
+            "bb7bae9148a6a5b43d88e6ae01c8493e1852effe82ac65094c88ae243d7117b4")
         #expect(StrategyImplementationDigests.evaluatorCodeSHA256["ORB_BREAK_RETEST"] ==
             "7199de9171fe9d9e390bf934b0658fec600ded75d4abeb86adf54225c503f304")
         #expect(StrategyImplementationDigests.evaluatorCodeSHA256["CHOCH_FVG_FIB"] ==

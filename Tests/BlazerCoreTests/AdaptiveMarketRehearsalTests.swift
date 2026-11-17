@@ -248,19 +248,27 @@ struct AdaptiveMarketRehearsalTests {
         let result = try await AdaptiveMarketRehearsal.evaluateSnapshot(
             gbpJpySnapshot(), observedAt: now, receivedAt: now.addingTimeInterval(0.1))
         let outcomes = try #require(result.record.evaluatorOutcomes)
-        #expect(outcomes.map(\.evaluatorID) == ["candidate001", "candidate002"])
-        #expect(outcomes.allSatisfy { $0.timeframe == "M1+M15" })
-        #expect(outcomes.allSatisfy { $0.state == .completed })
-        #expect(outcomes.allSatisfy { $0.candidateIDs.isEmpty && $0.reasonCode == "no_candidate" })
+        #expect(outcomes.map(\.evaluatorID) == ["londonBreakRetest", "trendPullback", "rangeRejection",
+            "candidate001", "candidate002"])
+        let unconfigured = outcomes.filter { $0.state == .notConfigured }
+        #expect(unconfigured.count == 3)
+        #expect(unconfigured.allSatisfy { $0.timeframe == "UNCONFIGURED" })
+        #expect(unconfigured.map(\.reasonCode).contains("profile_and_session_calendar_not_configured"))
+        let configured = outcomes.filter { $0.state != .notConfigured }
+        #expect(configured.allSatisfy { $0.timeframe == "M1+M15" })
+        #expect(configured.allSatisfy { $0.state == .completed })
+        #expect(configured.allSatisfy { $0.candidateIDs.isEmpty && $0.reasonCode == "no_candidate" })
     }
 
     @Test func gbpJpySnapshotDistinguishesInsufficientHistoryFromNoSetup() async throws {
         let result = try await AdaptiveMarketRehearsal.evaluateSnapshot(
             gbpJpySnapshot(m5OffsetSeconds: 60), observedAt: now, receivedAt: now.addingTimeInterval(0.1))
         let outcomes = try #require(result.record.evaluatorOutcomes)
-        #expect(outcomes.count == 2)
-        #expect(outcomes.allSatisfy { $0.state == .dataUnavailable })
-        #expect(outcomes.allSatisfy { $0.reasonCode == "m15_context_unavailable" })
+        #expect(outcomes.count == 5)
+        #expect(outcomes.filter { $0.state == .notConfigured }.count == 3)
+        let configured = outcomes.filter { $0.state != .notConfigured }
+        #expect(configured.allSatisfy { $0.state == .dataUnavailable })
+        #expect(configured.allSatisfy { $0.reasonCode == "m15_context_unavailable" })
     }
 
     @Test func recognizedExpiredCandidateIsConditionsNotMetInsteadOfNoSetup() async throws {
