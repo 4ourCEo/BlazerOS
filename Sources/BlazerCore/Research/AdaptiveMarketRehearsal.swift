@@ -12,7 +12,9 @@ public enum AdaptiveMarketAvailability: String, Codable, Sendable, Equatable {
 
 public enum AdaptiveMarketDecisionState: String, Codable, Sendable, Equatable {
     case noOpportunity = "NO_OPPORTUNITY"
+    case conditionsNotMet = "CONDITIONS_NOT_MET"
     case opportunityForming = "OPPORTUNITY_FORMING"
+    case confirmedOpportunity = "CONFIRMED_OPPORTUNITY"
     case actionableOpportunity = "ACTIONABLE_OPPORTUNITY"
     case unavailable = "UNAVAILABLE"
 }
@@ -31,6 +33,7 @@ public enum AdaptiveHorizonEvidenceState: String, Codable, Sendable, Equatable {
 public struct AdaptiveStrategyEvaluationOutcome: Codable, Sendable, Equatable, Identifiable {
     public enum State: String, Codable, Sendable, Equatable {
         case completed = "COMPLETED"
+        case conditionsNotMet = "CONDITIONS_NOT_MET"
         case failed = "FAILED"
         case dataUnavailable = "DATA_UNAVAILABLE"
     }
@@ -42,11 +45,13 @@ public struct AdaptiveStrategyEvaluationOutcome: Codable, Sendable, Equatable, I
     public let state: State
     public let candidateIDs: [String]
     public let reasonCode: String?
+    public let rawDiagnostics: [AdaptiveCandidateRawDiagnostic]?
     public var id: String { "\(evaluatorID):\(timeframe)" }
 
     public init(evaluatorID: String, strategyID: String, strategyVersion: String,
                 timeframe: String, state: State, candidateIDs: [String] = [],
-                reasonCode: String? = nil) {
+                reasonCode: String? = nil,
+                rawDiagnostics: [AdaptiveCandidateRawDiagnostic]? = nil) {
         self.evaluatorID = evaluatorID
         self.strategyID = strategyID
         self.strategyVersion = strategyVersion
@@ -54,6 +59,7 @@ public struct AdaptiveStrategyEvaluationOutcome: Codable, Sendable, Equatable, I
         self.state = state
         self.candidateIDs = candidateIDs
         self.reasonCode = reasonCode
+        self.rawDiagnostics = rawDiagnostics
     }
 }
 
@@ -215,12 +221,13 @@ public struct AdaptiveMarketRehearsalRecord: Codable, Sendable, Identifiable {
                 decisionState: AdaptiveMarketDecisionState,
                 horizonEvidence: [AdaptiveHorizonEvidence],
                 availability: AdaptiveMarketAvailability = .ready, errorReason: String? = nil,
-                evaluatorOutcomes: [AdaptiveStrategyEvaluationOutcome]? = nil) throws {
+                evaluatorOutcomes: [AdaptiveStrategyEvaluationOutcome]? = nil,
+                environment: V3ProviderEnvironment = .unknown) throws {
         inputDigest = try ResearchEvent.digest(of: input)
         id = "adaptive-\(inputDigest)"
         instrument = input.asset
         provider = input.source
-        environment = .oandaPractice
+        self.environment = environment
         self.observedAt = observedAt
         self.receivedAt = receivedAt
         self.input = input
@@ -236,12 +243,17 @@ public struct AdaptiveMarketRehearsalRecord: Codable, Sendable, Identifiable {
     public func validation() -> [String] {
         var issues: [String] = []
         if id.isEmpty || instrument.isEmpty || provider.isEmpty { issues.append("identity_missing") }
-        if environment != .oandaPractice { issues.append("practice_environment_required") }
         if input.source != provider || input.asset != instrument { issues.append("input_identity_mismatch") }
         if inputDigest != (try? ResearchEvent.digest(of: input)) { issues.append("input_digest_mismatch") }
         if observedAt > receivedAt.addingTimeInterval(1) { issues.append("future_observation") }
         if decisionState == .actionableOpportunity && decision.selectedCandidateID == nil {
             issues.append("actionable_decision_missing_candidate")
+        }
+        if decisionState == .actionableOpportunity,
+           let selectedID = decision.selectedCandidateID,
+           let selected = candidates.first(where: { $0.id == selectedID }),
+           selected.plan?.validation().isEmpty != true {
+            issues.append("actionable_decision_requires_complete_plan")
         }
         return issues
     }
@@ -267,8 +279,24 @@ public enum AdaptiveMarketRehearsal {
     /// Maps selector output to the user-facing market state without treating
     /// stale or unsafe data as a developing setup.
     public static func decisionState(for decision: AdaptiveOpportunityDecision) -> AdaptiveMarketDecisionState {
-        if decision.selectedCandidateID != nil { return .actionableOpportunity }
+        if let selectedID = decision.selectedCandidateID,
+           let selected = decision.candidates.first(where: { $0.id == selectedID }) {
+            guard let plan = selected.plan, plan.validation().isEmpty,
+                  selected.entryReference != nil else { return .confirmedOpportunity }
+            return .actionableOpportunity
+        }
         if decision.candidates.contains(where: { $0.state == .unavailable }) { return .unavailable }
+
+        let planValidationReasons: Set<String> = [
+            "invalid_price_levels", "invalid_units", "invalid_max_spread",
+            "invalid_max_entry_deviation", "invalid_risk_fraction",
+            "invalid_long_structure", "invalid_short_structure", "invalid_reward_risk"
+        ]
+        let incompletePlan = decision.candidates.contains { candidate in
+            candidate.direction != .wait && candidate.state == .rejected
+                && !Set(candidate.rejectionReasons).isDisjoint(with: planValidationReasons)
+        }
+        if incompletePlan { return .confirmedOpportunity }
 
         let hardRejectionReasons: Set<String> = [
             "non_directional", "stale_or_missing_observation",
@@ -282,6 +310,17 @@ public enum AdaptiveMarketRehearsal {
         return forming ? .opportunityForming : .noOpportunity
     }
 
+    public static func decisionState(for decision: AdaptiveOpportunityDecision,
+                                     evaluatorOutcomes: [AdaptiveStrategyEvaluationOutcome])
+        -> AdaptiveMarketDecisionState {
+        let state = decisionState(for: decision)
+        guard decision.selectedCandidateID == nil, state == .noOpportunity,
+              evaluatorOutcomes.contains(where: { $0.state == .conditionsNotMet }) else {
+            return state
+        }
+        return .conditionsNotMet
+    }
+
     public static func run(asset: String, session: OandaSession, store: ResearchStore? = nil,
                            now: Date = Date()) async throws -> AdaptiveMarketRehearsalRecord {
         try await runMeasured(asset: asset, session: session, store: store, now: now).record
@@ -290,9 +329,12 @@ public enum AdaptiveMarketRehearsal {
     /// Evaluates an already captured scan snapshot. Callers that already own a
     /// broker observation use this entry point so adaptive research never
     /// performs a second network fetch or changes the executable scan result.
+    /// `environment` is caller-supplied context metadata; it does not authenticate
+    /// the provider or infer an account from `input.source`.
     public static func evaluateSnapshot(_ input: StrategyEngine.MarketInput,
                                          observedAt: Date,
                                          receivedAt: Date = Date(),
+                                         environment: V3ProviderEnvironment = .unknown,
                                          store: ResearchStore? = nil) async throws
         -> AdaptiveMarketRehearsalResult {
         let started = DispatchTime.now().uptimeNanoseconds
@@ -331,8 +373,9 @@ public enum AdaptiveMarketRehearsal {
         }
         let record = try AdaptiveMarketRehearsalRecord(input: input, observedAt: observedAt,
             receivedAt: receivedAt, candidates: candidates, decision: decision,
-            decisionState: decisionState(for: decision), horizonEvidence: horizonEvidence,
-            evaluatorOutcomes: researchBatch.outcomes)
+            decisionState: decisionState(for: decision, evaluatorOutcomes: researchBatch.outcomes),
+            horizonEvidence: horizonEvidence,
+            evaluatorOutcomes: researchBatch.outcomes, environment: environment)
         let persistenceStart = DispatchTime.now().uptimeNanoseconds
         if let store { try await store.record(record) }
         let persistenceMs = elapsedMs(since: persistenceStart)
@@ -388,7 +431,7 @@ public enum AdaptiveMarketRehearsal {
         let selectionStart = DispatchTime.now().uptimeNanoseconds
         let decision = AdaptiveOpportunitySelector.select(candidates, now: receivedAt)
         let selectionMs = elapsedMs(since: selectionStart)
-        let state = decisionState(for: decision)
+        let state = decisionState(for: decision, evaluatorOutcomes: researchBatch.outcomes)
         let horizonEvidence = candidates.flatMap { candidate -> [AdaptiveHorizonEvidence] in
             if let plan = candidate.plan {
                 return [AdaptiveHorizonEvidence(candidateID: candidate.id, horizonSeconds: nil,
@@ -414,7 +457,7 @@ public enum AdaptiveMarketRehearsal {
         let record = try AdaptiveMarketRehearsalRecord(input: input, observedAt: observedAt,
             receivedAt: receivedAt, candidates: candidates, decision: decision,
             decisionState: state, horizonEvidence: horizonEvidence,
-            evaluatorOutcomes: researchBatch.outcomes)
+            evaluatorOutcomes: researchBatch.outcomes, environment: .oandaPractice)
         let persistenceStart = DispatchTime.now().uptimeNanoseconds
         if let store { try await store.record(record) }
         let persistenceMs = elapsedMs(since: persistenceStart)
@@ -506,26 +549,30 @@ public enum AdaptiveMarketRehearsal {
                 continue
             }
 
-            let batch: AdaptiveCandidateEvaluationBatch
+            let batch: AdaptiveDetailedCandidateEvaluationBatch
             switch spec.id {
             case "candidate001":
-                batch = AdaptiveOpportunityAdapters.evaluateCandidate001Result(
+                batch = AdaptiveOpportunityAdapters.evaluateCandidate001DetailedResult(
                     input, asOf: asOf, startedAt: startedAt)
             case "candidate002":
-                batch = AdaptiveOpportunityAdapters.evaluateCandidate002Result(
+                batch = AdaptiveOpportunityAdapters.evaluateCandidate002DetailedResult(
                     input, asOf: asOf, startedAt: startedAt)
             default:
                 continue
             }
 
             switch batch {
-            case .completed(let values):
+            case .completed(let values, let diagnostics):
                 candidates.append(contentsOf: values)
+                let state: AdaptiveStrategyEvaluationOutcome.State =
+                    values.isEmpty && !diagnostics.isEmpty ? .conditionsNotMet : .completed
                 outcomes.append(AdaptiveStrategyEvaluationOutcome(
                     evaluatorID: spec.id, strategyID: spec.strategy,
                     strategyVersion: spec.version, timeframe: "M1+M15",
-                    state: .completed, candidateIDs: values.map(\.id),
-                    reasonCode: values.isEmpty ? "no_candidate" : nil))
+                    state: state, candidateIDs: values.map(\.id),
+                    reasonCode: values.isEmpty
+                        ? (diagnostics.first?.reasonCode ?? "no_candidate") : nil,
+                    rawDiagnostics: diagnostics))
             case .failed(let reason):
                 // Adapter errors are already normalized to stable codes; never
                 // persist localized exception messages or provider payloads.

@@ -39,7 +39,7 @@ struct AdaptiveMarketRehearsalTests {
             receivedAt: now.addingTimeInterval(0.1), candidates: [candidate], decision: decision,
             decisionState: .noOpportunity,
             horizonEvidence: [AdaptiveHorizonEvidence(candidateID: candidate.id, horizonSeconds: 60,
-                state: .awaitingEvidence, reason: "fixture")])
+                state: .awaitingEvidence, reason: "fixture")], environment: .oandaPractice)
         #expect(record.validation().isEmpty)
         #expect(record.decisionState == .noOpportunity)
         #expect(record.environment == .oandaPractice)
@@ -119,6 +119,34 @@ struct AdaptiveMarketRehearsalTests {
         #expect(AdaptiveMarketRehearsal.decisionState(for: decision) == .opportunityForming)
     }
 
+    @Test func selectedCandidateWithoutCompletePlanIsConfirmedButNotActionable() {
+        let candidate = AdaptiveOpportunityCandidate(id: "confirmed", strategyID: "candidate001",
+            strategyVersion: "v2", instrument: "GBP/JPY", provider: "oanda",
+            direction: .long, observedAt: now, evaluationStartedAt: now,
+            evaluationCompletedAt: now, state: .eligible, entryReference: 190.1,
+            provenance: "fixture", freshness: .fresh, spread: 0.01,
+            spreadState: .accepted, rankingScore: 1)
+        let decision = AdaptiveOpportunitySelector.select([candidate], now: now)
+        #expect(decision.selectedCandidateID == candidate.id)
+        #expect(AdaptiveMarketRehearsal.decisionState(for: decision) == .confirmedOpportunity)
+
+        let invalidPlan = V3TradePlan(id: "invalid-plan", instrument: "GBP/JPY",
+            strategyID: "candidate002", strategyVersion: "v2", engineVersion: "engine",
+            sourceObservationID: "observation", state: .draft, side: .long,
+            entryPrice: 190.1, stopPrice: 190.2, targetPrice: 190.3,
+            units: 1, maxSpread: 0.03, riskFraction: 0.01, createdAt: now)
+        let invalidPlanCandidate = AdaptiveOpportunityCandidate(id: "invalid-plan-candidate",
+            strategyID: "candidate002", strategyVersion: "v2", instrument: "GBP/JPY",
+            provider: "oanda", direction: .long, observedAt: now,
+            evaluationStartedAt: now, evaluationCompletedAt: now,
+            state: .eligible, entryReference: 190.1, plan: invalidPlan,
+            provenance: "fixture", freshness: .fresh, spread: 0.01,
+            spreadState: .accepted, rankingScore: 1)
+        let invalidDecision = AdaptiveOpportunitySelector.select([invalidPlanCandidate], now: now)
+        #expect(invalidDecision.selectedCandidateID == nil)
+        #expect(AdaptiveMarketRehearsal.decisionState(for: invalidDecision) == .confirmedOpportunity)
+    }
+
     @Test func adaptiveRehearsalPersistsAndReloadsDeterministically() async throws {
         let input = GoldenFixture.market()
         let candidate = AdaptiveOpportunityCandidate(id: "persisted", strategyID: "test",
@@ -185,10 +213,11 @@ struct AdaptiveMarketRehearsalTests {
             .appendingPathComponent("adaptive-snapshot-\(UUID().uuidString)", isDirectory: true)
         let result = try await AdaptiveMarketRehearsal.evaluateSnapshot(
             input, observedAt: now, receivedAt: now.addingTimeInterval(0.1),
-            store: ResearchStore(root: root))
+            environment: .oandaLive, store: ResearchStore(root: root))
         #expect(result.record.inputDigest == (try ResearchEvent.digest(of: input)))
         #expect(result.record.provider == input.source)
         #expect(result.record.validation().isEmpty)
+        #expect(result.record.environment == .oandaLive)
         #expect(try await ResearchStore(root: root).adaptiveRehearsals().count == 1)
     }
 
@@ -232,6 +261,28 @@ struct AdaptiveMarketRehearsalTests {
         #expect(outcomes.count == 2)
         #expect(outcomes.allSatisfy { $0.state == .dataUnavailable })
         #expect(outcomes.allSatisfy { $0.reasonCode == "m15_context_unavailable" })
+    }
+
+    @Test func recognizedExpiredCandidateIsConditionsNotMetInsteadOfNoSetup() async throws {
+        var input = gbpJpySnapshot()
+        var candles = input.candles1m
+        candles[77] = StrategyEngine.CandlePayload(time: candles[77].time,
+            open: 190.04, high: 190.06, low: 189.99, close: 190.03)
+        candles[78] = StrategyEngine.CandlePayload(time: candles[78].time,
+            open: 190.03, high: 190.05, low: 190.01, close: 190.02)
+        candles[79] = StrategyEngine.CandlePayload(time: candles[79].time,
+            open: 190.02, high: 190.05, low: 190.01, close: 190.02)
+        input.candles1m = candles
+        let result = try await AdaptiveMarketRehearsal.evaluateSnapshot(
+            input, observedAt: now, receivedAt: now.addingTimeInterval(0.1))
+        let outcome = try #require(result.record.evaluatorOutcomes?.first {
+            $0.evaluatorID == "candidate002"
+        })
+        #expect(outcome.state == .conditionsNotMet)
+        #expect(outcome.reasonCode == "confirmation_window_expired")
+        #expect(outcome.rawDiagnostics?.first?.rawState == Candidate002TerminalState.expired.rawValue)
+        #expect(outcome.rawDiagnostics?.first?.reasonCode == "confirmation_window_expired")
+        #expect(result.record.decisionState == .conditionsNotMet)
     }
 
     @Test func gbpJpyPositiveReplayCandidateReachesRecordWithPlan() async throws {

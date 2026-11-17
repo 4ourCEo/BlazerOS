@@ -118,7 +118,7 @@ private func candidate001AdapterMarketInput() -> StrategyEngine.MarketInput {
             $0.terminalState == .candidateTriggered && $0.direction == .bullish
                 && $0.m15Confirmed
         })
-    let eventID = identifiedEvent.id
+    let eventID = "candidate001:\(identifiedEvent.id)"
     let triggerStart = try #require(identifiedEvent.triggeredAt)
     let availableAt = triggerStart.addingTimeInterval(60)
     let origin = Date(timeIntervalSince1970: fullInput.candles1m[0].time / 1_000)
@@ -151,6 +151,111 @@ private func candidate001AdapterMarketInput() -> StrategyEngine.MarketInput {
     #expect(!containsEvent(availableAt.addingTimeInterval(-0.001)))
     #expect(containsEvent(availableAt.addingTimeInterval(ttl)))
     #expect(!containsEvent(availableAt.addingTimeInterval(ttl + 0.001)))
+}
+
+@Test func detailedCandidate001AdapterPreservesExpiredRawRecognition() throws {
+    let input = candidate001AdapterMarketInput()
+    let m1 = input.candles1m.map {
+        Candidate001Candle(time: Date(timeIntervalSince1970: $0.time / 1_000),
+            open: $0.open, high: $0.high, low: $0.low, close: $0.close)
+    }
+    let m15 = AdaptiveOpportunityAdapters.aggregateM15(input.candles5m).map {
+        Candidate001Candle(time: Date(timeIntervalSince1970: $0.time / 1_000),
+            open: $0.open, high: $0.high, low: $0.low, close: $0.close)
+    }
+    let raw = try #require(Candidate001Analyzer.analyze(candles: m1, m15Candles: m15,
+        configuration: Candidate001Configuration(requireM15Confirmation: true,
+            signalFreshnessSeconds: 300)).first {
+                $0.terminalState == .candidateTriggered && $0.m15Confirmed
+            })
+    let trigger = try #require(raw.triggeredAt)
+    let asOf = trigger.addingTimeInterval(60 + 301)
+    let detailed = AdaptiveOpportunityAdapters.evaluateCandidate001DetailedResult(
+        input, asOf: asOf, startedAt: asOf)
+    guard case .completed(let candidates, let diagnostics) = detailed else {
+        Issue.record("Candidate001 detailed adapter unexpectedly failed")
+        return
+    }
+    #expect(candidates.isEmpty)
+    #expect(diagnostics.contains {
+        $0.candidateID == "candidate001:\(raw.id)"
+            && $0.rawState == Candidate001State.candidateTriggered.rawValue
+            && $0.reasonCode == "entry_window_expired"
+    })
+}
+
+@Test func detailedCandidate001AdapterPreservesMissingM15Confirmation() throws {
+    var input = candidate001AdapterMarketInput()
+    input.candles5m[2] = StrategyEngine.CandlePayload(time: input.candles5m[2].time,
+        open: 1.10, high: 1.18, low: 0.90, close: 0.95)
+    let m1 = input.candles1m.map {
+        Candidate001Candle(time: Date(timeIntervalSince1970: $0.time / 1_000),
+            open: $0.open, high: $0.high, low: $0.low, close: $0.close)
+    }
+    let m15 = AdaptiveOpportunityAdapters.aggregateM15(input.candles5m).map {
+        Candidate001Candle(time: Date(timeIntervalSince1970: $0.time / 1_000),
+            open: $0.open, high: $0.high, low: $0.low, close: $0.close)
+    }
+    let raw = try #require(Candidate001Analyzer.analyze(candles: m1, m15Candles: m15,
+        configuration: Candidate001Configuration(requireM15Confirmation: false,
+            signalFreshnessSeconds: 300)).first {
+                $0.terminalState == .candidateTriggered && !$0.m15Confirmed
+            })
+    let detailed = AdaptiveOpportunityAdapters.evaluateCandidate001DetailedResult(
+        input, asOf: raw.triggeredAt!.addingTimeInterval(60), startedAt: Date())
+    guard case .completed(let candidates, let diagnostics) = detailed else {
+        Issue.record("Candidate001 detailed adapter unexpectedly failed")
+        return
+    }
+    #expect(candidates.isEmpty)
+    #expect(diagnostics.contains {
+        $0.candidateID == "candidate001:\(raw.id)"
+            && $0.rawState == Candidate001State.candidateTriggered.rawValue
+            && $0.reasonCode == "m15_confirmation_missing"
+    })
+}
+
+@Test func candidateAdapterIDsAreNamespacedForSameEventTimestamp() throws {
+    let input1 = candidate001AdapterMarketInput()
+    let m1 = input1.candles1m.map {
+        Candidate001Candle(time: Date(timeIntervalSince1970: $0.time / 1_000),
+            open: $0.open, high: $0.high, low: $0.low, close: $0.close)
+    }
+    let m15 = AdaptiveOpportunityAdapters.aggregateM15(input1.candles5m).map {
+        Candidate001Candle(time: Date(timeIntervalSince1970: $0.time / 1_000),
+            open: $0.open, high: $0.high, low: $0.low, close: $0.close)
+    }
+    let raw1 = try #require(Candidate001Analyzer.analyze(candles: m1, m15Candles: m15,
+        configuration: Candidate001Configuration(requireM15Confirmation: true,
+            signalFreshnessSeconds: 300)).first {
+                $0.terminalState == .candidateTriggered && $0.m15Confirmed
+            })
+    let trigger = try #require(raw1.triggeredAt)
+    let collisionTime = trigger.timeIntervalSince1970
+    let now = Date(timeIntervalSince1970: collisionTime + 120)
+    let input2 = auctionFailureMarketInput(now: now, m15StartOffsetMs: -1_800_000)
+    let raw2Bars = input2.candles1m.map {
+        Candidate002Candle(time: Date(timeIntervalSince1970: $0.time / 1_000),
+            open: $0.open, high: $0.high, low: $0.low, close: $0.close)
+    }
+    let raw2M15 = AdaptiveOpportunityAdapters.aggregateM15(input2.candles5m).map {
+        Candidate002Candle(time: Date(timeIntervalSince1970: $0.time / 1_000),
+            open: $0.open, high: $0.high, low: $0.low, close: $0.close)
+    }
+    let raw2 = try #require(Candidate002Analyzer.analyze(candles: raw2Bars,
+        higherTimeframe: raw2M15, configuration: Candidate002Configuration(
+            signalFreshnessSeconds: 120)).first { $0.terminalState == .confirmed })
+    #expect(raw1.id == raw2.id)
+
+    let adapted1 = AdaptiveOpportunityAdapters.evaluateCandidate001(input1,
+        asOf: trigger.addingTimeInterval(60), startedAt: trigger)
+    let adapted2 = AdaptiveOpportunityAdapters.evaluateCandidate002(input2,
+        asOf: now, startedAt: now)
+    let id1 = try #require(adapted1.first?.id)
+    let id2 = try #require(adapted2.first?.id)
+    #expect(id1 == "candidate001:\(raw1.id)")
+    #expect(id2 == "candidate002:\(raw2.id)")
+    #expect(id1 != id2)
 }
 
 @Test func auctionFailureAdapterBuildsRangeAnchoredStructuralPlan() {

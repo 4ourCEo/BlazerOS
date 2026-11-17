@@ -34,6 +34,27 @@ public enum AdaptiveCandidateEvaluationBatch: Sendable, Equatable {
     case failed(String)
 }
 
+/// Raw analyzer recognition preserved when the execution-ready adapter filters
+/// an expired, invalidated, or unconfirmed structure from its candidate output.
+public struct AdaptiveCandidateRawDiagnostic: Codable, Sendable, Equatable, Identifiable {
+    public let candidateID: String
+    public let rawState: String
+    public let reasonCode: String
+    public var id: String { "\(candidateID):\(rawState)" }
+
+    public init(candidateID: String, rawState: String, reasonCode: String) {
+        self.candidateID = candidateID
+        self.rawState = rawState
+        self.reasonCode = reasonCode
+    }
+}
+
+public enum AdaptiveDetailedCandidateEvaluationBatch: Sendable, Equatable {
+    case completed(candidates: [AdaptiveOpportunityCandidate],
+                   diagnostics: [AdaptiveCandidateRawDiagnostic])
+    case failed(String)
+}
+
 public struct AdaptiveOpportunityCandidate: Codable, Sendable, Equatable, Identifiable {
     public let id: String
     public let strategyID: String

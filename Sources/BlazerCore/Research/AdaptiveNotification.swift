@@ -2,6 +2,7 @@ import Foundation
 
 public enum AdaptiveNotificationKind: String, Codable, Sendable, Equatable {
     case setupForming = "SETUP_FORMING"
+    case setupConfirmed = "SETUP_CONFIRMED"
     case entryReady = "ENTRY_READY"
     case setupInvalidated = "SETUP_INVALIDATED"
     case opportunityExpired = "OPPORTUNITY_EXPIRED"
@@ -52,7 +53,9 @@ public enum AdaptiveNotificationPlanner {
                             lifetime: TimeInterval = 30) -> AdaptiveNotification? {
         let kind: AdaptiveNotificationKind
         switch state {
+        case .conditionsNotMet: return nil
         case .opportunityForming: kind = .setupForming
+        case .confirmedOpportunity: kind = .setupConfirmed
         case .actionableOpportunity: kind = .entryReady
         case .unavailable: kind = .providerUnavailable
         case .noOpportunity: return nil

@@ -93,4 +93,16 @@ struct AdaptiveOpportunitySelectorTests {
             instrument: "GBP/JPY", sourceTime: now.addingTimeInterval(-60),
             now: now) == nil)
     }
+
+    @Test func confirmedPlanIncompleteCandidateNeverProducesEntryReadyNotification() {
+        let confirmed = candidate("confirmed")
+        let notification = AdaptiveNotificationPlanner.plan(
+            state: .confirmedOpportunity, selectedCandidate: confirmed,
+            instrument: "GBP/JPY", sourceTime: now, now: now)
+        #expect(notification?.kind == .setupConfirmed)
+        #expect(notification?.kind != .entryReady)
+        #expect(AdaptiveNotificationPlanner.plan(
+            state: .conditionsNotMet, selectedCandidate: nil,
+            instrument: "GBP/JPY", sourceTime: now, now: now) == nil)
+    }
 }
