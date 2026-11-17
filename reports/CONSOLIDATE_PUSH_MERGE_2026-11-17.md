@@ -25,7 +25,7 @@ This is a source-control and generated-cache cleanup task over an already implem
 | C1 cache cleanup | Main agent | ignored `.build/`, generated `build/`, `.gitignore`, scratch `deliverables/` | disk usage and preserved export paths checked | DONE |
 | C2 consolidate changes | Main agent | current source, tests, scripts, docs, reports | staged paths reviewed; source/config whitespace check passes; initial commit created | DONE |
 | C3 synchronize | Main agent | current Git branch and merge metadata | merged refreshed `origin/main` (`8d9da00`); conflicts resolved and tests pass | DONE |
-| C4 verify and publish | Main agent | test/build evidence, remote branch/PR | 721 Swift tests and iOS Simulator build pass; push/PR/merge pending | IN PROGRESS |
+| C4 verify and publish | Main agent | test/build evidence, remote branch/PR | CI green; PR merged into main | DONE |
 
 ## Preservation and exclusions
 
@@ -44,6 +44,8 @@ This is a source-control and generated-cache cleanup task over an already implem
 
 ## Completion record
 
-Initial consolidation commit: `536480c`. Upstream merge commit: `ed383b5`.
+Initial consolidation commit: `536480c`. Upstream merge commit: `ed383b5`. Portability fix commit: `9805975`. Packaging environment fix commit: `8d0e026`.
 
-PR #35 CI found two portability issues after the initial push: SwiftPM treats an `@main` type in a file named `main.swift` as top-level code, and the newer AVAudioSession activation/deactivation methods are unavailable on iOS. Renamed the entry point to `ForwardTestApp.swift` and restored the serialized iOS `setActive` path. `swift build --scratch-path /tmp/blazer-ci-build` and the iOS Simulator build both pass locally after these fixes. The updated iOS job compiled the Simulator target successfully. Engine CI then exposed that `DYLD_INSERT_LIBRARIES` is applied by the loader before the packaging script can sanitize it. The environment test now injects the value from `BASH_ENV` after shell startup; the packaging script clears loader and shell-startup variables before launching helpers. Focused `stagedPackagerDropsCallerToolchainOverridesAndPathShadowing` passes 1/1. A fresh PR CI rerun is pending.
+PR #35 CI found two portability issues after the initial push: SwiftPM treats an `@main` type in a file named `main.swift` as top-level code, and the newer AVAudioSession activation/deactivation methods are unavailable on iOS. Renamed the entry point to `ForwardTestApp.swift` and restored the serialized iOS `setActive` path. `swift build --scratch-path /tmp/blazer-ci-build` and the iOS Simulator build both pass locally after these fixes. The updated iOS job compiled the Simulator target successfully. Engine CI then exposed that `DYLD_INSERT_LIBRARIES` is applied by the loader before the packaging script can sanitize it. The environment test now injects the value from `BASH_ENV` after shell startup; the packaging script clears loader and shell-startup variables before launching helpers. Focused `stagedPackagerDropsCallerToolchainOverridesAndPathShadowing` passes 1/1.
+
+PR #35 (https://github.com/4ourCEo/BlazerOS/pull/35) passed both required CI contexts (`Engine pin, tests, parity` and `iPhone app build`) and was merged on 2026-11-17 at 17:41:09 UTC. Merge commit: `fbbca3e67e8148f24183ea561e25965197fa091`. The iPhone job includes the Release Simulator build and iPhone tests. The final engine CI run passed the full Swift suite and parity checks. The integration branch was synchronized to the resulting `origin/main`.
