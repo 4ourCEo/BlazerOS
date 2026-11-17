@@ -300,6 +300,17 @@ private func diagnosticCandidate(family: MacResearchEvaluatorFamily,
     #expect(model.macResearchSignals.isEmpty && model.macResearchEvaluationDiagnostics.isEmpty)
     #expect(model.macResearchSignalStatus == .failed)
 }
+
+@MainActor
+@Test func gbpJpyPracticeMonitorRequiresItsTargetPair() async {
+    let model = LightningDeskModel(storageRoot: FileManager.default.temporaryDirectory
+        .appendingPathComponent("gbpjpy-practice-monitor-guard-\(UUID().uuidString)", isDirectory: true))
+
+    await model.toggleGBPJPYPracticeMonitoring()
+
+    #expect(!model.isGBPJPYPracticeMonitoring)
+    #expect(model.notice == "Select GBP/JPY before starting the Practice monitor")
+}
 #endif
 
 @Test func projectionRejectsExpiredUntrustedAndEmptyValidity() {

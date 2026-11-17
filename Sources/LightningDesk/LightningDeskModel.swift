@@ -182,7 +182,9 @@ public final class LightningDeskModel: ObservableObject {
     @Published public private(set) var macResearchSignals: [MacResearchSignal] = []
     @Published public private(set) var macResearchEvaluationDiagnostics: [MacResearchEvaluationDiagnostic] = []
     @Published public private(set) var macResearchSignalStatus: MacResearchSignalStatus = .awaitingFreshScan
+    @Published public private(set) var isGBPJPYPracticeMonitoring = false
     private var macResearchExpiryTask: Task<Void, Never>?
+    private var gbpJPYPracticeMonitorTask: Task<Void, Never>?
 #endif
     private let macResearchSourceAttestationVerified: Bool
     /// Latest adaptive research decision projected for native presentation.
@@ -1132,6 +1134,12 @@ public final class LightningDeskModel: ObservableObject {
     }
 
     public func select(pair next: String) {
+#if os(macOS)
+        guard !isGBPJPYPracticeMonitoring || next == "GBP/JPY" else {
+            notice = "Stop the GBP/JPY Practice monitor before switching pairs"
+            return
+        }
+#endif
         guard activeTrade == nil, !awaitingOutcome, !settlementInFlight else {
             notice = "Resolve the current outcome before switching pairs"
             return
@@ -1607,6 +1615,76 @@ public final class LightningDeskModel: ObservableObject {
             return
         }
         await enqueueScan(market: .fx, asset: request.asset, assets: request.assets)
+    }
+
+    /// Starts bounded, read-only GBP/JPY Practice scans using the existing scan coordinator.
+    /// The user must explicitly start this monitor; it never submits broker orders.
+    public func toggleGBPJPYPracticeMonitoring() async {
+        if isGBPJPYPracticeMonitoring {
+            stopGBPJPYPracticeMonitoring()
+            return
+        }
+        guard marketMode == .fx, pair == "GBP/JPY" else {
+            notice = "Select GBP/JPY before starting the Practice monitor"
+            return
+        }
+        guard let activeSession = await loadSession(allowPrompt: false),
+              activeSession.environment == .practice else {
+            notice = "Connect an OANDA Practice account before starting the GBP/JPY monitor"
+            return
+        }
+        isGBPJPYPracticeMonitoring = true
+        notice = "GBP/JPY Practice monitor started · scans every minute while the market is open"
+        gbpJPYPracticeMonitorTask?.cancel()
+        gbpJPYPracticeMonitorTask = Task { [weak self] in
+            await self?.runGBPJPYPracticeMonitor()
+        }
+    }
+
+    public func stopGBPJPYPracticeMonitoring() {
+        gbpJPYPracticeMonitorTask?.cancel()
+        gbpJPYPracticeMonitorTask = nil
+        isGBPJPYPracticeMonitoring = false
+        notice = "GBP/JPY Practice monitor stopped"
+    }
+
+    private func runGBPJPYPracticeMonitor() async {
+        var consecutiveFailures = 0
+        while !Task.isCancelled, isGBPJPYPracticeMonitoring {
+            guard marketMode == .fx, pair == "GBP/JPY" else {
+                stopGBPJPYPracticeMonitoring()
+                return
+            }
+            if backgroundedAt != nil {
+                try? await Task.sleep(for: .seconds(30))
+                continue
+            }
+            guard let activeSession = await loadSession(allowPrompt: false),
+                  activeSession.environment == .practice else {
+                stopGBPJPYPracticeMonitoring()
+                notice = "Practice session unavailable · GBP/JPY monitoring stopped"
+                return
+            }
+
+            let now = Date()
+            var delay: TimeInterval = 60
+            if FxSession.isOpen(now) {
+                if !scanning, activeTrade == nil, !awaitingOutcome, !settlementInFlight {
+                    await scanSelectedFXPair("GBP/JPY")
+                    let scanFailed = feed == .error || macResearchSignalStatus == .failed
+                    consecutiveFailures = scanFailed ? min(consecutiveFailures + 1, 3) : 0
+                    if scanFailed {
+                        delay = min(60 * pow(2, Double(consecutiveFailures)), 300)
+                    }
+                } else if activeTrade != nil || awaitingOutcome || settlementInFlight {
+                    delay = 60
+                }
+            } else {
+                notice = FxSession.label(now)
+                delay = 300
+            }
+            try? await Task.sleep(for: .seconds(delay))
+        }
     }
 #endif
 

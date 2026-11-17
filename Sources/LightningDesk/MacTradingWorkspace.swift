@@ -421,6 +421,22 @@ struct MacTradingWorkspace: View {
                     .accessibilityIdentifier("mac.scan-selected-pair")
                     .help("Run the normal OANDA FX scan for \(model.pair) only")
             }
+            if model.pair == "GBP/JPY" {
+                Button {
+                    Task { await model.toggleGBPJPYPracticeMonitoring() }
+                } label: {
+                    Label(model.isGBPJPYPracticeMonitoring
+                          ? "STOP PRACTICE MONITOR" : "MONITOR GBP/JPY · PRACTICE",
+                          systemImage: model.isGBPJPYPracticeMonitoring ? "pause.circle" : "waveform.path.ecg")
+                        .font(.system(size: 9, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.7)
+                        .frame(maxWidth: .infinity).padding(.vertical, 7)
+                }
+                .buttonStyle(.bordered)
+                .tint(blue)
+                .disabled(model.scanning && !model.isGBPJPYPracticeMonitoring)
+                .accessibilityIdentifier("mac.gbpjpy-practice-monitor")
+                .help("Run read-only GBP/JPY Practice scans every minute while the market is open")
+            }
             let practiceSignal = practiceSignalForSetup
             let decision = practiceSignal == nil ? model.strategyDecision(for: model.pair) : nil
             let plan = decision?.plan

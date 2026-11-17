@@ -35,7 +35,7 @@ final class BlazerUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Trade"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["ORB BREAK · RETEST"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["orb.lifecycle.status"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["ADAPTIVE RESEARCH"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["STRATEGY OPPORTUNITY"].waitForExistence(timeout: 5))
         let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         screenshot.name = "blazer-trade-screen"
         screenshot.lifetime = .keepAlways
@@ -183,18 +183,18 @@ final class BlazerUITests: XCTestCase {
     }
 
     func testForegroundRecoveryAfterBackgroundAndTermination() {
-        XCTAssertTrue(app.staticTexts["ADAPTIVE RESEARCH"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["STRATEGY OPPORTUNITY"].waitForExistence(timeout: 5))
         XCUIDevice.shared.press(.home)
         XCTAssertTrue(app.wait(for: .runningBackground, timeout: 10))
         app.activate()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
-        XCTAssertTrue(app.staticTexts["ADAPTIVE RESEARCH"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["STRATEGY OPPORTUNITY"].waitForExistence(timeout: 5))
         app.terminate()
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 15))
         let demo = app.buttons["Explore Demo Desk (Simulated)"]
         if demo.waitForExistence(timeout: 10) { demo.tap() }
         XCTAssertTrue(app.buttons["Trade"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["ADAPTIVE RESEARCH"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["STRATEGY OPPORTUNITY"].waitForExistence(timeout: 5))
     }
 }
