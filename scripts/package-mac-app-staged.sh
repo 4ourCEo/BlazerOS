@@ -1,6 +1,12 @@
 #!/bin/bash
 set -Eeuo pipefail
 
+# The caller's dynamic-loader settings have already affected this shell's
+# startup, but must not leak to any helper process launched by the script.
+unset BASH_ENV ENV DYLD_INSERT_LIBRARIES DYLD_LIBRARY_PATH DYLD_FRAMEWORK_PATH \
+  DYLD_FALLBACK_LIBRARY_PATH DYLD_FALLBACK_FRAMEWORK_PATH DYLD_VERSIONED_LIBRARY_PATH \
+  DYLD_ROOT_PATH DYLD_IMAGE_SUFFIX DYLD_PRINT_ENV DYLD_PRINT_LIBRARIES
+
 # Build a uniquely named, signed staging bundle without replacing or launching
 # any installed application. A valid signing identity must be selected first.
 

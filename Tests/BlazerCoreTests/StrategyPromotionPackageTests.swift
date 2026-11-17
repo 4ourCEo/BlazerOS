@@ -303,6 +303,10 @@ struct StrategyPromotionPackageTests {
         let fakeSwift = poisonBin.appendingPathComponent("swift")
         try Data("#!/bin/sh\nprintf poison-swift-ran\n".utf8).write(to: fakeSwift)
         try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeSwift.path)
+        // Loader variables must not be set in Process.environment: dyld handles
+        // them before the tested script can sanitize child-process environments.
+        let bashEnv = temporary.appendingPathComponent("caller-env.sh")
+        try Data("export DYLD_INSERT_LIBRARIES=/poison/inject.dylib\n".utf8).write(to: bashEnv)
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
@@ -318,8 +322,7 @@ struct StrategyPromotionPackageTests {
             "SWIFT_EXEC": "/poison/swift",
             "SWIFTFLAGS": "-DPOISON",
             "CFLAGS": "-DPOISON",
-            "DYLD_INSERT_LIBRARIES": "/poison/inject.dylib",
-            "BASH_ENV": "/dev/null"
+            "BASH_ENV": bashEnv.path
         ]
         let output = Pipe()
         process.standardOutput = output
