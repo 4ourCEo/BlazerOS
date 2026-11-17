@@ -46,7 +46,7 @@ struct ReplayCover: View {
                             .foregroundStyle(DeskInk.electric)
                     }
                 }
-                Text("Markers use only candles visible at the replay step. Candidate 001 is research-only.")
+                Text("Setup markers use only candles visible at this replay step. Broker entries remain manual.")
                     .font(.system(size: 11, weight: .regular))
                     .foregroundStyle(DeskInk.slate)
             }
