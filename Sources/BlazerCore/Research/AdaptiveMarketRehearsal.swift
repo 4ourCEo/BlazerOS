@@ -24,6 +24,39 @@ public enum AdaptiveHorizonEvidenceState: String, Codable, Sendable, Equatable {
     case unsupported = "UNSUPPORTED"
 }
 
+/// Result of invoking one configured research evaluator on a Practice/replay
+/// snapshot. An empty candidate list with `.completed` means the evaluator ran
+/// successfully and found no setup; `.failed` and `.dataUnavailable` remain
+/// distinct, machine-readable outcomes.
+public struct AdaptiveStrategyEvaluationOutcome: Codable, Sendable, Equatable, Identifiable {
+    public enum State: String, Codable, Sendable, Equatable {
+        case completed = "COMPLETED"
+        case failed = "FAILED"
+        case dataUnavailable = "DATA_UNAVAILABLE"
+    }
+
+    public let evaluatorID: String
+    public let strategyID: String
+    public let strategyVersion: String
+    public let timeframe: String
+    public let state: State
+    public let candidateIDs: [String]
+    public let reasonCode: String?
+    public var id: String { "\(evaluatorID):\(timeframe)" }
+
+    public init(evaluatorID: String, strategyID: String, strategyVersion: String,
+                timeframe: String, state: State, candidateIDs: [String] = [],
+                reasonCode: String? = nil) {
+        self.evaluatorID = evaluatorID
+        self.strategyID = strategyID
+        self.strategyVersion = strategyVersion
+        self.timeframe = timeframe
+        self.state = state
+        self.candidateIDs = candidateIDs
+        self.reasonCode = reasonCode
+    }
+}
+
 public struct AdaptiveRehearsalTiming: Codable, Sendable, Equatable {
     public let brokerMs: Double
     public let validationMs: Double
@@ -99,27 +132,38 @@ public struct AdaptiveHorizonEvidence: Codable, Sendable, Equatable, Identifiabl
     }
 }
 
-/// Read-only native presentation model. It deliberately carries no entry
-/// authority and converts an expired selected candidate into an explicit
-/// non-actionable state before SwiftUI receives it.
+/// Practice signal presentation model. It carries usable review details without
+/// granting order authority and converts expired candidates to non-actionable state.
 public struct AdaptiveResearchProjection: Codable, Sendable, Equatable {
     public let decisionState: AdaptiveMarketDecisionState
     public let instrument: String
     public let provider: String
     public let candidateID: String?
     public let strategyID: String?
+    public let timeframe: String?
     public let direction: AdaptiveDirection?
+    public let entryPrice: Double?
+    public let stopPrice: Double?
+    public let targetPrice: Double?
+    public let remainingReasons: [String]?
+    public let unavailableFields: [String]?
     public let horizonSeconds: Int?
     public let freshness: AdaptiveFreshnessState?
     public let observedAt: Date?
     public let decisionAgeSeconds: TimeInterval?
     public let invalidationReason: String?
-    public let isResearchOnly: Bool
+    /// Candidate review always requires the user's own broker action.
+    public var requiresManualExecution: Bool { true }
 
     public init(record: AdaptiveMarketRehearsalRecord, now: Date,
                 maximumAge: TimeInterval = 8) {
         let selected = record.decision.selectedCandidateID.flatMap { id in
             record.candidates.first { $0.id == id }
+        }
+        let selectedOutcome = selected.flatMap { candidate in
+            record.evaluatorOutcomes?.first {
+                $0.candidateIDs.contains(candidate.id)
+            }
         }
         let age = record.observedAt <= now ? now.timeIntervalSince(record.observedAt) : nil
         let expired = selected.map { $0.freshness != .fresh || (age ?? .greatestFiniteMagnitude) > maximumAge } ?? false
@@ -128,13 +172,23 @@ public struct AdaptiveResearchProjection: Codable, Sendable, Equatable {
         provider = record.provider
         candidateID = selected?.id
         strategyID = selected?.strategyID
+        timeframe = expired ? nil : selectedOutcome?.timeframe
         direction = selected?.direction
+        entryPrice = expired ? nil : selected?.plan?.entryPrice ?? selected?.entryReference
+        stopPrice = expired ? nil : selected?.plan?.stopPrice
+        targetPrice = expired ? nil : selected?.plan?.targetPrice
+        remainingReasons = expired ? [] : (selected?.rejectionReasons ?? [])
+        var missing: [String] = []
+        if selectedOutcome?.timeframe == nil { missing.append("timeframe") }
+        if selected?.plan?.entryPrice == nil && selected?.entryReference == nil { missing.append("entry") }
+        if selected?.plan?.stopPrice == nil { missing.append("stop") }
+        if selected?.plan?.targetPrice == nil { missing.append("target") }
+        unavailableFields = expired ? ["timeframe", "entry", "stop", "target"] : missing
         horizonSeconds = expired ? nil : record.selectedHorizonSeconds
         freshness = selected?.freshness
         observedAt = record.observedAt
         decisionAgeSeconds = age
         invalidationReason = expired ? "decision_expired_or_stale" : record.errorReason
-        isResearchOnly = true
     }
 }
 
@@ -153,12 +207,15 @@ public struct AdaptiveMarketRehearsalRecord: Codable, Sendable, Identifiable {
     public let horizonEvidence: [AdaptiveHorizonEvidence]
     public let availability: AdaptiveMarketAvailability
     public let errorReason: String?
+    /// Optional for compatibility with previously persisted rehearsal records.
+    public let evaluatorOutcomes: [AdaptiveStrategyEvaluationOutcome]?
 
     public init(input: StrategyEngine.MarketInput, observedAt: Date, receivedAt: Date,
                 candidates: [AdaptiveOpportunityCandidate], decision: AdaptiveOpportunityDecision,
                 decisionState: AdaptiveMarketDecisionState,
                 horizonEvidence: [AdaptiveHorizonEvidence],
-                availability: AdaptiveMarketAvailability = .ready, errorReason: String? = nil) throws {
+                availability: AdaptiveMarketAvailability = .ready, errorReason: String? = nil,
+                evaluatorOutcomes: [AdaptiveStrategyEvaluationOutcome]? = nil) throws {
         inputDigest = try ResearchEvent.digest(of: input)
         id = "adaptive-\(inputDigest)"
         instrument = input.asset
@@ -173,6 +230,7 @@ public struct AdaptiveMarketRehearsalRecord: Codable, Sendable, Identifiable {
         self.horizonEvidence = horizonEvidence
         self.availability = availability
         self.errorReason = errorReason
+        self.evaluatorOutcomes = evaluatorOutcomes
     }
 
     public func validation() -> [String] {
@@ -245,6 +303,8 @@ public enum AdaptiveMarketRehearsal {
             candidates.append(try await AdaptiveOpportunityAdapters.evaluateEngine(
                 input, policy: policy, at: candidateStart))
         }
+        let researchBatch = evaluateConfiguredResearchStrategies(input, asOf: receivedAt)
+        candidates.append(contentsOf: researchBatch.candidates)
         candidates.append(AdaptiveOpportunityAdapters.evaluateORB(input, asOf: receivedAt,
                                                                    startedAt: receivedAt))
         let candidateEvaluationMs = elapsedMs(since: candidateStart)
@@ -271,7 +331,8 @@ public enum AdaptiveMarketRehearsal {
         }
         let record = try AdaptiveMarketRehearsalRecord(input: input, observedAt: observedAt,
             receivedAt: receivedAt, candidates: candidates, decision: decision,
-            decisionState: decisionState(for: decision), horizonEvidence: horizonEvidence)
+            decisionState: decisionState(for: decision), horizonEvidence: horizonEvidence,
+            evaluatorOutcomes: researchBatch.outcomes)
         let persistenceStart = DispatchTime.now().uptimeNanoseconds
         if let store { try await store.record(record) }
         let persistenceMs = elapsedMs(since: persistenceStart)
@@ -319,6 +380,8 @@ public enum AdaptiveMarketRehearsal {
             candidates.append(try await AdaptiveOpportunityAdapters.evaluateEngine(input, policy: policy,
                                                                                    at: started))
         }
+        let researchBatch = evaluateConfiguredResearchStrategies(input, asOf: receivedAt)
+        candidates.append(contentsOf: researchBatch.candidates)
         candidates.append(AdaptiveOpportunityAdapters.evaluateORB(input, asOf: receivedAt,
                                                                   startedAt: receivedAt))
         let candidateEvaluationMs = elapsedMs(since: candidateStart)
@@ -350,7 +413,8 @@ public enum AdaptiveMarketRehearsal {
         }
         let record = try AdaptiveMarketRehearsalRecord(input: input, observedAt: observedAt,
             receivedAt: receivedAt, candidates: candidates, decision: decision,
-            decisionState: state, horizonEvidence: horizonEvidence)
+            decisionState: state, horizonEvidence: horizonEvidence,
+            evaluatorOutcomes: researchBatch.outcomes)
         let persistenceStart = DispatchTime.now().uptimeNanoseconds
         if let store { try await store.record(record) }
         let persistenceMs = elapsedMs(since: persistenceStart)
@@ -400,6 +464,78 @@ public enum AdaptiveMarketRehearsal {
             }
             return AdaptiveMarketDiagnostic(state: state, message: message)
         }
+    }
+
+    /// Runs the existing GBP/JPY research evaluators against the same captured
+    /// snapshot as the rest of Practice rehearsal. No strategy promotion registry
+    /// participates in candidate generation. Each evaluator reports successful
+    /// no-setup separately from incomplete data and analyzer failure.
+    private static func evaluateConfiguredResearchStrategies(
+        _ input: StrategyEngine.MarketInput, asOf: Date
+    ) -> (candidates: [AdaptiveOpportunityCandidate], outcomes: [AdaptiveStrategyEvaluationOutcome]) {
+        let instrument = input.asset.uppercased().replacingOccurrences(of: "_", with: "/")
+        guard instrument == "GBP/JPY" else { return ([], []) }
+
+        let m15 = AdaptiveOpportunityAdapters.aggregateM15(input.candles5m)
+        let m1Count = input.candles1m.count
+        let hasM15Context = !m15.isEmpty
+        let startedAt = Date()
+        var candidates: [AdaptiveOpportunityCandidate] = []
+        var outcomes: [AdaptiveStrategyEvaluationOutcome] = []
+
+        let candidate001Configuration = Candidate001Configuration(requireM15Confirmation: true,
+                                                                   signalFreshnessSeconds: 300)
+        let candidate002Configuration = Candidate002Configuration(signalFreshnessSeconds: 120)
+        let evaluatorSpecs: [(id: String, strategy: String, version: String, minimumM1: Int)] = [
+            ("candidate001", "CANDIDATE_001_CHOCH_FVG_FIB", Candidate001Analyzer.version,
+             candidate001Configuration.swingLeftBars + candidate001Configuration.swingRightBars + 1),
+            ("candidate002", "CANDIDATE_002_AUCTION_FAILURE", Candidate002Analyzer.version,
+             candidate002Configuration.lookbackBars + 2)
+        ]
+        for spec in evaluatorSpecs {
+            // Both existing adapters use M1 bars with a deterministically
+            // aggregated M15 context. Three aligned M5 bars form one completed
+            // M15 bar; incomplete context cannot be reported as NO_SETUP.
+            guard m1Count >= spec.minimumM1, hasM15Context else {
+                outcomes.append(AdaptiveStrategyEvaluationOutcome(
+                    evaluatorID: spec.id, strategyID: spec.strategy,
+                    strategyVersion: spec.version, timeframe: "M1+M15",
+                    state: .dataUnavailable,
+                    reasonCode: m1Count < spec.minimumM1
+                        ? "candle_history_insufficient" : "m15_context_unavailable"))
+                continue
+            }
+
+            let batch: AdaptiveCandidateEvaluationBatch
+            switch spec.id {
+            case "candidate001":
+                batch = AdaptiveOpportunityAdapters.evaluateCandidate001Result(
+                    input, asOf: asOf, startedAt: startedAt)
+            case "candidate002":
+                batch = AdaptiveOpportunityAdapters.evaluateCandidate002Result(
+                    input, asOf: asOf, startedAt: startedAt)
+            default:
+                continue
+            }
+
+            switch batch {
+            case .completed(let values):
+                candidates.append(contentsOf: values)
+                outcomes.append(AdaptiveStrategyEvaluationOutcome(
+                    evaluatorID: spec.id, strategyID: spec.strategy,
+                    strategyVersion: spec.version, timeframe: "M1+M15",
+                    state: .completed, candidateIDs: values.map(\.id),
+                    reasonCode: values.isEmpty ? "no_candidate" : nil))
+            case .failed(let reason):
+                // Adapter errors are already normalized to stable codes; never
+                // persist localized exception messages or provider payloads.
+                outcomes.append(AdaptiveStrategyEvaluationOutcome(
+                    evaluatorID: spec.id, strategyID: spec.strategy,
+                    strategyVersion: spec.version, timeframe: "M1+M15",
+                    state: .failed, reasonCode: reason))
+            }
+        }
+        return (candidates, outcomes)
     }
 
     private static func elapsedMs(since start: UInt64) -> Double {
