@@ -107,7 +107,7 @@ struct MacTradingWorkspace: View {
                 setupPanel.frame(width: 276).frame(maxHeight: .infinity)
             }
             researchSignalsPanel.frame(height: 160)
-            HStack(spacing: 12) { researchEvaluationPanel; checklistPanel; nextPanel }.frame(height: 126)
+            strategySignalSummaryPanel.frame(height: 126)
         }.padding(14).frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -450,58 +450,33 @@ struct MacTradingWorkspace: View {
         }.padding(14).background(.white, in: RoundedRectangle(cornerRadius: 10)).overlay(RoundedRectangle(cornerRadius: 10).stroke(line))
     }
 
-    private var researchEvaluationPanel: some View {
-        let observations = model.strategyResearchObservations(for: model.pair)
+    private var strategySignalSummaryPanel: some View {
+        let unconfigured = model.macResearchEvaluationDiagnostics
+            .filter { $0.state == .notConfigured }
+            .map { $0.family.rawValue }
         return VStack(alignment: .leading, spacing: 5) {
-            Text("RESEARCH EVALUATIONS · NON-ACTIONABLE")
+            Text("SIGNAL ENGINE")
                 .font(.system(size: 9, weight: .bold)).tracking(0.45)
-            if observations.isEmpty {
-                Text("Run SCAN to evaluate registered research rules against fresh Live data.")
-                    .font(.system(size: 10)).foregroundStyle(muted)
-                    .lineLimit(3).frame(maxWidth: .infinity, alignment: .leading)
-                Spacer(minLength: 0)
-            } else {
-                ScrollView(.vertical) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(observations) { observation in
-                            let identity = observation.profileID ?? observation.strategyID
-                            let reason = observation.reasons.joined(separator: " · ")
-                            VStack(alignment: .leading, spacing: 2) {
-                                HStack(spacing: 5) {
-                                    Text(identity.replacingOccurrences(of: "_", with: " ").capitalized)
-                                        .font(.system(size: 9, weight: .semibold))
-                                        .lineLimit(1)
-                                    Spacer(minLength: 3)
-                                    Text(observation.status.rawValue.uppercased())
-                                        .font(.system(size: 8, weight: .medium, design: .monospaced))
-                                        .foregroundStyle(muted)
-                                }
-                                Text("\(observation.strategyVersion) · \(reason)")
-                                    .font(.system(size: 8, design: .monospaced))
-                                    .foregroundStyle(muted)
-                                    .lineLimit(2)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .accessibilityElement(children: .combine)
-                            .accessibilityIdentifier("mac.research-evaluation.\(observation.strategyID)")
-                        }
-                    }.frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .accessibilityIdentifier("mac.research-evaluations.list")
+            Text("\(model.pair) · \(researchSignalStatusText)")
+                .font(.system(size: 10, weight: .medium)).foregroundStyle(muted)
+            HStack(spacing: 12) {
+                value("VISIBLE SETUPS", String(model.macResearchSignals.count))
+                value("EVALUATORS", String(model.macResearchEvaluationDiagnostics.count))
             }
+            if !unconfigured.isEmpty {
+                Text("PROFILE REQUIRED · \(unconfigured.joined(separator: " · "))")
+                    .font(.system(size: 8, weight: .medium, design: .monospaced))
+                    .foregroundStyle(muted).lineLimit(2)
+            }
+            Text("Use qualifying signals to prepare a manual OANDA Practice trade. Live orders still require their own authorization.")
+                .font(.system(size: 9)).foregroundStyle(muted).lineLimit(2)
+            Spacer(minLength: 0)
         }
         .padding(12).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(.white, in: RoundedRectangle(cornerRadius: 9))
         .overlay(RoundedRectangle(cornerRadius: 9).stroke(line))
-        .accessibilityIdentifier("mac.research-evaluations")
+        .accessibilityIdentifier("mac.strategy-signal-summary")
     }
-    private var checklistPanel: some View {
-        let decision = model.strategyDecision(for: model.pair)
-        return infoPanel("SETUP CHECKLIST", "Market data: \(model.currentFXQuote == nil ? "unknown" : "available")  ·  Strategy decision: \(decision?.action.rawValue ?? "pending")  ·  Risk: unresolved")
-    }
-    private var nextPanel: some View { infoPanel("NEXT STEP", model.currentFXQuote == nil ? "Connect OANDA Live credentials or scan for current source data." : "Review the engine decision; do not treat a forming setup as actionable.") }
-
     @ViewBuilder private var secondaryView: some View {
         switch destination {
         case "Plans":
