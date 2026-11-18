@@ -35,7 +35,11 @@ struct MarketsScreen: View {
                         score: model.score(for: pair),
                         side: model.side(for: pair) ?? "WAIT",
                         strike: model.strike(for: pair),
-                        candles: model.candles(for: pair)
+                        candles: model.candles(for: pair),
+                        orbDecision: model.orbDecision(for: pair),
+                        orbPlan: currentORBPlan(for: pair),
+                        feed: model.frame?.feed ?? model.feed,
+                        scanState: scanState
                     ) {
                         DeskHaptics.tabSwitch()
                         model.selectAndNavigate(pair: pair)
@@ -79,7 +83,7 @@ struct MarketsScreen: View {
         return HStack(spacing: 0) {
             radarStatusCell(title: "MONITORED", value: "\(model.pairs.count)")
             Divider().frame(height: 28).overlay(Color.white.opacity(0.08))
-            radarStatusCell(title: "ELIGIBLE", value: eligible == 0 ? "—" : "\(eligible)")
+            radarStatusCell(title: "DESK SIGNALS", value: eligible == 0 ? "—" : "\(eligible)")
             Divider().frame(height: 28).overlay(Color.white.opacity(0.08))
             radarStatusCell(title: "FEED", value: feedWord)
         }
@@ -87,7 +91,7 @@ struct MarketsScreen: View {
         .background(DeskInk.surface.opacity(0.78), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.white.opacity(0.06), lineWidth: 0.6))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Monitored \(model.pairs.count), eligible \(eligible), feed \(feedWord)")
+        .accessibilityLabel("Monitored \(model.pairs.count), desk signals \(eligible), feed \(feedWord), scan \(scanState)")
     }
 
     private func radarStatusCell(title: String, value: String) -> some View {
@@ -133,9 +137,17 @@ struct MarketsScreen: View {
                          .font(.system(size: 10, weight: .medium))
                          .foregroundStyle(DeskInk.slate)
                      if let orb = model.orbDecision(for: pair) {
-                         Text("ORB · \(orb.stage.rawValue.replacingOccurrences(of: "_", with: " "))")
+                         Text("ORB · \(orb.stage.displayName)")
                              .font(.system(size: 9, weight: .bold, design: .monospaced))
                              .foregroundStyle(orb.stage == .setupConfirmed ? DeskInk.electric : DeskInk.slate)
+                         Text(orb.reason.replacingOccurrences(of: "_", with: " "))
+                             .font(.system(size: 9, weight: .medium))
+                             .foregroundStyle(DeskInk.slate)
+                             .lineLimit(1)
+                     } else {
+                         Text("ORB · NO_DATA · no engine decision")
+                              .font(.system(size: 9, weight: .medium, design: .monospaced))
+                              .foregroundStyle(DeskInk.slate)
                      }
                 }
 
@@ -160,7 +172,8 @@ struct MarketsScreen: View {
             )
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(pair), \(side), research preview. Tap for full scan.")
+        .accessibilityLabel("\(pair), \(side), ORB \(model.orbDecision(for: pair)?.stage.rawValue ?? "NO_DATA"), research preview. Tap for full scan.")
+        .accessibilityIdentifier("markets.radar.detail.\(pair.replacingOccurrences(of: "/", with: "-"))")
     }
 
     private func radarTint(_ side: String) -> Color {
@@ -200,6 +213,18 @@ struct MarketsScreen: View {
     }
 
     private var feedWord: String { model.frame?.feed.rawValue ?? model.feed.rawValue }
+
+    private var scanState: String {
+        if model.scanning { return model.scanStep.map { "SCANNING \($0)" } ?? "SCANNING" }
+        return model.lastScanAt == nil ? "NOT_SCANNED" : "SCAN_COMPLETE"
+    }
+
+    private func currentORBPlan(for pair: String) -> V3TradePlan? {
+        guard let candidatePlan = model.orbDecision(for: pair)?.candidate?.plan,
+              let cachedPlan = model.orbPlan(for: pair),
+              candidatePlan.id == cachedPlan.id else { return nil }
+        return cachedPlan
+    }
 
     private var feedColor: Color {
         switch model.frame?.feed ?? model.feed {
@@ -251,7 +276,7 @@ struct MarketsScreen: View {
                         .font(.system(size: 15, weight: .heavy, design: .monospaced))
                         .foregroundStyle(leader.conviction >= 70 ? (leader.side == "LOW" ? DeskInk.coral : DeskInk.emerald) : DeskInk.electric)
                     HStack(spacing: 3) {
-                        Text("Trade on Desk")
+                        Text("Review research")
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(DeskInk.slate)
                         Image(systemName: "chevron.right")
@@ -316,8 +341,9 @@ private struct RadarPlot: View {
     }
 
     private func markerPoint(index: Int, pair: String, center: CGPoint, radius: CGFloat) -> CGPoint {
-        let score = Double(model.score(for: pair) ?? 50)
-        let normalized = max(0.28, min(0.86, score / 100))
+        guard let score = model.score(for: pair) else { return center }
+        let scoreValue = Double(score)
+        let normalized = max(0.28, min(0.86, scoreValue / 100))
         let angle = (Double(index) / Double(max(model.pairs.count, 1))) * (.pi * 2) - (.pi / 2)
         return CGPoint(
             x: center.x + CGFloat(cos(angle)) * radius * normalized,
@@ -327,10 +353,15 @@ private struct RadarPlot: View {
 
     private func radarMarker(pair: String, isSelected: Bool) -> some View {
         let side = model.side(for: pair) ?? "WAIT"
-        let tint: Color = switch side {
-        case "HIGH": DeskInk.emerald
-        case "LOW": DeskInk.coral
-        default: DeskInk.slate
+        let tint: Color
+        if model.score(for: pair) == nil {
+            tint = DeskInk.slate
+        } else {
+            tint = switch side {
+            case "HIGH": DeskInk.emerald
+            case "LOW": DeskInk.coral
+            default: DeskInk.slate
+            }
         }
 
         return VStack(spacing: 3) {
@@ -340,7 +371,7 @@ private struct RadarPlot: View {
                 .overlay(Circle().strokeBorder(Color.white.opacity(isSelected ? 0.8 : 0.35), lineWidth: 1))
                 .shadow(color: tint.opacity(0.8), radius: isSelected ? 9 : 5)
             if isSelected {
-                Text(pair)
+                Text(model.score(for: pair) == nil ? "\(pair) · UNSCORED" : pair)
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundStyle(DeskInk.ink)
                     .padding(.horizontal, 6)
@@ -354,7 +385,10 @@ private struct RadarPlot: View {
         let side = model.side(for: pair) ?? "WAIT"
         let direction = side == "HIGH" ? "CALL" : side == "LOW" ? "PUT" : side
         let score = model.score(for: pair).map { ", score \($0)" } ?? ""
-        return "\(pair), \(direction)\(score)\(pair == model.pair ? ", selected" : "")"
+        let orb = model.orbDecision(for: pair)
+        let stage = orb?.stage.rawValue ?? "NO_DATA"
+        let reason = orb?.reason.replacingOccurrences(of: "_", with: " ") ?? "no ORB engine decision"
+        return "\(pair), \(direction)\(score), ORB \(stage), \(reason)\(pair == model.pair ? ", selected" : "")"
     }
 }
 
@@ -406,6 +440,12 @@ private struct RadarGrid: View {
     }
 }
 
+private extension ORBStage {
+    var displayName: String {
+        rawValue.replacingOccurrences(of: "_", with: " ")
+    }
+}
+
 // MARK: - Tactical Matrix Tile
 
 struct MarketTacticalTile: View {
@@ -415,6 +455,10 @@ struct MarketTacticalTile: View {
     let side: String
     let strike: Double?
     let candles: [Candle]
+    let orbDecision: ORBDecision?
+    let orbPlan: V3TradePlan?
+    let feed: FeedStatus
+    let scanState: String
     let action: () -> Void
 
     private var conviction: MarketEdgeWindow.PairConviction {
@@ -422,7 +466,7 @@ struct MarketTacticalTile: View {
     }
 
     private var convictionRating: Int {
-        let raw = score ?? 50
+        let raw = score ?? 0
         return raw
     }
 
@@ -515,9 +559,11 @@ struct MarketTacticalTile: View {
                             .monospacedDigit()
                     }
                 }
+
+                orbResearchSummary
             }
             .padding(12)
-            .frame(height: 126)
+            .frame(minHeight: 174)
             .background(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(DeskInk.surface)
@@ -536,7 +582,49 @@ struct MarketTacticalTile: View {
             )
         }
         .buttonStyle(SpringPressButtonStyle())
-        .accessibilityLabel("\(pair) conviction \(convictionRating) \(sideBadgeText)")
+        .accessibilityLabel(accessibilitySummary)
+        .accessibilityIdentifier("markets.tile.\(pair.replacingOccurrences(of: "/", with: "-"))")
+    }
+
+    private var orbResearchSummary: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 5) {
+                Text("ORB \(orbDecision?.stage.displayName ?? "NO_DATA")")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundStyle(orbDecision == nil ? DeskInk.slate : tint)
+                Spacer()
+                Text(isSelected ? feed.rawValue : "NOT SELECTED")
+                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                    .foregroundStyle(isSelected && feed == .live ? DeskInk.emerald : DeskInk.slate)
+            }
+            Text(orbDecision?.reason.replacingOccurrences(of: "_", with: " ") ?? "No ORB engine decision for this instrument.")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(DeskInk.slate)
+                .lineLimit(1)
+            if let orbPlan {
+                Text("RESEARCH PLAN · INDICATIVE · NOT EXECUTABLE")
+                    .font(.system(size: 8, weight: .heavy, design: .monospaced))
+                    .foregroundStyle(DeskInk.electric)
+                Text("\(orbPlan.state.rawValue) · \(PriceFormat.px(orbPlan.entryPrice)) → \(PriceFormat.px(orbPlan.targetPrice)) · stop \(PriceFormat.px(orbPlan.stopPrice))")
+                    .font(.system(size: 8, weight: .medium, design: .monospaced))
+                    .foregroundStyle(DeskInk.slate)
+                    .lineLimit(1)
+            } else {
+                Text("No research plan available · \(scanState)")
+                    .font(.system(size: 8, weight: .medium))
+                    .foregroundStyle(DeskInk.slate.opacity(0.85))
+                    .lineLimit(1)
+            }
+        }
+        .padding(.top, 1)
+    }
+
+    private var accessibilitySummary: String {
+        let stage = orbDecision?.stage.rawValue ?? "NO_DATA"
+        let reason = orbDecision?.reason.replacingOccurrences(of: "_", with: " ") ?? "no ORB engine decision"
+        let plan = orbPlan == nil ? "no research plan" : "indicative research plan, not executable"
+        let feedState = isSelected ? feed.rawValue : "UNVERIFIED, not selected"
+        return "\(pair), \(sideBadgeText), score \(score.map { String($0) } ?? "NO_DATA"), ORB \(stage), \(reason), \(plan), feed \(feedState), \(scanState)"
     }
 
     private var scoreGauge: some View {
@@ -559,7 +647,7 @@ struct MarketTacticalTile: View {
                 .rotationEffect(.degrees(-90))
                 .frame(width: 38, height: 38)
 
-            Text("\(convictionRating)")
+            Text(score.map { String($0) } ?? "—")
                 .font(.system(size: 12, weight: .bold, design: .monospaced))
                 .foregroundStyle(DeskInk.ink)
                 .monospacedDigit()
