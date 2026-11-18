@@ -26,6 +26,40 @@ struct AdaptiveMarketRehearsalTests {
             evaluatedAtMs: now.timeIntervalSince1970 * 1_000, policy: .baseline)
     }
 
+    private func londonPracticeSnapshot(quoteAge: TimeInterval = 1, retest: Bool = true) ->
+        (StrategyEngine.MarketInput, Date, Date) {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/London")!
+        let open = calendar.date(from: DateComponents(year: 2026, month: 11, day: 17, hour: 8))!
+        var candles: [StrategyEngine.CandlePayload] = []
+        for index in 0..<21 {
+            let start = open.addingTimeInterval(Double(index * 60))
+            let opening: Double, high: Double, low: Double, closing: Double
+            switch index {
+            case 0..<5: (opening, high, low, closing) = (190.05, 190.10, 190.00, 190.05)
+            case 19: (opening, high, low, closing) = (190.10, 190.16, 190.10, 190.16)
+            case 20 where retest: (opening, high, low, closing) = (190.11, 190.13, 190.10, 190.12)
+            case 20: (opening, high, low, closing) = (190.16, 190.18, 190.14, 190.17)
+            default: (opening, high, low, closing) = (190.05, 190.08, 190.02, 190.05)
+            }
+            candles.append(.init(time: start.timeIntervalSince1970 * 1_000,
+                open: opening, high: high, low: low, close: closing))
+        }
+        let quoteAt = open.addingTimeInterval(21 * 60 + 2)
+        let receivedAt = quoteAt.addingTimeInterval(quoteAge)
+        let m5 = (0..<24).map { index in
+            StrategyEngine.CandlePayload(time: open.addingTimeInterval(Double(index * 300))
+                .timeIntervalSince1970 * 1_000, open: 190.05, high: 190.10,
+                low: 190.00, close: 190.05)
+        }
+        let input = StrategyEngine.MarketInput(asset: "GBP/JPY", source: "oanda",
+            candles1m: candles, candles5m: m5, lastPrice: 190.12, bid: 190.11,
+            ask: 190.12, spread: 0.01, expirySeconds: 60,
+            quoteAsOfMs: quoteAt.timeIntervalSince1970 * 1_000,
+            evaluatedAtMs: receivedAt.timeIntervalSince1970 * 1_000, policy: .baseline)
+        return (input, quoteAt, receivedAt)
+    }
+
     @Test func rehearsalRecordPreservesDecisionStatesAndInputIdentity() throws {
         let input = GoldenFixture.market()
         let candidate = AdaptiveOpportunityCandidate(id: "candidate", strategyID: "test",
@@ -251,13 +285,18 @@ struct AdaptiveMarketRehearsalTests {
         #expect(outcomes.map(\.evaluatorID) == ["londonBreakRetest", "trendPullback", "rangeRejection",
             "candidate001", "candidate002"])
         let unconfigured = outcomes.filter { $0.state == .notConfigured }
-        #expect(unconfigured.count == 3)
+        #expect(unconfigured.count == 2)
         #expect(unconfigured.allSatisfy { $0.timeframe == "UNCONFIGURED" })
-        #expect(unconfigured.map(\.reasonCode).contains("profile_and_session_calendar_not_configured"))
+        #expect(unconfigured.allSatisfy { $0.reasonCode == "profile_not_configured" })
+        let london = try #require(outcomes.first { $0.evaluatorID == "londonBreakRetest" })
+        #expect(london.timeframe == "M1")
+        #expect(london.state == .conditionsNotMet)
+        #expect(london.reasonCode == "practice_environment_required")
         let configured = outcomes.filter { $0.state != .notConfigured }
-        #expect(configured.allSatisfy { $0.timeframe == "M1+M15" })
-        #expect(configured.allSatisfy { $0.state == .completed })
-        #expect(configured.allSatisfy { $0.candidateIDs.isEmpty && $0.reasonCode == "no_candidate" })
+        let otherConfigured = configured.filter { $0.evaluatorID != "londonBreakRetest" }
+        #expect(otherConfigured.allSatisfy { $0.timeframe == "M1+M15" })
+        #expect(otherConfigured.allSatisfy { $0.state == .completed })
+        #expect(otherConfigured.allSatisfy { $0.candidateIDs.isEmpty && $0.reasonCode == "no_candidate" })
     }
 
     @Test func gbpJpySnapshotDistinguishesInsufficientHistoryFromNoSetup() async throws {
@@ -265,10 +304,95 @@ struct AdaptiveMarketRehearsalTests {
             gbpJpySnapshot(m5OffsetSeconds: 60), observedAt: now, receivedAt: now.addingTimeInterval(0.1))
         let outcomes = try #require(result.record.evaluatorOutcomes)
         #expect(outcomes.count == 5)
-        #expect(outcomes.filter { $0.state == .notConfigured }.count == 3)
+        #expect(outcomes.filter { $0.state == .notConfigured }.count == 2)
+        #expect(outcomes.first { $0.evaluatorID == "londonBreakRetest" }?.timeframe == "M1")
         let configured = outcomes.filter { $0.state != .notConfigured }
-        #expect(configured.allSatisfy { $0.state == .dataUnavailable })
-        #expect(configured.allSatisfy { $0.reasonCode == "m15_context_unavailable" })
+        let otherConfigured = configured.filter { $0.evaluatorID != "londonBreakRetest" }
+        #expect(otherConfigured.allSatisfy { $0.state == .dataUnavailable })
+        #expect(otherConfigured.allSatisfy { $0.reasonCode == "m15_context_unavailable" })
+    }
+
+    @Test func londonPracticeSnapshotProducesTechnicalSetupWithNoOrderPlan() async throws {
+        let (input, quoteAt, receivedAt) = londonPracticeSnapshot()
+        let result = try await AdaptiveMarketRehearsal.evaluateSnapshot(input,
+            observedAt: quoteAt, receivedAt: receivedAt, environment: .oandaPractice)
+        let london = try #require(result.record.candidates.first {
+            $0.strategyID == GBPJPYLondonBreakRetestV1.strategyID
+        })
+        #expect(london.state == .eligible)
+        #expect(london.plan == nil)
+        #expect(london.observedAt == quoteAt)
+        #expect(london.stopReference != nil)
+        #expect(london.targetReference != nil)
+        #expect(london.effectiveConfigurationSHA256 == AdaptiveOpportunityAdapters
+            .effectiveConfiguration(strategyID: london.strategyID, instrument: "GBP/JPY")?.sha256())
+        #expect(result.record.decision.selectedCandidateID == london.id)
+        #expect(AdaptiveMarketRehearsal.decisionState(for: result.record.decision) == .actionableOpportunity)
+    }
+
+    @Test func londonProfileRejectsStaleQuoteAndNeverRunsInLiveEnvironment() async throws {
+        let (input, quoteAt, receivedAt) = londonPracticeSnapshot(quoteAge: 4)
+        let stale = try await AdaptiveMarketRehearsal.evaluateSnapshot(input,
+            observedAt: quoteAt, receivedAt: receivedAt, environment: .oandaPractice)
+        #expect(stale.record.evaluatorOutcomes?.first { $0.evaluatorID == "londonBreakRetest" }?.reasonCode == "quote_stale")
+        #expect(!stale.record.candidates.contains { $0.strategyID == GBPJPYLondonBreakRetestV1.strategyID })
+
+        let (freshInput, freshQuote, freshReceived) = londonPracticeSnapshot()
+        let live = try await AdaptiveMarketRehearsal.evaluateSnapshot(freshInput,
+            observedAt: freshQuote, receivedAt: freshReceived, environment: .oandaLive)
+        #expect(live.record.evaluatorOutcomes?.first { $0.evaluatorID == "londonBreakRetest" }?.reasonCode == "practice_environment_required")
+        #expect(!live.record.candidates.contains { $0.strategyID == GBPJPYLondonBreakRetestV1.strategyID })
+    }
+
+    @Test func londonRetestDiagnosticRemainsVisibleAsForming() async throws {
+        let (input, _, receivedAt) = londonPracticeSnapshot(retest: false)
+        let result = try await AdaptiveMarketRehearsal.evaluateSnapshot(input,
+            observedAt: receivedAt.addingTimeInterval(-1), receivedAt: receivedAt,
+            environment: .oandaPractice)
+        let forming = try #require(result.record.candidates.first {
+            $0.strategyID == GBPJPYLondonBreakRetestV1.strategyID
+        })
+        #expect(forming.state == .rejected)
+        #expect(forming.rejectionReasons == ["retest_confirmation_pending"])
+        #expect(result.record.evaluatorOutcomes?.first { $0.evaluatorID == "londonBreakRetest" }?.reasonCode == "waiting_for_retest")
+        #expect(result.record.decisionState == .opportunityForming)
+
+        let (refreshedInput, _, refreshedAt) = londonPracticeSnapshot(quoteAge: 2, retest: false)
+        let refreshed = try await AdaptiveMarketRehearsal.evaluateSnapshot(refreshedInput,
+            observedAt: refreshedAt.addingTimeInterval(-2), receivedAt: refreshedAt,
+            environment: .oandaPractice)
+        let refreshedCandidate = try #require(refreshed.record.candidates.first {
+            $0.strategyID == GBPJPYLondonBreakRetestV1.strategyID
+        })
+        #expect(refreshedCandidate.id == forming.id)
+        #expect(refreshedCandidate.observedAt == forming.observedAt)
+    }
+
+    @Test func londonSessionBoundariesUseLocalDateAndFailClosed() async throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/London")!
+        for (hour, minute, expectedReason) in [(7, 59, "waiting_for_range"), (12, 0, "session_closed")] {
+            let instant = calendar.date(from: DateComponents(year: 2026, month: 6, day: 17,
+                hour: hour, minute: minute))!
+            let oneMinute = (0..<80).map { index in
+                StrategyEngine.CandlePayload(time: instant.addingTimeInterval(Double(index - 80) * 60)
+                    .timeIntervalSince1970 * 1_000, open: 190.05, high: 190.10,
+                    low: 190.00, close: 190.05)
+            }
+            let fiveMinute = (0..<24).map { index in
+                StrategyEngine.CandlePayload(time: instant.addingTimeInterval(Double(index - 24) * 300)
+                    .timeIntervalSince1970 * 1_000, open: 190.05, high: 190.10,
+                    low: 190.00, close: 190.05)
+            }
+            let input = StrategyEngine.MarketInput(asset: "GBP/JPY", source: "oanda",
+                candles1m: oneMinute, candles5m: fiveMinute, lastPrice: 190.1, bid: 190.09,
+                ask: 190.10, spread: 0.01, expirySeconds: 60,
+                quoteAsOfMs: instant.timeIntervalSince1970 * 1_000)
+            let result = try await AdaptiveMarketRehearsal.evaluateSnapshot(input,
+                observedAt: instant, receivedAt: instant, environment: .oandaPractice)
+            #expect(result.record.evaluatorOutcomes?.first { $0.evaluatorID == "londonBreakRetest" }?.reasonCode == expectedReason)
+            #expect(!result.record.candidates.contains { $0.strategyID == GBPJPYLondonBreakRetestV1.strategyID })
+        }
     }
 
     @Test func recognizedExpiredCandidateIsConditionsNotMetInsteadOfNoSetup() async throws {

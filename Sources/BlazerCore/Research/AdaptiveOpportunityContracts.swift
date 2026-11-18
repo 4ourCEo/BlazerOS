@@ -72,6 +72,9 @@ public struct AdaptiveOpportunityCandidate: Codable, Sendable, Equatable, Identi
     public let state: AdaptiveCandidateState
     public let rejectionReasons: [String]
     public let entryReference: Double?
+    /// Structural signal levels do not imply broker units or risk approval.
+    public let stopReference: Double?
+    public let targetReference: Double?
     public let plan: V3TradePlan?
     public let horizonsSeconds: [Int]
     public let evidenceReferences: [String]
@@ -94,7 +97,8 @@ public struct AdaptiveOpportunityCandidate: Codable, Sendable, Equatable, Identi
                 validUntil: Date? = nil,
                 evaluationStartedAt: Date, evaluationCompletedAt: Date,
                 state: AdaptiveCandidateState, rejectionReasons: [String] = [],
-                entryReference: Double? = nil, plan: V3TradePlan? = nil,
+                entryReference: Double? = nil, stopReference: Double? = nil,
+                targetReference: Double? = nil, plan: V3TradePlan? = nil,
                  horizonsSeconds: [Int] = [],
                 evidenceReferences: [String] = [], provenance: String,
                 freshness: AdaptiveFreshnessState, spread: Double? = nil,
@@ -109,6 +113,7 @@ public struct AdaptiveOpportunityCandidate: Codable, Sendable, Equatable, Identi
         self.validUntil = validUntil
         self.evaluationStartedAt = evaluationStartedAt; self.evaluationCompletedAt = evaluationCompletedAt
         self.state = state; self.rejectionReasons = rejectionReasons; self.entryReference = entryReference
+        self.stopReference = stopReference; self.targetReference = targetReference
         self.plan = plan; self.horizonsSeconds = horizonsSeconds; self.evidenceReferences = evidenceReferences
         self.provenance = provenance; self.freshness = freshness; self.spread = spread
         self.spreadState = spreadState; self.rankingScore = rankingScore

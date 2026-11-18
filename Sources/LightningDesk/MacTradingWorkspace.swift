@@ -152,6 +152,11 @@ struct MacTradingWorkspace: View {
                                 .font(.system(size: diagnosticFontSize, weight: .bold, design: .monospaced))
                             Text("\(signal.strategyID) · \(signal.strategyVersion)")
                                 .font(.system(size: max(8, diagnosticFontSize - 1), weight: .medium))
+                            if signal.profileID == "GBPJPY_LONDON_PRACTICE_OBSERVATION_PROVISIONAL_0.1.0" {
+                                Text("PROVISIONAL PRACTICE PROFILE · \(signal.profileID)")
+                                    .font(.system(size: max(8, diagnosticFontSize - 1), weight: .medium))
+                                    .foregroundStyle(muted)
+                            }
                             Text("TIMEFRAME · \(signal.timeframe ?? "UNSPECIFIED")")
                                 .font(.system(size: max(8, diagnosticFontSize - 1), weight: .medium))
                                 .foregroundStyle(muted)
@@ -162,6 +167,12 @@ struct MacTradingWorkspace: View {
                                     .font(.system(size: max(8, diagnosticFontSize - 1), weight: .medium, design: .monospaced))
                                     .foregroundStyle(muted)
                                 Text("Plan preview only · account risk and margin are not checked here.")
+                                    .font(.system(size: max(8, diagnosticFontSize - 1), weight: .medium))
+                                    .foregroundStyle(muted)
+                            } else if signal.profileID == "GBPJPY_LONDON_PRACTICE_OBSERVATION_PROVISIONAL_0.1.0",
+                                      signal.stage == .actionable,
+                                      signal.entryReference != nil, signal.stopPrice != nil, signal.targetPrice != nil {
+                                Text("Technical setup only · order units withheld; verify account risk, margin, quote freshness and execute manually.")
                                     .font(.system(size: max(8, diagnosticFontSize - 1), weight: .medium))
                                     .foregroundStyle(muted)
                             } else {

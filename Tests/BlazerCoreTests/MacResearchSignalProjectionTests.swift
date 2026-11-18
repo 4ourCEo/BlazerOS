@@ -59,9 +59,93 @@ private func macSignalCandidate(id: String = "orb-1", instrument: String = macSi
 
     var json = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
     json.removeValue(forKey: "validUntil")
+    json.removeValue(forKey: "stopReference")
+    json.removeValue(forKey: "targetReference")
     let legacy = try JSONSerialization.data(withJSONObject: json)
     let oldCandidate = try decoder.decode(AdaptiveOpportunityCandidate.self, from: legacy)
     #expect(oldCandidate.validUntil == nil)
+    #expect(oldCandidate.stopReference == nil)
+    #expect(oldCandidate.targetReference == nil)
+}
+
+@Test func selectedLondonPracticeCandidateKeepsReferencesAndProjectsAsActionable() throws {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let strategy = GBPJPYLondonBreakRetestV1.strategyID
+    let config = try #require(AdaptiveOpportunityAdapters.effectiveConfiguration(
+        strategyID: strategy, instrument: "GBP/JPY"))
+    let candidate = AdaptiveOpportunityCandidate(id: "london-signal", strategyID: strategy,
+        strategyVersion: AdaptiveOpportunityAdapters.londonPracticeObservationConfiguration.version,
+        instrument: "GBP/JPY", provider: "oanda", direction: .long,
+        session: "Europe/London 08:00–12:00 local · provisional Practice profile",
+        observedAt: now, validUntil: now.addingTimeInterval(600),
+        evaluationStartedAt: now, evaluationCompletedAt: now,
+        state: .eligible, entryReference: 190.12, stopReference: 190.08,
+        targetReference: 190.18, evidenceReferences: ["breakout-m1", "retest-m1"],
+        provenance: "provisional Practice profile", freshness: .fresh, spread: 1,
+        spreadState: .accepted,
+        effectiveConfigurationSHA256: config.sha256(),
+        evaluatorCodeSHA256: StrategyImplementationDigests.evaluatorCodeSHA256["LONDON_BREAK_RETEST"],
+        adapterCodeSHA256: StrategyImplementationDigests.adapterCodeSHA256,
+        selectorCodeSHA256: StrategyImplementationDigests.selectorCodeSHA256)
+    let decision = AdaptiveOpportunitySelector.select([candidate], now: now)
+    let selected = try #require(decision.candidates.first)
+    #expect(selected.stopReference == candidate.stopReference)
+    #expect(selected.targetReference == candidate.targetReference)
+    #expect(selected.effectiveConfigurationSHA256 == candidate.effectiveConfigurationSHA256)
+    let signals = MacResearchSignalProjector.project(candidates: decision.candidates,
+        profiles: [], instrument: "GBP/JPY", scanGeneration: 1,
+        sourceInputIdentity: "snapshot", now: now,
+        source: .oandaPractice)
+    let signal = try #require(signals.first)
+    #expect(signal.profileID == "GBPJPY_LONDON_PRACTICE_OBSERVATION_PROVISIONAL_0.1.0")
+    #expect(signal.timeframe == "M1")
+    #expect(signal.stage == .actionable)
+    #expect(signal.entryReference == candidate.entryReference)
+    #expect(signal.stopPrice == candidate.stopReference)
+    #expect(signal.targetPrice == candidate.targetReference)
+    #expect(signal.planPreview == nil)
+
+    let agedSignals = MacResearchSignalProjector.project(candidates: decision.candidates,
+        profiles: [], instrument: "GBP/JPY", scanGeneration: 2,
+        sourceInputIdentity: "snapshot", now: now.addingTimeInterval(30),
+        source: .oandaPractice)
+    let agedSignal = try #require(agedSignals.first)
+    #expect(agedSignal.stage == .confirmed)
+    #expect(agedSignal.reasons.contains("quote_refresh_required"))
+    #expect(agedSignal.validUntil == now.addingTimeInterval(600))
+    #expect(agedSignal.entryReference == candidate.entryReference)
+    #expect(agedSignal.stopPrice == candidate.stopReference)
+    #expect(agedSignal.targetPrice == candidate.targetReference)
+}
+
+@Test func londonFormingSignalSurvivesSelectorTagAndQuoteAgingUntilSetupExpiry() throws {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let strategy = GBPJPYLondonBreakRetestV1.strategyID
+    let config = AdaptiveOpportunityAdapters.effectiveConfiguration(
+        strategyID: strategy, instrument: "GBP/JPY")!
+    let candidate = AdaptiveOpportunityCandidate(id: "london-forming", strategyID: strategy,
+        strategyVersion: AdaptiveOpportunityAdapters.londonPracticeObservationConfiguration.version,
+        instrument: "GBP/JPY", provider: "oanda", direction: .long,
+        observedAt: now, validUntil: now.addingTimeInterval(600),
+        evaluationStartedAt: now, evaluationCompletedAt: now,
+        state: .rejected, rejectionReasons: ["retest_confirmation_pending"],
+        entryReference: nil, stopReference: nil, targetReference: nil,
+        evidenceReferences: ["breakout-m1"], provenance: "provisional Practice profile",
+        freshness: .fresh, spread: 1, spreadState: .accepted,
+        effectiveConfigurationSHA256: config.sha256(),
+        evaluatorCodeSHA256: StrategyImplementationDigests.evaluatorCodeSHA256["LONDON_BREAK_RETEST"],
+        adapterCodeSHA256: StrategyImplementationDigests.adapterCodeSHA256,
+        selectorCodeSHA256: StrategyImplementationDigests.selectorCodeSHA256)
+    let decision = AdaptiveOpportunitySelector.select([candidate], now: now)
+    let selected = try #require(decision.candidates.first)
+    #expect(selected.rejectionReasons.contains("candidate_not_eligible"))
+    let signals = MacResearchSignalProjector.project(candidates: decision.candidates,
+        profiles: [], instrument: "GBP/JPY", scanGeneration: 2,
+        sourceInputIdentity: "snapshot", now: now.addingTimeInterval(30),
+        source: .oandaPractice)
+    let signal = try #require(signals.first)
+    #expect(signal.stage == .forming)
+    #expect(signal.validUntil == now.addingTimeInterval(600))
 }
 
 @Test func adapterDeadlinesUseQuoteAndConfiguredEventExpiryMinimum() {

@@ -119,15 +119,18 @@ public enum MacResearchSignalProjector {
         var seen = Set<String>()
         for candidate in candidates {
             let provider = candidate.provider.uppercased().replacingOccurrences(of: "_", with: "-")
+            let hasLifecycleExpiry = candidate.strategyID == GBPJPYLondonBreakRetestV1.strategyID
+            let quoteNeedsRefresh = hasLifecycleExpiry
+                && candidate.observedAt.map { now.timeIntervalSince($0) > EntryQuality.maxAgeSeconds } == true
             guard candidate.instrument == instrument,
                   source.acceptedProviders.contains(provider),
                   candidate.direction == .long || candidate.direction == .short,
                   candidate.spreadState == .accepted, candidate.freshness == .fresh,
                   let observedAt = candidate.observedAt, observedAt.timeIntervalSince1970.isFinite,
                   now.timeIntervalSince(observedAt) >= -1,
-                  now.timeIntervalSince(observedAt) <= EntryQuality.maxAgeSeconds,
                   let validUntil = candidate.validUntil, validUntil.timeIntervalSince1970.isFinite,
                   now <= validUntil, validUntil >= observedAt,
+                  hasLifecycleExpiry || now.timeIntervalSince(observedAt) <= EntryQuality.maxAgeSeconds,
                   let configDigest = candidate.effectiveConfigurationSHA256,
                   let evaluatorDigest = candidate.evaluatorCodeSHA256,
                   let adapterDigest = candidate.adapterCodeSHA256,
@@ -149,11 +152,23 @@ public enum MacResearchSignalProjector {
             let stage: MacResearchSignalStage
             switch candidate.state {
             case .eligible:
-                stage = candidate.plan.flatMap { MacResearchPlanPreview($0, candidate: candidate) } == nil
-                    ? .confirmed : .actionable
+                let hasTechnicalLevels: Bool = {
+                    guard let entry = candidate.entryReference,
+                          let stop = candidate.stopReference,
+                          let target = candidate.targetReference else { return false }
+                    switch candidate.direction {
+                    case .long: return stop.isFinite && stop < entry && entry < target && target.isFinite
+                    case .short: return target.isFinite && target < entry && entry < stop && stop.isFinite
+                    case .wait: return false
+                    }
+                }()
+                let technicallyReady = candidate.plan.flatMap { MacResearchPlanPreview($0, candidate: candidate) } != nil
+                    || hasTechnicalLevels
+                stage = technicallyReady && !quoteNeedsRefresh ? .actionable : .confirmed
             case .rejected:
-                guard !candidate.rejectionReasons.isEmpty,
-                      candidate.rejectionReasons.allSatisfy(Self.isFormingReason) else { continue }
+                let signalReasons = candidate.rejectionReasons.filter { $0 != "candidate_not_eligible" }
+                guard !signalReasons.isEmpty,
+                      signalReasons.allSatisfy(Self.isFormingReason) else { continue }
                 stage = .forming
             case .unavailable:
                 continue
@@ -164,18 +179,27 @@ public enum MacResearchSignalProjector {
                 profile.acceptedCandidateIdentities.contains(.init(
                     strategyID: candidate.strategyID, strategyVersion: candidate.strategyVersion))
             }
+            let profileID: String
+            if candidate.strategyID == GBPJPYLondonBreakRetestV1.strategyID {
+                profileID = "GBPJPY_LONDON_PRACTICE_OBSERVATION_PROVISIONAL_0.1.0"
+            } else {
+                profileID = displayProfile?.id ?? "research:\(candidate.strategyID)"
+            }
             result.append(MacResearchSignal(id: candidate.id,
-                profileID: displayProfile?.id ?? "research:\(candidate.strategyID)",
+                profileID: profileID,
                 strategyID: candidate.strategyID, strategyVersion: candidate.strategyVersion,
                 instrument: instrument, direction: candidate.direction, observedAt: observedAt,
-                validUntil: validUntil, reasons: candidate.rejectionReasons,
+                validUntil: validUntil,
+                reasons: quoteNeedsRefresh
+                    ? Array(Set(candidate.rejectionReasons + ["quote_refresh_required"])).sorted()
+                    : candidate.rejectionReasons,
                 evidenceReferences: candidate.evidenceReferences,
                 sourceInputIdentity: sourceInputIdentity, scanGeneration: scanGeneration,
                 environment: source.environment, stage: stage,
                 timeframe: Self.timeframe(for: candidate.strategyID),
                 entryReference: candidate.plan?.entryPrice ?? candidate.entryReference,
-                stopPrice: candidate.plan?.stopPrice,
-                targetPrice: candidate.plan?.targetPrice,
+                stopPrice: candidate.plan?.stopPrice ?? candidate.stopReference,
+                targetPrice: candidate.plan?.targetPrice ?? candidate.targetReference,
                 planPreview: candidate.plan.flatMap { MacResearchPlanPreview($0, candidate: candidate) }))
         }
         return result
@@ -201,6 +225,7 @@ public enum MacResearchSignalProjector {
         case "ORB_BREAK_RETEST_V1": "ORB_BREAK_RETEST"
         case "CANDIDATE_001_CHOCH_FVG_FIB": "CHOCH_FVG_FIB"
         case "CANDIDATE_002_AUCTION_FAILURE": "AUCTION_FAILURE"
+        case GBPJPYLondonBreakRetestV1.strategyID: "LONDON_BREAK_RETEST"
         case "LEGACY_V1", "JSC_baseline", "JSC_conservative", "JSC_momentum",
              "JSC_reversion", "JSC_volatility": strategyID
         default: nil
@@ -209,6 +234,7 @@ public enum MacResearchSignalProjector {
 
     private static func timeframe(for strategyID: String) -> String? {
         switch strategyID {
+        case "GBPJPY_LONDON_RANGE_BREAK_RETEST": "M1"
         case "CANDIDATE_001_CHOCH_FVG_FIB", "CANDIDATE_002_AUCTION_FAILURE": "M1 + M15 context"
         case "ORB_BREAK_RETEST_V1": "M1"
         default: nil
@@ -380,6 +406,7 @@ public enum MacResearchEvaluationDiagnosticProjector {
         case "setup_expired_without_breakout", "setup_expired_waiting_for_retest": "Setup window expired"
         case "quote_missing": "Quote unavailable"
         case "quote_stale": "Quote is stale"
+        case "quote_refresh_required": "Refresh the quote before manual entry"
         case "quote_future": "Quote timestamp is invalid"
         case "spread_rejected": "Spread filter rejected the candidate"
         case "m15_context_unavailable": "15-minute context is unavailable"

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 public enum AdaptiveMarketAvailability: String, Codable, Sendable, Equatable {
@@ -182,14 +183,14 @@ public struct AdaptiveResearchProjection: Codable, Sendable, Equatable {
         timeframe = expired ? nil : selectedOutcome?.timeframe
         direction = selected?.direction
         entryPrice = expired ? nil : selected?.plan?.entryPrice ?? selected?.entryReference
-        stopPrice = expired ? nil : selected?.plan?.stopPrice
-        targetPrice = expired ? nil : selected?.plan?.targetPrice
+        stopPrice = expired ? nil : selected?.plan?.stopPrice ?? selected?.stopReference
+        targetPrice = expired ? nil : selected?.plan?.targetPrice ?? selected?.targetReference
         remainingReasons = expired ? [] : (selected?.rejectionReasons ?? [])
         var missing: [String] = []
         if selectedOutcome?.timeframe == nil { missing.append("timeframe") }
         if selected?.plan?.entryPrice == nil && selected?.entryReference == nil { missing.append("entry") }
-        if selected?.plan?.stopPrice == nil { missing.append("stop") }
-        if selected?.plan?.targetPrice == nil { missing.append("target") }
+        if selected?.plan?.stopPrice == nil && selected?.stopReference == nil { missing.append("stop") }
+        if selected?.plan?.targetPrice == nil && selected?.targetReference == nil { missing.append("target") }
         unavailableFields = expired ? ["timeframe", "entry", "stop", "target"] : missing
         horizonSeconds = expired ? nil : record.selectedHorizonSeconds
         freshness = selected?.freshness
@@ -253,8 +254,9 @@ public struct AdaptiveMarketRehearsalRecord: Codable, Sendable, Identifiable {
         if decisionState == .actionableOpportunity,
            let selectedID = decision.selectedCandidateID,
            let selected = candidates.first(where: { $0.id == selectedID }),
-           selected.plan?.validation().isEmpty != true {
-            issues.append("actionable_decision_requires_complete_plan")
+           selected.plan?.validation().isEmpty != true,
+           !AdaptiveMarketRehearsal.hasCompleteTechnicalSetup(selected) {
+            issues.append("actionable_decision_requires_complete_signal_levels")
         }
         return issues
     }
@@ -277,14 +279,31 @@ public struct AdaptiveMarketRehearsalRecord: Codable, Sendable, Identifiable {
 
 /// One-shot Practice rehearsal. It is intentionally not connected to the desk or order APIs.
 public enum AdaptiveMarketRehearsal {
+    /// A fresh evaluator setup can be technically actionable without broker
+    /// units or account-risk approval. This grants no order authority.
+    fileprivate static func hasCompleteTechnicalSetup(_ candidate: AdaptiveOpportunityCandidate) -> Bool {
+        guard candidate.state == .eligible, candidate.direction != .wait,
+              candidate.freshness == .fresh, candidate.spreadState == .accepted,
+              candidate.rejectionReasons.isEmpty, candidate.observedAt != nil,
+              let entry = candidate.entryReference,
+              let stop = candidate.stopReference,
+              let target = candidate.targetReference,
+              [entry, stop, target].allSatisfy({ $0.isFinite && $0 > 0 }) else { return false }
+        switch candidate.direction {
+        case .long: return stop < entry && entry < target
+        case .short: return target < entry && entry < stop
+        case .wait: return false
+        }
+    }
+
     /// Maps selector output to the user-facing market state without treating
     /// stale or unsafe data as a developing setup.
     public static func decisionState(for decision: AdaptiveOpportunityDecision) -> AdaptiveMarketDecisionState {
         if let selectedID = decision.selectedCandidateID,
            let selected = decision.candidates.first(where: { $0.id == selectedID }) {
-            guard let plan = selected.plan, plan.validation().isEmpty,
-                  selected.entryReference != nil else { return .confirmedOpportunity }
-            return .actionableOpportunity
+            if let plan = selected.plan, plan.validation().isEmpty,
+               selected.entryReference != nil { return .actionableOpportunity }
+            return hasCompleteTechnicalSetup(selected) ? .actionableOpportunity : .confirmedOpportunity
         }
         if decision.candidates.contains(where: { $0.state == .unavailable }) { return .unavailable }
 
@@ -346,7 +365,8 @@ public enum AdaptiveMarketRehearsal {
             candidates.append(try await AdaptiveOpportunityAdapters.evaluateEngine(
                 input, policy: policy, at: candidateStart))
         }
-        let researchBatch = evaluateConfiguredResearchStrategies(input, asOf: receivedAt)
+        let researchBatch = evaluateConfiguredResearchStrategies(input, asOf: receivedAt,
+            environment: environment)
         candidates.append(contentsOf: researchBatch.candidates)
         candidates.append(AdaptiveOpportunityAdapters.evaluateORB(input, asOf: receivedAt,
                                                                    startedAt: receivedAt))
@@ -424,7 +444,8 @@ public enum AdaptiveMarketRehearsal {
             candidates.append(try await AdaptiveOpportunityAdapters.evaluateEngine(input, policy: policy,
                                                                                    at: started))
         }
-        let researchBatch = evaluateConfiguredResearchStrategies(input, asOf: receivedAt)
+        let researchBatch = evaluateConfiguredResearchStrategies(input, asOf: receivedAt,
+            environment: .oandaPractice)
         candidates.append(contentsOf: researchBatch.candidates)
         candidates.append(AdaptiveOpportunityAdapters.evaluateORB(input, asOf: receivedAt,
                                                                   startedAt: receivedAt))
@@ -515,7 +536,8 @@ public enum AdaptiveMarketRehearsal {
     /// participates in candidate generation. Each evaluator reports successful
     /// no-setup separately from incomplete data and analyzer failure.
     private static func evaluateConfiguredResearchStrategies(
-        _ input: StrategyEngine.MarketInput, asOf: Date
+        _ input: StrategyEngine.MarketInput, asOf: Date,
+        environment: V3ProviderEnvironment
     ) -> (candidates: [AdaptiveOpportunityCandidate], outcomes: [AdaptiveStrategyEvaluationOutcome]) {
         let instrument = input.asset.uppercased().replacingOccurrences(of: "_", with: "/")
         guard instrument == "GBP/JPY" else { return ([], []) }
@@ -530,16 +552,12 @@ public enum AdaptiveMarketRehearsal {
         let candidate001Configuration = Candidate001Configuration(requireM15Confirmation: true,
                                                                    signalFreshnessSeconds: 300)
         let candidate002Configuration = Candidate002Configuration(signalFreshnessSeconds: 120)
-        // These implemented GBP/JPY evaluators have mandatory, versioned
-        // configurations and no default production profiles. Preserve their
-        // inventory state on every scan rather than making them look absent or
-        // claiming that they completed with no setup.
-        outcomes.append(AdaptiveStrategyEvaluationOutcome(
-            evaluatorID: "londonBreakRetest",
-            strategyID: GBPJPYLondonBreakRetestV1.strategyID,
-            strategyVersion: "GBPJPY_LONDON_RANGE_BREAK_RETEST_V1",
-            timeframe: "UNCONFIGURED", state: .notConfigured,
-            reasonCode: "profile_and_session_calendar_not_configured"))
+        // The provisional London profile is deliberately evaluated only inside
+        // the Practice rehearsal boundary. Live snapshots receive a typed block
+        // outcome and never produce a London candidate.
+        let london = evaluateLondonBreakRetest(input, asOf: asOf, environment: environment)
+        candidates.append(contentsOf: london.candidates)
+        outcomes.append(london.outcome)
         outcomes.append(AdaptiveStrategyEvaluationOutcome(
             evaluatorID: "trendPullback",
             strategyID: GBPJPYTrendPullbackV1.strategyID,
@@ -606,6 +624,148 @@ public enum AdaptiveMarketRehearsal {
             }
         }
         return (candidates, outcomes)
+    }
+
+    private static func evaluateLondonBreakRetest(
+        _ input: StrategyEngine.MarketInput, asOf: Date,
+        environment: V3ProviderEnvironment
+    ) -> (candidates: [AdaptiveOpportunityCandidate], outcome: AdaptiveStrategyEvaluationOutcome) {
+        let strategy = GBPJPYLondonBreakRetestV1.strategyID
+        let evaluatorVersion = "GBPJPY_LONDON_RANGE_BREAK_RETEST_V1"
+        func outcome(_ state: AdaptiveStrategyEvaluationOutcome.State, _ reason: String,
+                     ids: [String] = [], diagnostics: [AdaptiveCandidateRawDiagnostic]? = nil)
+            -> (candidates: [AdaptiveOpportunityCandidate], outcome: AdaptiveStrategyEvaluationOutcome) {
+            ([], AdaptiveStrategyEvaluationOutcome(evaluatorID: "londonBreakRetest",
+                strategyID: strategy, strategyVersion: evaluatorVersion, timeframe: "M1",
+                state: state, candidateIDs: ids, reasonCode: reason, rawDiagnostics: diagnostics))
+        }
+
+        guard environment == .oandaPractice else {
+            return outcome(.conditionsNotMet, "practice_environment_required")
+        }
+        guard input.source == "oanda" else {
+            return outcome(.dataUnavailable, "provider_native_oanda_data_required")
+        }
+        guard let configuration = Optional(AdaptiveOpportunityAdapters.londonPracticeObservationConfiguration),
+              let configurationProvenance = AdaptiveOpportunityAdapters.effectiveConfiguration(
+                strategyID: strategy, instrument: "GBP/JPY") else {
+            return outcome(.failed, "profile_configuration_unavailable")
+        }
+
+        var calendar = Calendar(identifier: .gregorian)
+        guard let zone = TimeZone(identifier: "Europe/London") else {
+            return outcome(.failed, "london_timezone_unavailable")
+        }
+        calendar.timeZone = zone
+        let date = calendar.dateComponents([.era, .year, .month, .day], from: asOf)
+        guard let open = calendar.date(from: DateComponents(era: date.era, year: date.year,
+                month: date.month, day: date.day, hour: 8)),
+              let close = calendar.date(from: DateComponents(era: date.era, year: date.year,
+                month: date.month, day: date.day, hour: 12)) else {
+            return outcome(.failed, "london_session_calendar_invalid")
+        }
+        let rangeEnd = open.addingTimeInterval(TimeInterval(configuration.rangeDurationSeconds))
+        let calendarVersion = "LONDON_0800_1200_LOCAL_V1;Europe/London;DST-aware;M1"
+        let calendarDigest = SHA256.hash(data: Data(calendarVersion.utf8))
+            .map { String(format: "%02x", $0) }.joined()
+        let session = GBPJPYLondonBreakRetestSession(
+            id: "GBPJPY-LONDON-\(calendar.component(.year, from: open))-\(String(format: "%02d", calendar.component(.month, from: open)))-\(String(format: "%02d", calendar.component(.day, from: open)))",
+            timeZoneIdentifier: "Europe/London", calendarDigest: calendarDigest,
+            opensAt: open, rangeStartsAt: open, rangeEndsAt: rangeEnd, closesAt: close)
+        let quoteAt = input.quoteAsOfMs.flatMap { milliseconds -> Date? in
+            guard milliseconds.isFinite, milliseconds > 0 else { return nil }
+            return Date(timeIntervalSince1970: milliseconds / 1_000)
+        }
+        let quote = quoteAt.map { GBPJPYLondonBreakRetestQuote(sourceID: "OANDA_QUOTE", bid: input.bid,
+            ask: input.ask, observedAt: $0) }
+        guard input.candles1m.allSatisfy({ candle in
+            candle.time.isFinite && candle.time >= Double(Int.min) && candle.time < Double(Int.max)
+                && [candle.open, candle.high, candle.low, candle.close].allSatisfy { $0.isFinite && $0 > 0 }
+                && candle.high >= max(candle.open, candle.close)
+                && candle.low <= min(candle.open, candle.close) && candle.low <= candle.high
+        }) else {
+            return outcome(.dataUnavailable, "malformed_m1_candle")
+        }
+        let causalCutoff = min(asOf, quoteAt ?? asOf)
+        let bars = input.candles1m.compactMap { candle -> GBPJPYLondonBreakRetestBar? in
+            let start = Date(timeIntervalSince1970: candle.time / 1_000)
+            guard start >= open, start < close, start.addingTimeInterval(60) <= causalCutoff else { return nil }
+            return GBPJPYLondonBreakRetestBar(id: "GBPJPY-M1-\(Int(candle.time))",
+                instrument: "GBP/JPY", provider: input.source, startTime: start,
+                open: candle.open, high: candle.high, low: candle.low, close: candle.close, complete: true)
+        }.sorted { $0.startTime < $1.startTime }
+        guard let snapshotDigest = try? ResearchEvent.digest(of: input) else {
+            return outcome(.failed, "snapshot_digest_failed")
+        }
+        let codeDigest = StrategyImplementationDigests.evaluatorCodeSHA256["LONDON_BREAK_RETEST"]
+            ?? String(repeating: "0", count: 64)
+        let provenance = GBPJPYLondonBreakRetestProvenance(provider: input.source,
+            environment: environment.rawValue, buildID: "blazeros-local",
+            codeDigest: codeDigest, snapshotDigest: snapshotDigest, lineageIsProviderNative: true)
+        let decision = GBPJPYLondonBreakRetestV1.evaluate(bars: bars, session: session,
+            quote: quote, provenance: provenance, asOf: asOf, configuration: configuration)
+        let configDigest = configurationProvenance.sha256()
+        let reason = decision.reason.rawValue.lowercased()
+        let lifecycleID: String
+        if let sessionID = decision.sessionID, let breakoutBarID = decision.breakoutBarID {
+            lifecycleID = "gbpjpy-london-break-retest-\(sessionID)-\(breakoutBarID)-\(String(decision.configurationDigest.prefix(12)))"
+        } else {
+            lifecycleID = decision.id
+        }
+        let diagnostic = AdaptiveCandidateRawDiagnostic(candidateID: lifecycleID,
+            rawState: decision.state.rawValue, reasonCode: reason)
+
+        let isForming = decision.state == .wait && decision.reason == .waitingForRetest
+        guard decision.state == .signal || isForming else {
+            let state: AdaptiveStrategyEvaluationOutcome.State = switch decision.reason {
+            case .configurationInvalid, .sessionInvalid, .provenanceInvalid: .failed
+            case .rangeDataInvalid, .quoteMissing, .quoteInvalid, .quoteStale: .dataUnavailable
+            default: .conditionsNotMet
+            }
+            return outcome(state, reason, diagnostics: [diagnostic])
+        }
+        let liveQuoteValid = quoteAt != nil && input.bid.isFinite && input.ask.isFinite
+            && input.bid > 0 && input.ask > input.bid
+        let spread = decision.spreadPips ?? (liveQuoteValid
+            ? (input.ask - input.bid) / configuration.pipSize : nil)
+        let quoteFresh = quoteAt.map { asOf.timeIntervalSince($0) >= 0
+            && asOf.timeIntervalSince($0) <= configuration.maximumQuoteAgeSeconds } ?? false
+        guard quoteFresh, liveQuoteValid, let spread, spread.isFinite,
+              spread <= configuration.maximumSpreadPips else {
+            return outcome(.conditionsNotMet,
+                !liveQuoteValid ? "quote_missing_or_invalid" : (!quoteFresh ? "quote_stale" : "spread_too_wide"),
+                diagnostics: [diagnostic])
+        }
+        let setupExpiry = decision.breakoutBarID.flatMap { breakoutID in
+            bars.first(where: { $0.id == breakoutID })?.startTime
+                .addingTimeInterval(60 + configuration.maximumSetupAgeSeconds)
+        }
+        let lifecycleExpiry = min(setupExpiry ?? session.closesAt, session.closesAt)
+        let candidate = AdaptiveOpportunityCandidate(id: lifecycleID, strategyID: strategy,
+            strategyVersion: configuration.version, instrument: "GBP/JPY", provider: input.source,
+            direction: decision.direction == .long ? .long : .short,
+            session: "Europe/London 08:00–12:00 local · provisional Practice profile",
+            observedAt: quoteAt,
+            validUntil: lifecycleExpiry,
+            evaluationStartedAt: asOf, evaluationCompletedAt: Date(),
+            state: isForming ? .rejected : .eligible,
+            rejectionReasons: isForming ? ["retest_confirmation_pending"] : [],
+            entryReference: decision.entryReference, stopReference: decision.stopReference,
+            targetReference: decision.targetReference, plan: nil,
+            evidenceReferences: decision.sourceBarIDs + ["config:\(decision.configurationDigest)"],
+            provenance: "\(configuration.version); \(decision.reason.rawValue); manual Practice review",
+            freshness: .fresh,
+            spread: spread, spreadState: .accepted,
+            rankingScore: decision.state == .signal ? 1 : 0.5,
+            effectiveConfigurationSHA256: configDigest,
+            evaluatorCodeSHA256: codeDigest,
+            adapterCodeSHA256: StrategyImplementationDigests.adapterCodeSHA256,
+            selectorCodeSHA256: StrategyImplementationDigests.selectorCodeSHA256)
+        return ([candidate], AdaptiveStrategyEvaluationOutcome(evaluatorID: "londonBreakRetest",
+            strategyID: strategy, strategyVersion: configuration.version, timeframe: "M1",
+            state: isForming ? .conditionsNotMet : .completed,
+            candidateIDs: [candidate.id], reasonCode: isForming ? reason : nil,
+            rawDiagnostics: isForming ? [diagnostic] : nil))
     }
 
     private static func elapsedMs(since start: UInt64) -> Double {

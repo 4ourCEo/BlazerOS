@@ -180,14 +180,24 @@ struct StrategyResearchRegistryTests {
     }
 
     @Test func evaluatorAndAdapterSourceDigestsArePinned() {
+        let london = AdaptiveOpportunityAdapters.effectiveConfiguration(
+            strategyID: GBPJPYLondonBreakRetestV1.strategyID, instrument: "GBP/JPY")!
+        #expect(london.profileVersion == "GBPJPY_LONDON_PRACTICE_OBSERVATION_PROVISIONAL_0.1.0")
+        #expect(london.stringSettings["atrMethod"] == "SIMPLE_MEAN_TRUE_RANGE_V1")
+        #expect(london.numericSettings["maximumQuoteAgeSeconds"] == 3)
+        #expect(london.numericSettings["maximumSpreadPips"] == 4.5)
         #expect(StrategyImplementationDigests.adapterCodeSHA256 ==
-            "bb7bae9148a6a5b43d88e6ae01c8493e1852effe82ac65094c88ae243d7117b4")
+            "af116791196d95f575f8903bf08d6d64fa187b2402df62066e32a4431c8248c9")
+        #expect(StrategyImplementationDigests.selectorCodeSHA256 ==
+            "d127d7fc5160213d28df23a6c546401437ccecd7bd7f58fc39b6efaa7419fe08")
         #expect(StrategyImplementationDigests.evaluatorCodeSHA256["ORB_BREAK_RETEST"] ==
             "7199de9171fe9d9e390bf934b0658fec600ded75d4abeb86adf54225c503f304")
         #expect(StrategyImplementationDigests.evaluatorCodeSHA256["CHOCH_FVG_FIB"] ==
             "2cc3dd123c59584d41a42be7a69cd0a0b24ed50a5dddc4fddc2775c01c667236")
         #expect(StrategyImplementationDigests.evaluatorCodeSHA256["AUCTION_FAILURE"] ==
             "3c525e42aa82e09673b9e284b2904b6deb02e022f3ea3f3b44401366d4bc368a")
+        #expect(StrategyImplementationDigests.evaluatorCodeSHA256["LONDON_BREAK_RETEST"] ==
+            "a883b28bdebd3c672413fb0b0dc79935f1067398c2a68598c9b1d0d32784eb2c")
         #expect(StrategyImplementationDigests.evaluatorCodeSHA256.values.allSatisfy {
             $0.count == 64 && $0.allSatisfy(\.isHexDigit)
         })
@@ -219,7 +229,7 @@ struct StrategyResearchRegistryTests {
     @Test func selectorImplementationDigestMatchesSourceFile() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let source = root.appendingPathComponent("Sources/BlazerCore/Research/LiveStrategyDecision.swift")
+        let source = root.appendingPathComponent("Sources/BlazerCore/Research/AdaptiveOpportunitySelector.swift")
         let bytes = try Data(contentsOf: source)
         let digest = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
         #expect(digest == StrategyImplementationDigests.selectorCodeSHA256)

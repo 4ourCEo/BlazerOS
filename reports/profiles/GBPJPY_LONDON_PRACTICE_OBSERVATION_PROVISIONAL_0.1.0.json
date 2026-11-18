@@ -1,0 +1,18 @@
+{
+  "atrLookbackBars": 14,
+  "atrMethod": "SIMPLE_MEAN_TRUE_RANGE_V1",
+  "cooldownSeconds": 0.0,
+  "maximumQuoteAgeSeconds": 3.0,
+  "maximumRangePips": 20.0,
+  "maximumRetestBars": 5,
+  "maximumSetupAgeSeconds": 600.0,
+  "maximumSpreadPips": 4.5,
+  "minimumBreakoutPips": 5.0,
+  "minimumRangePips": 5.0,
+  "pipSize": 0.01,
+  "rangeDurationSeconds": 300,
+  "retestTolerancePips": 2.0,
+  "stopBufferATRMultiple": 0.2,
+  "targetRMultiple": 1.5,
+  "version": "GBPJPY_LONDON_PRACTICE_OBSERVATION_PROVISIONAL_0.1.0"
+}

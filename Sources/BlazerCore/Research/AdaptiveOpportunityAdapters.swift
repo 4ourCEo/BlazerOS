@@ -2,8 +2,56 @@ import Foundation
 
 /// Translates existing authorities into the composition contract without changing them.
 public enum AdaptiveOpportunityAdapters {
+    /// User-requested, provisional configuration for manual GBP/JPY Practice
+    /// observation. It carries no order units or execution authorization.
+    public static let londonPracticeObservationConfiguration = GBPJPYLondonBreakRetestConfiguration(
+        version: "GBPJPY_LONDON_PRACTICE_OBSERVATION_PROVISIONAL_0.1.0",
+        pipSize: 0.01,
+        rangeDurationSeconds: 300,
+        minimumRangePips: 5,
+        maximumRangePips: 20,
+        minimumBreakoutPips: 5,
+        retestTolerancePips: 2,
+        maximumRetestBars: 5,
+        atrMethod: .simpleMeanTrueRangeV1,
+        atrLookbackBars: 14,
+        stopBufferATRMultiple: 0.2,
+        targetRMultiple: 1.5,
+        maximumSpreadPips: 4.5,
+        maximumQuoteAgeSeconds: 3,
+        maximumSetupAgeSeconds: 600,
+        cooldownSeconds: 0)
+
     public static func effectiveConfiguration(strategyID: String, instrument: String) -> StrategyEffectiveConfiguration? {
         switch strategyID {
+        case GBPJPYLondonBreakRetestV1.strategyID:
+            let c = londonPracticeObservationConfiguration
+            return .init(profileID: "GBPJPY_LONDON_PRACTICE_OBSERVATION",
+                profileVersion: c.version, evaluatorVersion: "GBPJPY_LONDON_RANGE_BREAK_RETEST_V1",
+                adapterVersion: StrategyImplementationDigests.adapterVersion,
+                instrument: instrument, stringSettings: [
+                    "timeZoneIdentifier": "Europe/London",
+                    "sessionCalendar": "LONDON_0800_1200_LOCAL_V1",
+                    "atrMethod": "SIMPLE_MEAN_TRUE_RANGE_V1",
+                    "profileMaturity": "provisional-practice-observation",
+                    "adapter.candleSource": "input.candles1m_completed;midpoint-ohlc;contiguous-session-only",
+                    "adapter.quoteSource": "input.bid-ask;quoteAsOfMs-required;no-candle-quote-fallback",
+                    "adapter.planConstruction": "structural-entry-stop-target-references;no-units;no-risk-approval",
+                    "adapter.spreadUnits": "pips"
+                ], numericSettings: [
+                    "pipSize": c.pipSize, "rangeDurationSeconds": Double(c.rangeDurationSeconds),
+                    "minimumRangePips": c.minimumRangePips, "maximumRangePips": c.maximumRangePips,
+                    "minimumBreakoutPips": c.minimumBreakoutPips,
+                    "retestTolerancePips": c.retestTolerancePips,
+                    "maximumRetestBars": Double(c.maximumRetestBars),
+                    "atrLookbackBars": Double(c.atrLookbackBars),
+                    "stopBufferATRMultiple": c.stopBufferATRMultiple,
+                    "targetRMultiple": c.targetRMultiple,
+                    "maximumSpreadPips": c.maximumSpreadPips,
+                    "maximumQuoteAgeSeconds": c.maximumQuoteAgeSeconds,
+                    "maximumSetupAgeSeconds": c.maximumSetupAgeSeconds,
+                    "cooldownSeconds": c.cooldownSeconds
+                ])
         case "ORB_BREAK_RETEST_V1", "ORB_BREAK_RETEST":
             let c = ORBBreakRetestV1.configuration(for: instrument)
             return .init(profileID: "ORB_BREAK_RETEST", profileVersion: c.strategyVersion,
@@ -72,6 +120,7 @@ public enum AdaptiveOpportunityAdapters {
         let config = effectiveConfiguration(strategyID: strategyID, instrument: instrument)?.sha256()
         let family: String
         switch strategyID {
+        case GBPJPYLondonBreakRetestV1.strategyID: family = "LONDON_BREAK_RETEST"
         case "ORB_BREAK_RETEST_V1": family = "ORB_BREAK_RETEST"
         case "CANDIDATE_001_CHOCH_FVG_FIB": family = "CHOCH_FVG_FIB"
         case "CANDIDATE_002_AUCTION_FAILURE": family = "AUCTION_FAILURE"
