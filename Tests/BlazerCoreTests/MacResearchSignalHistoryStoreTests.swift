@@ -68,6 +68,25 @@ private func historyTemporaryRoot() throws -> URL {
     #expect(try await store.events().last?.lifecycle == .expired)
 }
 
+@Test func explicitInvalidationIsDurableAndPreventsSetupReactivation() async throws {
+    let root = try historyTemporaryRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let start = Date(timeIntervalSince1970: 1_800_000_000)
+    let signal = historySignal(stage: .actionable, generation: 1, observedAt: start,
+                               validUntil: start.addingTimeInterval(600))
+    let store = MacResearchSignalHistoryStore(root: root)
+    #expect(try await store.recordObservation(signal) == .appended)
+    #expect(try await store.recordInvalidation(for: signal, reasonCode: "setup_invalidated",
+        at: start.addingTimeInterval(30)) == .appended)
+    #expect(try await MacResearchSignalHistoryStore(root: root).events().last?.lifecycle == .invalidated)
+
+    let revived = historySignal(stage: .actionable, generation: 2,
+        observedAt: start.addingTimeInterval(31), validUntil: start.addingTimeInterval(631),
+        inputIdentity: String(repeating: "d", count: 64))
+    #expect(try await store.recordObservation(revived) == .terminalSetup)
+    #expect(try await store.events().count == 2)
+}
+
 @Test func elapsedSetupExpiresOnRestoreAndCannotBeReactivated() async throws {
     let root = try historyTemporaryRoot()
     defer { try? FileManager.default.removeItem(at: root) }

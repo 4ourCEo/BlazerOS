@@ -2691,8 +2691,47 @@ public final class LightningDeskModel: ObservableObject {
             scanGeneration: Int(clamping: request.generation),
             sourceInputIdentity: sourceInputIdentity, now: receivedAt, source: .oandaPractice)
         let historyStore = macResearchSignalHistoryStore
-        var visibleSignals: [MacResearchSignal] = []
         var signalHistoryPersistenceFailed = false
+        let currentSetupIDs = Set(projectedSignals.map(\.id))
+        let invalidationReasonCodes = Set([
+            "setup_invalidated", "retest_failed", "retest_expired", "setup_too_old",
+            "stop_touched_before_entry", "entry_invalidated"
+        ])
+        let explicitInvalidations = Dictionary(
+            (result.record.evaluatorOutcomes ?? []).flatMap { outcome in
+                (outcome.rawDiagnostics ?? []).compactMap { diagnostic -> (String, String)? in
+                    let reason = diagnostic.reasonCode.lowercased()
+                    guard invalidationReasonCodes.contains(reason) else { return nil }
+                    return (diagnostic.candidateID, reason)
+                }
+            }, uniquingKeysWith: { first, _ in first })
+        if !explicitInvalidations.isEmpty {
+            do {
+                let priorEvents = try await historyStore.events()
+                let latestBySetup = Dictionary(grouping: priorEvents, by: \.setupKey).values.compactMap {
+                    $0.max { lhs, rhs in
+                        if lhs.recordedAt != rhs.recordedAt { return lhs.recordedAt < rhs.recordedAt }
+                        return lhs.signal.scanGeneration < rhs.signal.scanGeneration
+                    }
+                }
+                for latest in latestBySetup where latest.lifecycle != .expired
+                    && latest.lifecycle != .invalidated
+                    && !currentSetupIDs.contains(latest.signal.id)
+                {
+                    guard let reason = explicitInvalidations[latest.signal.id] else { continue }
+                    guard isCurrentScan(request), session?.environment == .practice else { return }
+                    if receivedAt >= latest.signal.validUntil {
+                        _ = try await historyStore.recordExpiry(for: latest.signal, at: receivedAt)
+                    } else {
+                        _ = try await historyStore.recordInvalidation(for: latest.signal,
+                            reasonCode: reason, at: receivedAt)
+                    }
+                }
+            } catch {
+                signalHistoryPersistenceFailed = true
+            }
+        }
+        var visibleSignals: [MacResearchSignal] = []
         for candidate in projectedSignals {
             guard isCurrentScan(request), session?.environment == .practice else { return }
             do {
