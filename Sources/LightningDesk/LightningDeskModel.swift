@@ -1688,7 +1688,9 @@ public final class LightningDeskModel: ObservableObject {
         }
         let now = Date()
         let quoteAge = now.timeIntervalSince(snapshot.quoteAsOf)
+        let conversionAge = now.timeIntervalSince(snapshot.conversionsAsOf)
         guard quoteAge >= -1, quoteAge <= 3,
+              conversionAge >= -1, conversionAge <= 3,
               snapshot.bid.isFinite, snapshot.ask.isFinite, snapshot.ask > snapshot.bid else {
             practiceSizingMessage = "OANDA Practice quote is stale or invalid. Refresh the signal and try again."
             return

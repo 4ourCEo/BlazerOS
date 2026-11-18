@@ -131,6 +131,7 @@ public struct OandaPracticeRiskSnapshot: Sendable, Equatable {
     public let bid: Double
     public let ask: Double
     public let quoteAsOf: Date
+    public let conversionsAsOf: Date
     public let observedAt: Date
 
     public init(accountId: String, accountCurrency: String, balance: Double, nav: Double,
@@ -139,7 +140,7 @@ public struct OandaPracticeRiskSnapshot: Sendable, Equatable {
                 commissionPerUnitsTraded: Double, commissionUnitsTraded: Double,
                 minimumCommission: Double, quoteLossToHomeFactor: Double,
                 basePositionToHomeFactor: Double, bid: Double, ask: Double, quoteAsOf: Date,
-                observedAt: Date) {
+                conversionsAsOf: Date, observedAt: Date) {
         self.accountId = accountId
         self.accountCurrency = accountCurrency
         self.balance = balance
@@ -157,6 +158,7 @@ public struct OandaPracticeRiskSnapshot: Sendable, Equatable {
         self.bid = bid
         self.ask = ask
         self.quoteAsOf = quoteAsOf
+        self.conversionsAsOf = conversionsAsOf
         self.observedAt = observedAt
     }
 
@@ -684,6 +686,7 @@ public enum OandaClient {
                   let quoteLoss = jpy.accountLoss.flatMap(Double.init),
                   let gbp = pricing.homeConversions?.first(where: { $0.currency == "GBP" }),
                   let basePosition = gbp.positionValue.flatMap(Double.init),
+                  let conversionTime = pricing.time.flatMap(OandaClient.parseTimeMs),
                   let price = pricing.prices?.first(where: { $0.instrument == "GBP_JPY" }),
                   price.status == "tradeable",
                   let bid = price.bids?.first?.price.flatMap(Double.init),
@@ -692,7 +695,7 @@ public enum OandaClient {
                   [balance, nav, marginAvailable, marginRate, minimumTradeSize,
                    maximumOrderUnits,
                    commissionAmount, commissionUnits, minimumCommission,
-                   quoteLoss, basePosition, bid, ask, quoteTime]
+                   quoteLoss, basePosition, bid, ask, quoteTime, conversionTime]
                     .allSatisfy({ $0.isFinite }),
                   balance > 0, nav > 0, marginAvailable >= 0,
                   marginRate > 0, minimumTradeSize > 0, maximumOrderUnits >= minimumTradeSize,
@@ -712,6 +715,7 @@ public enum OandaClient {
                 quoteLossToHomeFactor: quoteLoss,
                 basePositionToHomeFactor: basePosition,
                 bid: bid, ask: ask, quoteAsOf: Date(timeIntervalSince1970: quoteTime / 1_000),
+                conversionsAsOf: Date(timeIntervalSince1970: conversionTime / 1_000),
                 observedAt: Date())
             return .init(snapshot: snapshot, transport: .ok)
         } catch {
@@ -1265,6 +1269,7 @@ public enum OandaClient {
     private struct PricingResponse: Decodable {
         var prices: [ClientPrice]?
         var homeConversions: [HomeConversionRow]?
+        var time: String?
     }
 
     private struct HomeConversionRow: Decodable {

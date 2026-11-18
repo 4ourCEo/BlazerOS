@@ -32,7 +32,7 @@ private final class PracticeRiskStubURLProtocol: URLProtocol, @unchecked Sendabl
         case "/v3/accounts/test-account/instruments":
             body = #"{"instruments":[{"name":"GBP_JPY","marginRate":"0.05","minimumTradeSize":"1","maximumOrderUnits":"1000000","commission":{"commission":"2","unitsTraded":"100000","minimumCommission":"0"}}]}"#
         case "/v3/accounts/test-account/pricing":
-            body = #"{"prices":[{"instrument":"GBP_JPY","status":"tradeable","time":"2033-05-18T03:33:20Z","bids":[{"price":"200.000"}],"asks":[{"price":"200.010"}]}],"homeConversions":[{"currency":"JPY","accountLoss":"0.0067"},{"currency":"GBP","positionValue":"1.27"}]}"#
+            body = #"{"time":"2033-05-18T03:33:20Z","prices":[{"instrument":"GBP_JPY","status":"tradeable","time":"2033-05-18T03:33:20Z","bids":[{"price":"200.000"}],"asks":[{"price":"200.010"}]}],"homeConversions":[{"currency":"JPY","accountLoss":"0.0067"},{"currency":"GBP","positionValue":"1.27"}]}"#
         default:
             body = "{}"
         }
@@ -53,7 +53,7 @@ private final class PracticeRiskStubURLProtocol: URLProtocol, @unchecked Sendabl
         instrumentMarginRate: 0.05, minimumTradeSize: 1, maximumOrderUnits: 1_000_000,
         commissionPerUnitsTraded: 2, commissionUnitsTraded: 100_000, minimumCommission: 0,
         quoteLossToHomeFactor: 0.0067, basePositionToHomeFactor: 1.27,
-        bid: 200, ask: 200.01, quoteAsOf: Date(), observedAt: Date())
+        bid: 200, ask: 200.01, quoteAsOf: Date(), conversionsAsOf: Date(), observedAt: Date())
 
     let factors = snapshot.sizingFactors(entryPrice: 200)
     #expect(factors?.accountRiskPerPriceUnit == 0.0067)
@@ -67,7 +67,7 @@ private final class PracticeRiskStubURLProtocol: URLProtocol, @unchecked Sendabl
         instrumentMarginRate: .nan, minimumTradeSize: 1, maximumOrderUnits: 1_000_000,
         commissionPerUnitsTraded: 0, commissionUnitsTraded: 1, minimumCommission: 0,
         quoteLossToHomeFactor: 0, basePositionToHomeFactor: 1.27,
-        bid: 200, ask: 200.01, quoteAsOf: Date(), observedAt: Date())
+        bid: 200, ask: 200.01, quoteAsOf: Date(), conversionsAsOf: Date(), observedAt: Date())
 
     #expect(snapshot.sizingFactors(entryPrice: 200) == nil)
     #expect(snapshot.sizingFactors(entryPrice: .infinity) == nil)
@@ -137,7 +137,7 @@ private final class PracticeRiskStubURLProtocol: URLProtocol, @unchecked Sendabl
         instrumentMarginRate: 0.05, minimumTradeSize: 1, maximumOrderUnits: 5_000,
         commissionPerUnitsTraded: 2, commissionUnitsTraded: 100_000, minimumCommission: 0,
         quoteLossToHomeFactor: 0.0067, basePositionToHomeFactor: 1.27,
-        bid: 200, ask: 200.01, quoteAsOf: Date(), observedAt: Date())
+        bid: 200, ask: 200.01, quoteAsOf: Date(), conversionsAsOf: Date(), observedAt: Date())
     let request = snapshot.riskSizingRequest(
         entryPrice: snapshot.ask, stopPrice: 199.5, spreadCostPerUnit: 0.000067)
 
