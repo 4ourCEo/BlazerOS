@@ -34,6 +34,28 @@ public enum MacResearchSignalHistoryEventKind: String, Codable, Sendable, Equata
     case invalidated
 }
 
+/// Converts only explicit evaluator terminal reasons into signal invalidations.
+/// Missing data, failed evaluation, and ordinary no-setup results do not close a
+/// previously observed setup.
+public enum MacResearchSignalInvalidationResolver {
+    private static let terminalReasons: Set<String> = [
+        "setup_invalidated", "retest_failed", "retest_expired", "setup_too_old",
+        "stop_touched_before_entry", "entry_invalidated"
+    ]
+
+    public static func explicitReasons(
+        from outcomes: [AdaptiveStrategyEvaluationOutcome]
+    ) -> [String: String] {
+        Dictionary(outcomes.flatMap { outcome in
+            (outcome.rawDiagnostics ?? []).compactMap { diagnostic -> (String, String)? in
+                let reason = diagnostic.reasonCode.lowercased()
+                guard terminalReasons.contains(reason) else { return nil }
+                return (diagnostic.candidateID, reason)
+            }
+        }, uniquingKeysWith: { first, _ in first })
+    }
+}
+
 /// Immutable Practice signal history. This is display and audit evidence only;
 /// it carries no account approval, order request, or execution authority.
 public struct MacResearchSignalHistoryEvent: Codable, Sendable, Equatable, Identifiable {

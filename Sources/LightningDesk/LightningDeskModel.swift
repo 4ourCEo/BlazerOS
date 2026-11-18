@@ -2691,8 +2691,37 @@ public final class LightningDeskModel: ObservableObject {
             scanGeneration: Int(clamping: request.generation),
             sourceInputIdentity: sourceInputIdentity, now: receivedAt, source: .oandaPractice)
         let historyStore = macResearchSignalHistoryStore
-        var visibleSignals: [MacResearchSignal] = []
         var signalHistoryPersistenceFailed = false
+        let currentSetupIDs = Set(projectedSignals.map(\.id))
+        let explicitInvalidations = MacResearchSignalInvalidationResolver.explicitReasons(
+            from: result.record.evaluatorOutcomes ?? [])
+        if !explicitInvalidations.isEmpty {
+            do {
+                let priorEvents = try await historyStore.events()
+                let latestBySetup = Dictionary(grouping: priorEvents, by: \.setupKey).values.compactMap {
+                    $0.max { lhs, rhs in
+                        if lhs.recordedAt != rhs.recordedAt { return lhs.recordedAt < rhs.recordedAt }
+                        return lhs.signal.scanGeneration < rhs.signal.scanGeneration
+                    }
+                }
+                for latest in latestBySetup where latest.lifecycle != .expired
+                    && latest.lifecycle != .invalidated
+                    && !currentSetupIDs.contains(latest.signal.id)
+                {
+                    guard let reason = explicitInvalidations[latest.signal.id] else { continue }
+                    guard isCurrentScan(request), session?.environment == .practice else { return }
+                    if receivedAt >= latest.signal.validUntil {
+                        _ = try await historyStore.recordExpiry(for: latest.signal, at: receivedAt)
+                    } else {
+                        _ = try await historyStore.recordInvalidation(for: latest.signal,
+                            reasonCode: reason, at: receivedAt)
+                    }
+                }
+            } catch {
+                signalHistoryPersistenceFailed = true
+            }
+        }
+        var visibleSignals: [MacResearchSignal] = []
         for candidate in projectedSignals {
             guard isCurrentScan(request), session?.environment == .practice else { return }
             do {

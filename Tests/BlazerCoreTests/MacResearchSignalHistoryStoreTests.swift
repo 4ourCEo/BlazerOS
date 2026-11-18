@@ -68,6 +68,40 @@ private func historyTemporaryRoot() throws -> URL {
     #expect(try await store.events().last?.lifecycle == .expired)
 }
 
+@Test func explicitInvalidationIsDurableAndPreventsSetupReactivation() async throws {
+    let root = try historyTemporaryRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let start = Date(timeIntervalSince1970: 1_800_000_000)
+    let signal = historySignal(stage: .actionable, generation: 1, observedAt: start,
+                               validUntil: start.addingTimeInterval(600))
+    let store = MacResearchSignalHistoryStore(root: root)
+    #expect(try await store.recordObservation(signal) == .appended)
+    #expect(try await store.recordInvalidation(for: signal, reasonCode: "setup_invalidated",
+        at: start.addingTimeInterval(30)) == .appended)
+    #expect(try await MacResearchSignalHistoryStore(root: root).events().last?.lifecycle == .invalidated)
+
+    let revived = historySignal(stage: .actionable, generation: 2,
+        observedAt: start.addingTimeInterval(31), validUntil: start.addingTimeInterval(631),
+        inputIdentity: String(repeating: "d", count: 64))
+    #expect(try await store.recordObservation(revived) == .terminalSetup)
+    #expect(try await store.events().count == 2)
+}
+
+@Test func invalidationResolverUsesOnlyExplicitTerminalReasons() {
+    let invalidated = AdaptiveStrategyEvaluationOutcome(evaluatorID: "candidate001",
+        strategyID: "CANDIDATE_001_CHOCH_FVG_FIB", strategyVersion: "v1", timeframe: "M1",
+        state: .conditionsNotMet, reasonCode: "setup_invalidated",
+        rawDiagnostics: [AdaptiveCandidateRawDiagnostic(candidateID: "candidate001:setup-1",
+            rawState: "INVALIDATED", reasonCode: "SETUP_INVALIDATED")])
+    let unavailable = AdaptiveStrategyEvaluationOutcome(evaluatorID: "candidate002",
+        strategyID: "CANDIDATE_002_AUCTION_FAILURE", strategyVersion: "v1", timeframe: "M1",
+        state: .dataUnavailable, reasonCode: "quote_missing",
+        rawDiagnostics: [AdaptiveCandidateRawDiagnostic(candidateID: "candidate002:setup-2",
+            rawState: "UNAVAILABLE", reasonCode: "M15_CONTEXT_UNAVAILABLE")])
+    let result = MacResearchSignalInvalidationResolver.explicitReasons(from: [invalidated, unavailable])
+    #expect(result == ["candidate001:setup-1": "setup_invalidated"])
+}
+
 @Test func elapsedSetupExpiresOnRestoreAndCannotBeReactivated() async throws {
     let root = try historyTemporaryRoot()
     defer { try? FileManager.default.removeItem(at: root) }
