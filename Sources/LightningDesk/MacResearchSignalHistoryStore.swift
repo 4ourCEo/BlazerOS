@@ -26,6 +26,11 @@ public enum MacResearchSignalLifecycle: String, Codable, Sendable, Equatable {
         case .actionable: .actionable
         }
     }
+
+    public static func advances(from previous: Self?, to stage: MacResearchSignalStage) -> Bool {
+        guard let previous else { return true }
+        return observed(stage).progress > previous.progress
+    }
 }
 
 public enum MacResearchSignalHistoryEventKind: String, Codable, Sendable, Equatable {
@@ -167,6 +172,14 @@ public actor MacResearchSignalHistoryStore {
 
     public func events() async throws -> [MacResearchSignalHistoryEvent] {
         try await withTransaction { try await self.loadUnlocked().sorted(by: Self.eventOrder) }
+    }
+
+    public func latestEvent(for signal: MacResearchSignal) async throws -> MacResearchSignalHistoryEvent? {
+        guard Self.validPracticeSignal(signal) else { throw MacResearchSignalHistoryError.invalidPracticeSignal }
+        let key = Self.setupKey(for: signal)
+        return try await withTransaction {
+            try await self.loadUnlocked().filter { $0.setupKey == key }.max(by: Self.eventOrder)
+        }
     }
 
     /// Appends terminal states for any restored signal whose validity window elapsed.
