@@ -451,8 +451,15 @@ struct MacTradingWorkspace: View {
             let practiceSignal = practiceSignalForSetup
             let decision = practiceSignal == nil ? model.strategyDecision(for: model.pair) : nil
             let plan = decision?.plan
-            let entry = practiceSignal?.entryReference ?? practiceSignal?.planPreview?.entryPrice ?? plan?.entryPrice
-            let stop = practiceSignal?.stopPrice ?? practiceSignal?.planPreview?.stopPrice ?? plan?.stopPrice
+            let sizing = model.practiceSizingPreview
+            let sizedPreview: MacPracticeSizingPreview? = {
+                guard let signal = practiceSignal, signal.stage == .actionable,
+                      sizing?.signalID == signal.id,
+                      sizing?.sourceInputIdentity == signal.sourceInputIdentity else { return nil }
+                return sizing
+            }()
+            let entry = sizedPreview?.entryPrice ?? practiceSignal?.entryReference ?? practiceSignal?.planPreview?.entryPrice ?? plan?.entryPrice
+            let stop = sizedPreview?.stopPrice ?? practiceSignal?.stopPrice ?? practiceSignal?.planPreview?.stopPrice ?? plan?.stopPrice
             let target = practiceSignal?.targetPrice ?? practiceSignal?.planPreview?.targetPrice ?? plan?.targetPrice
             value("Status", practiceSignal.map { "\($0.stage.rawValue) · PRACTICE PLAN" }
                   ?? decision?.action.rawValue ?? (model.scanning ? "Scanning" : "Waiting for scan"))
@@ -480,10 +487,38 @@ struct MacTradingWorkspace: View {
                 value("Stop distance", "—")
                 value("Target distance", "—")
             }
-            value("Risk", "risk_missing · units withheld")
-            if practiceSignal != nil {
-                Text("Practice plan preview · verify account risk and margin in OANDA before manual entry.")
-                    .font(.system(size: 10)).foregroundStyle(muted).lineLimit(3)
+            if let practiceSignal, practiceSignal.environment == .practice {
+                if practiceSignal.stage == .actionable {
+                    Button {
+                        Task { await model.calculateGBPJPYPracticeSize(signalID: practiceSignal.id) }
+                    } label: {
+                        Label("SIZE FROM PRACTICE ACCOUNT", systemImage: "function")
+                            .font(.system(size: 9, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.75)
+                            .frame(maxWidth: .infinity).padding(.vertical, 7)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(model.scanning)
+                    .accessibilityIdentifier("mac.gbpjpy-practice-size")
+                }
+                if let sizedPreview {
+                    value("Risk", "\(String(format: "%.0f", sizedPreview.units)) units · 1% max")
+                    value("1% budget", "\(sizedPreview.riskBudget.formatted(.number.precision(.fractionLength(2)))) \(sizedPreview.accountCurrency)")
+                    value("Est. loss", "\(sizedPreview.estimatedLoss.formatted(.number.precision(.fractionLength(2)))) \(sizedPreview.accountCurrency)")
+                    value("Margin", "\(sizedPreview.estimatedMargin.formatted(.number.precision(.fractionLength(2)))) \(sizedPreview.accountCurrency)")
+                } else {
+                    value("Risk", "1% max · units withheld")
+                }
+                if let sizingMessage = model.practiceSizingMessage {
+                    Text(sizingMessage).font(.system(size: 10)).foregroundStyle(muted).lineLimit(3)
+                } else if practiceSignal.stage == .actionable {
+                    Text("Practice estimate only · check current trigger, quote and stop before manual entry.")
+                        .font(.system(size: 10)).foregroundStyle(muted).lineLimit(3)
+                } else {
+                    Text("Risk sizing is available when the Practice setup is actionable.")
+                        .font(.system(size: 10)).foregroundStyle(muted).lineLimit(3)
+                }
+            } else {
+                value("Risk", "risk_missing · units withheld")
             }
             if let decision {
                 let reasons = decision.reasons.joined(separator: ", ")

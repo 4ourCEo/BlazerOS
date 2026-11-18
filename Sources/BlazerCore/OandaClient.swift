@@ -110,6 +110,122 @@ public struct OandaCandleBatch: Sendable {
     }
 }
 
+/// Read-only Practice account and GBP/JPY conversion inputs. These values are
+/// an observation only; callers must still apply fresh executable prices,
+/// costs, and the risk cap before displaying any proposed units.
+public struct OandaPracticeRiskSnapshot: Sendable, Equatable {
+    public let accountId: String
+    public let accountCurrency: String
+    public let balance: Double
+    public let nav: Double
+    public let marginAvailable: Double
+    public let instrument: String
+    public let instrumentMarginRate: Double
+    public let minimumTradeSize: Double
+    public let maximumOrderUnits: Double
+    public let commissionPerUnitsTraded: Double
+    public let commissionUnitsTraded: Double
+    public let minimumCommission: Double
+    public let quoteLossToHomeFactor: Double
+    public let basePositionToHomeFactor: Double
+    public let bid: Double
+    public let ask: Double
+    public let quoteAsOf: Date
+    public let conversionsAsOf: Date
+    public let observedAt: Date
+
+    public init(accountId: String, accountCurrency: String, balance: Double, nav: Double,
+                marginAvailable: Double, instrument: String, instrumentMarginRate: Double,
+                minimumTradeSize: Double, maximumOrderUnits: Double,
+                commissionPerUnitsTraded: Double, commissionUnitsTraded: Double,
+                minimumCommission: Double, quoteLossToHomeFactor: Double,
+                basePositionToHomeFactor: Double, bid: Double, ask: Double, quoteAsOf: Date,
+                conversionsAsOf: Date, observedAt: Date) {
+        self.accountId = accountId
+        self.accountCurrency = accountCurrency
+        self.balance = balance
+        self.nav = nav
+        self.marginAvailable = marginAvailable
+        self.instrument = instrument
+        self.instrumentMarginRate = instrumentMarginRate
+        self.minimumTradeSize = minimumTradeSize
+        self.maximumOrderUnits = maximumOrderUnits
+        self.commissionPerUnitsTraded = commissionPerUnitsTraded
+        self.commissionUnitsTraded = commissionUnitsTraded
+        self.minimumCommission = minimumCommission
+        self.quoteLossToHomeFactor = quoteLossToHomeFactor
+        self.basePositionToHomeFactor = basePositionToHomeFactor
+        self.bid = bid
+        self.ask = ask
+        self.quoteAsOf = quoteAsOf
+        self.conversionsAsOf = conversionsAsOf
+        self.observedAt = observedAt
+    }
+
+    /// Converts a GBP/JPY price move into account-currency loss per GBP unit,
+    /// and estimates margin per unit from OANDA's current instrument rate.
+    public func sizingFactors(entryPrice: Double) -> (accountRiskPerPriceUnit: Double, marginPerUnit: Double)? {
+        guard entryPrice.isFinite, entryPrice > 0,
+              quoteLossToHomeFactor.isFinite, quoteLossToHomeFactor > 0,
+              basePositionToHomeFactor.isFinite, basePositionToHomeFactor > 0,
+              instrumentMarginRate.isFinite, instrumentMarginRate > 0 else { return nil }
+        let marginPerUnit = entryPrice * basePositionToHomeFactor * instrumentMarginRate
+        guard marginPerUnit.isFinite, marginPerUnit > 0 else { return nil }
+        return (quoteLossToHomeFactor, marginPerUnit)
+    }
+
+    /// Conservative round-trip commission estimate in the account currency.
+    /// The minimum commission is spread over minimum trade size, which does not
+    /// understate the fee for larger manual tickets.
+    public var estimatedRoundTripCommissionPerUnit: Double? {
+        guard commissionPerUnitsTraded.isFinite, commissionPerUnitsTraded >= 0,
+              commissionUnitsTraded.isFinite, commissionUnitsTraded > 0,
+              minimumCommission.isFinite, minimumCommission >= 0,
+              minimumTradeSize.isFinite, minimumTradeSize > 0 else { return nil }
+        let perUnit = max(commissionPerUnitsTraded / commissionUnitsTraded,
+                          minimumCommission / minimumTradeSize) * 2
+        return perUnit.isFinite ? perUnit : nil
+    }
+
+    /// Builds the existing generic risk-sizer request in the account's home
+    /// currency, capped by OANDA's instrument maximum. The risk sizer rejects a
+    /// proposal that exceeds current available margin. `spreadCostPerUnit` is an
+    /// additional conservative stop-exit reserve.
+    public func riskSizingRequest(entryPrice: Double, stopPrice: Double,
+                                  riskFraction: Double = 0.01,
+                                  spreadCostPerUnit: Double) -> V3RiskSizingRequest? {
+        guard entryPrice.isFinite, entryPrice > 0, stopPrice.isFinite, stopPrice > 0,
+              riskFraction.isFinite, riskFraction > 0, riskFraction <= 0.01,
+              spreadCostPerUnit.isFinite, spreadCostPerUnit >= 0,
+              nav.isFinite, nav > 0, marginAvailable.isFinite, marginAvailable >= 0,
+              maximumOrderUnits.isFinite, maximumOrderUnits >= minimumTradeSize,
+              let factors = sizingFactors(entryPrice: entryPrice),
+              let commission = estimatedRoundTripCommissionPerUnit else { return nil }
+        return V3RiskSizingRequest(
+            accountBalanceUSD: nav, riskFraction: riskFraction,
+            entryPrice: entryPrice, stopPrice: stopPrice,
+            accountRiskPerPriceUnit: factors.accountRiskPerPriceUnit,
+            estimatedCostPerUnit: commission + spreadCostPerUnit,
+            minimumUnits: minimumTradeSize, maximumUnits: maximumOrderUnits,
+            availableMarginUSD: marginAvailable, marginPerUnitUSD: factors.marginPerUnit)
+    }
+}
+
+public struct OandaPracticeRiskSnapshotBatch: Sendable {
+    public let snapshot: OandaPracticeRiskSnapshot?
+    public let transport: OandaTransport
+    public let httpStatus: Int?
+    public let reason: String?
+
+    public init(snapshot: OandaPracticeRiskSnapshot?, transport: OandaTransport,
+                httpStatus: Int? = nil, reason: String? = nil) {
+        self.snapshot = snapshot
+        self.transport = transport
+        self.httpStatus = httpStatus
+        self.reason = reason
+    }
+}
+
 /// Historical OANDA bid/ask candle data. Candle extremes are not tick
 /// quotations: when both a stop and target are crossed inside one candle, the
 /// execution order remains unknown and must be recorded as ambiguous.
@@ -507,6 +623,127 @@ public enum OandaClient {
             return OandaQuoteBatch(quotes: [], transport: .timeout)
         } catch {
             return OandaQuoteBatch(quotes: [], transport: .network)
+        }
+    }
+
+    /// Obtains a read-only account, instrument margin, and currency-conversion
+    /// snapshot for the GBP/JPY Practice sizing path. This function rejects Live
+    /// sessions and never calls an order endpoint.
+    public static func fetchPracticeGBPYJSizingSnapshot(
+        session: OandaSession
+    ) async -> OandaPracticeRiskSnapshotBatch {
+        await fetchPracticeGBPYJSizingSnapshot(session: session, requestSession: finiteRequestSession)
+    }
+
+    static func fetchPracticeGBPYJSizingSnapshot(
+        session: OandaSession, requestSession: URLSession
+    ) async -> OandaPracticeRiskSnapshotBatch {
+        guard session.environment == .practice else {
+            return .init(snapshot: nil, transport: .network, reason: "practice_environment_required")
+        }
+        guard session.isConfigured else {
+            return .init(snapshot: nil, transport: .missingToken, reason: "credentials_missing")
+        }
+
+        let summaryURL = "\(session.environment.host)/v3/accounts/\(session.accountId)/summary"
+        let instrumentsURL = "\(session.environment.host)/v3/accounts/\(session.accountId)/instruments?instruments=GBP_JPY"
+        let pricingURL = "\(session.environment.host)/v3/accounts/\(session.accountId)/pricing?instruments=GBP_JPY&includeHomeConversions=true"
+        let endpoints = [summaryURL, instrumentsURL, pricingURL]
+        var payloads: [Data] = []
+        for endpoint in endpoints {
+            guard let url = URL(string: endpoint) else {
+                return .init(snapshot: nil, transport: .network, reason: "invalid_endpoint")
+            }
+            guard await OandaRateLimit.shared.acquire(timeout: 15) else {
+                return .init(snapshot: nil, transport: .rateLimited, reason: "rate_limited")
+            }
+            let result = await readOnlyJSON(url, session: session, requestSession: requestSession)
+            guard let data = result.data else {
+                return .init(snapshot: nil, transport: result.transport,
+                             httpStatus: result.httpStatus, reason: result.reason)
+            }
+            payloads.append(data)
+        }
+
+        do {
+            let summary = try decoder.decode(AccountSummaryResponse.self, from: payloads[0])
+            let instruments = try decoder.decode(AccountInstrumentsResponse.self, from: payloads[1])
+            let pricing = try decoder.decode(PricingResponse.self, from: payloads[2])
+            guard let account = summary.account,
+                  let accountCurrency = account.currency,
+                  let balance = account.balance.flatMap(Double.init),
+                  let nav = account.nav.flatMap(Double.init),
+                  let marginAvailable = account.marginAvailable.flatMap(Double.init),
+                  let accountInstrument = instruments.instruments?.first(where: { $0.name == "GBP_JPY" }),
+                  let marginRate = accountInstrument.marginRate.flatMap(Double.init),
+                  let minimumTradeSize = accountInstrument.minimumTradeSize.flatMap(Double.init),
+                  let maximumOrderUnits = accountInstrument.maximumOrderUnits.flatMap(Double.init),
+                  let commission = accountInstrument.commission,
+                  let commissionAmount = commission.commission.flatMap(Double.init),
+                  let commissionUnits = commission.unitsTraded.flatMap(Double.init),
+                  let minimumCommission = commission.minimumCommission.flatMap(Double.init),
+                  let jpy = pricing.homeConversions?.first(where: { $0.currency == "JPY" }),
+                  let quoteLoss = jpy.accountLoss.flatMap(Double.init),
+                  let gbp = pricing.homeConversions?.first(where: { $0.currency == "GBP" }),
+                  let basePosition = gbp.positionValue.flatMap(Double.init),
+                  let conversionTime = pricing.time.flatMap(OandaClient.parseTimeMs),
+                  let price = pricing.prices?.first(where: { $0.instrument == "GBP_JPY" }),
+                  price.status == "tradeable",
+                  let bid = price.bids?.first?.price.flatMap(Double.init),
+                  let ask = price.asks?.first?.price.flatMap(Double.init),
+                  let quoteTime = price.time.flatMap(OandaClient.parseTimeMs),
+                  [balance, nav, marginAvailable, marginRate, minimumTradeSize,
+                   maximumOrderUnits,
+                   commissionAmount, commissionUnits, minimumCommission,
+                   quoteLoss, basePosition, bid, ask, quoteTime, conversionTime]
+                    .allSatisfy({ $0.isFinite }),
+                  balance > 0, nav > 0, marginAvailable >= 0,
+                  marginRate > 0, minimumTradeSize > 0, maximumOrderUnits >= minimumTradeSize,
+                  commissionAmount >= 0, commissionUnits > 0, minimumCommission >= 0,
+                  quoteLoss > 0, basePosition > 0, bid > 0, ask > bid else {
+                return .init(snapshot: nil, transport: .network, reason: "required_risk_input_missing_or_invalid")
+            }
+            let snapshot = OandaPracticeRiskSnapshot(
+                accountId: session.accountId, accountCurrency: accountCurrency,
+                balance: balance, nav: nav, marginAvailable: marginAvailable,
+                instrument: "GBP_JPY", instrumentMarginRate: marginRate,
+                minimumTradeSize: minimumTradeSize,
+                maximumOrderUnits: maximumOrderUnits,
+                commissionPerUnitsTraded: commissionAmount,
+                commissionUnitsTraded: commissionUnits,
+                minimumCommission: minimumCommission,
+                quoteLossToHomeFactor: quoteLoss,
+                basePositionToHomeFactor: basePosition,
+                bid: bid, ask: ask, quoteAsOf: Date(timeIntervalSince1970: quoteTime / 1_000),
+                conversionsAsOf: Date(timeIntervalSince1970: conversionTime / 1_000),
+                observedAt: Date())
+            return .init(snapshot: snapshot, transport: .ok)
+        } catch {
+            return .init(snapshot: nil, transport: .network, reason: "malformed_risk_response")
+        }
+    }
+
+    private static func readOnlyJSON(_ url: URL, session: OandaSession, requestSession: URLSession) async
+        -> (data: Data?, transport: OandaTransport, httpStatus: Int?, reason: String?) {
+        do {
+            let (data, response) = try await requestSession.data(for: authorized(url, session: session, timeout: 8))
+            guard let http = response as? HTTPURLResponse else {
+                return (nil, .network, nil, "invalid_http_response")
+            }
+            if http.statusCode == 401 || http.statusCode == 403 {
+                return (nil, .unauthorized, http.statusCode, "authorization_rejected")
+            }
+            if http.statusCode == 429 {
+                return (nil, .rateLimited, http.statusCode, "rate_limited")
+            }
+            guard (200..<300).contains(http.statusCode) else {
+                return (nil, .network, http.statusCode, "http_error")
+            }
+            return (data, .ok, http.statusCode, nil)
+        } catch let error as URLError where error.code == .timedOut {
+            return (nil, .timeout, nil, "request_timeout")
+        } catch {
+            return (nil, .network, nil, "network_error")
         }
     }
 
@@ -1031,6 +1268,48 @@ public enum OandaClient {
 
     private struct PricingResponse: Decodable {
         var prices: [ClientPrice]?
+        var homeConversions: [HomeConversionRow]?
+        var time: String?
+    }
+
+    private struct HomeConversionRow: Decodable {
+        var currency: String?
+        var accountLoss: String?
+        var positionValue: String?
+    }
+
+    private struct AccountSummaryResponse: Decodable {
+        var account: AccountSummaryRow?
+    }
+
+    private struct AccountSummaryRow: Decodable {
+        var currency: String?
+        var balance: String?
+        var nav: String?
+        var marginAvailable: String?
+
+        enum CodingKeys: String, CodingKey {
+            case currency, balance, marginAvailable
+            case nav = "NAV"
+        }
+    }
+
+    private struct AccountInstrumentsResponse: Decodable {
+        var instruments: [AccountInstrumentRow]?
+    }
+
+    private struct AccountInstrumentRow: Decodable {
+        var name: String?
+        var marginRate: String?
+        var minimumTradeSize: String?
+        var maximumOrderUnits: String?
+        var commission: InstrumentCommissionRow?
+    }
+
+    private struct InstrumentCommissionRow: Decodable {
+        var commission: String?
+        var unitsTraded: String?
+        var minimumCommission: String?
     }
 
     private struct OandaErrorResponse: Decodable {
@@ -1042,6 +1321,7 @@ public enum OandaClient {
         var type: String?
         var instrument: String?
         var time: String?
+        var status: String?
         var bids: [PriceLevel]?
         var asks: [PriceLevel]?
         var closeoutBid: String?

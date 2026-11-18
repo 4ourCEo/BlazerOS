@@ -41,6 +41,19 @@ public enum MacResearchSignalStatus: Equatable {
     case failed
     case sourceAttestationUnavailable
 }
+
+public struct MacPracticeSizingPreview: Sendable, Equatable {
+    public let signalID: String
+    public let sourceInputIdentity: String
+    public let accountCurrency: String
+    public let units: Double
+    public let riskBudget: Double
+    public let estimatedLoss: Double
+    public let estimatedMargin: Double
+    public let entryPrice: Double
+    public let stopPrice: Double
+    public let observedAt: Date
+}
 #endif
 
 /// Gives each asset an independent, monotonic refresh identity so late async
@@ -183,6 +196,8 @@ public final class LightningDeskModel: ObservableObject {
     @Published public private(set) var macResearchEvaluationDiagnostics: [MacResearchEvaluationDiagnostic] = []
     @Published public private(set) var macResearchSignalStatus: MacResearchSignalStatus = .awaitingFreshScan
     @Published public private(set) var isGBPJPYPracticeMonitoring = false
+    @Published public private(set) var practiceSizingPreview: MacPracticeSizingPreview?
+    @Published public private(set) var practiceSizingMessage: String?
     private var macResearchExpiryTask: Task<Void, Never>?
     private var gbpJPYPracticeMonitorTask: Task<Void, Never>?
 #endif
@@ -1640,6 +1655,71 @@ public final class LightningDeskModel: ObservableObject {
         gbpJPYPracticeMonitorTask = nil
         isGBPJPYPracticeMonitoring = false
         notice = "GBP/JPY Practice monitor stopped"
+    }
+
+    /// Calculates a manual-only GBP/JPY Practice size from a fresh OANDA quote,
+    /// account equity, instrument commission/margin rules and home conversions.
+    public func calculateGBPJPYPracticeSize(signalID: String) async {
+        practiceSizingPreview = nil
+        practiceSizingMessage = nil
+        guard marketMode == .fx, pair == "GBP/JPY",
+              let signal = macResearchSignals.first(where: { $0.id == signalID }),
+              signal.instrument == "GBP/JPY", signal.environment == .practice,
+              signal.stage == .actionable, Date() <= signal.validUntil,
+              let stop = signal.stopPrice, stop.isFinite, stop > 0 else {
+            practiceSizingMessage = "A current actionable Practice signal with a stop is required."
+            return
+        }
+        guard let activeSession = await loadSession(allowPrompt: false),
+              activeSession.environment == .practice else {
+            practiceSizingMessage = "Connect the OANDA Practice account to calculate account-sized units."
+            return
+        }
+        let batch = await OandaClient.fetchPracticeGBPYJSizingSnapshot(session: activeSession)
+        guard let snapshot = batch.snapshot, snapshot.accountId == activeSession.accountId else {
+            practiceSizingMessage = batch.reason.map { "Account sizing unavailable: \($0)." }
+                ?? "Account sizing unavailable from OANDA Practice."
+            return
+        }
+        guard let currentSignal = macResearchSignals.first(where: { $0.id == signalID }),
+              currentSignal == signal, Date() <= signal.validUntil else {
+            practiceSizingMessage = "Signal changed or expired while account data was loading. Scan again."
+            return
+        }
+        let now = Date()
+        let quoteAge = now.timeIntervalSince(snapshot.quoteAsOf)
+        let conversionAge = now.timeIntervalSince(snapshot.conversionsAsOf)
+        guard quoteAge >= -1, quoteAge <= 3,
+              conversionAge >= -1, conversionAge <= 3,
+              snapshot.bid.isFinite, snapshot.ask.isFinite, snapshot.ask > snapshot.bid else {
+            practiceSizingMessage = "OANDA Practice quote is stale or invalid. Refresh the signal and try again."
+            return
+        }
+        let entry = signal.direction == .long ? snapshot.ask : snapshot.bid
+        guard signal.direction == .long ? stop < entry : stop > entry,
+              let factors = snapshot.sizingFactors(entryPrice: entry),
+              let request = snapshot.riskSizingRequest(
+                entryPrice: entry, stopPrice: stop,
+                spreadCostPerUnit: (snapshot.ask - snapshot.bid) * factors.accountRiskPerPriceUnit) else {
+            practiceSizingMessage = "Entry, stop, conversion, margin, or commission data is invalid."
+            return
+        }
+        // Use executable entry side and reserve an additional full spread for
+        // stop exit uncertainty, plus OANDA's documented round-trip commission.
+        let sizing = V3RiskSizer.size(request)
+        guard sizing.accepted,
+              let loss = sizing.estimatedWorstCaseLossUSD,
+              let margin = sizing.estimatedMarginUSD else {
+            practiceSizingMessage = "Practice sizing rejected: \(sizing.rejectionReason ?? "unknown_reason")."
+            return
+        }
+        practiceSizingPreview = MacPracticeSizingPreview(
+            signalID: signal.id, sourceInputIdentity: signal.sourceInputIdentity,
+            accountCurrency: snapshot.accountCurrency,
+            units: sizing.units, riskBudget: sizing.riskBudgetUSD,
+            estimatedLoss: loss, estimatedMargin: margin,
+            entryPrice: entry, stopPrice: stop, observedAt: snapshot.observedAt)
+        practiceSizingMessage = "Estimate only · recheck the trigger and quote before manual entry."
     }
 
     private func runGBPJPYPracticeMonitor() async {
