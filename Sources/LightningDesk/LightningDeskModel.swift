@@ -1337,11 +1337,28 @@ public final class LightningDeskModel: ObservableObject {
     public func restoreMacResearchSignalHistory(now: Date = Date()) async {
         let store = macResearchSignalHistoryStore
         do {
+            let previousEventIDs = Set(try await store.events().map(\.id))
             _ = try await store.expireElapsedSignals(asOf: now)
-            macResearchSignalHistory = try await store.events()
+            let restoredEvents = try await store.events()
+            for event in restoredEvents where event.kind == .expired
+                && !previousEventIDs.contains(event.id)
+            {
+                await scheduleMacResearchSignalNotification(.opportunityExpired,
+                    for: event.signal, at: now)
+            }
+            macResearchSignalHistory = restoredEvents
         } catch {
             notice = "Practice signal history could not be restored"
         }
+    }
+
+    private func scheduleMacResearchSignalNotification(
+        _ kind: AdaptiveNotificationKind, for signal: MacResearchSignal, at date: Date
+    ) async {
+        let notification = AdaptiveNotification(kind: kind, instrument: signal.instrument,
+            strategyID: signal.strategyID, sourceTime: date,
+            expiresAt: date.addingTimeInterval(30), signalIdentity: signal.id)
+        _ = await MarketNotificationService.shared.scheduleAdaptiveNotification(notification, now: date)
     }
 #endif
 
@@ -2711,11 +2728,20 @@ public final class LightningDeskModel: ObservableObject {
                     guard let reason = explicitInvalidations[latest.signal.id] else { continue }
                     guard isCurrentScan(request), session?.environment == .practice else { return }
                     if receivedAt >= latest.signal.validUntil {
-                        _ = try await historyStore.recordExpiry(for: latest.signal, at: receivedAt)
+                        let result = try await historyStore.recordExpiry(for: latest.signal, at: receivedAt)
+                        if result == .appended {
+                            await scheduleMacResearchSignalNotification(.opportunityExpired,
+                                for: latest.signal, at: receivedAt)
+                        }
                     } else {
-                        _ = try await historyStore.recordInvalidation(for: latest.signal,
+                        let result = try await historyStore.recordInvalidation(for: latest.signal,
                             reasonCode: reason, at: receivedAt)
+                        if result == .appended {
+                            await scheduleMacResearchSignalNotification(.setupInvalidated,
+                                for: latest.signal, at: receivedAt)
+                        }
                     }
+                    guard isCurrentScan(request), session?.environment == .practice else { return }
                 }
             } catch {
                 signalHistoryPersistenceFailed = true
@@ -2725,8 +2751,28 @@ public final class LightningDeskModel: ObservableObject {
         for candidate in projectedSignals {
             guard isCurrentScan(request), session?.environment == .practice else { return }
             do {
+                let previous = try await historyStore.latestEvent(for: candidate)
                 switch try await historyStore.recordObservation(candidate) {
-                case .appended, .duplicate:
+                case .appended:
+                    visibleSignals.append(candidate)
+                    if MacResearchSignalLifecycle.advances(from: previous?.lifecycle, to: candidate.stage),
+                       let sourceCandidate = result.record.candidates.first(where: { $0.id == candidate.id }) {
+                        let state: AdaptiveMarketDecisionState = switch candidate.stage {
+                        case .forming: .opportunityForming
+                        case .confirmed: .confirmedOpportunity
+                        case .actionable: .actionableOpportunity
+                        }
+                        if let notification = AdaptiveNotificationPlanner.plan(
+                            state: state, selectedCandidate: sourceCandidate,
+                            instrument: candidate.instrument, sourceTime: receivedAt,
+                            now: receivedAt,
+                            lifetime: min(30, candidate.validUntil.timeIntervalSince(receivedAt))) {
+                            _ = await MarketNotificationService.shared.scheduleAdaptiveNotification(
+                                notification, now: receivedAt)
+                        }
+                        guard isCurrentScan(request), session?.environment == .practice else { return }
+                    }
+                case .duplicate:
                     visibleSignals.append(candidate)
                 case .superseded, .terminalSetup:
                     // A stale generation or terminal setup must not become current again.
@@ -2789,7 +2835,13 @@ public final class LightningDeskModel: ObservableObject {
             notice = "Signal evaluation is visible, but this scan could not be fully saved to history"
         }
 #endif
-        if let candidate = result.record.decision.selectedCandidateID.flatMap({ id in
+#if os(macOS)
+        let usesSignalLifecycleNotifications = marketMode == .fx && session?.environment == .practice
+#else
+        let usesSignalLifecycleNotifications = false
+#endif
+        if !usesSignalLifecycleNotifications,
+           let candidate = result.record.decision.selectedCandidateID.flatMap({ id in
             result.record.candidates.first { $0.id == id }
         }), let notification = AdaptiveNotificationPlanner.plan(
             state: result.record.decisionState, selectedCandidate: candidate,
@@ -2970,7 +3022,11 @@ public final class LightningDeskModel: ObservableObject {
             }
             let historyStore = self.macResearchSignalHistoryStore
             for signal in expiring {
-                _ = try? await historyStore.recordExpiry(for: signal, at: now)
+                if let result = try? await historyStore.recordExpiry(for: signal, at: now),
+                   result == .appended {
+                    await self.scheduleMacResearchSignalNotification(.opportunityExpired,
+                        for: signal, at: now)
+                }
             }
             if !expiring.isEmpty, let history = try? await historyStore.events() {
                 self.macResearchSignalHistory = history

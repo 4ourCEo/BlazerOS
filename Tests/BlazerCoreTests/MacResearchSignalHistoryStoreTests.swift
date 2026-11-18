@@ -102,6 +102,14 @@ private func historyTemporaryRoot() throws -> URL {
     #expect(result == ["candidate001:setup-1": "setup_invalidated"])
 }
 
+@Test func lifecycleNotificationStagesAreForwardOnly() {
+    #expect(MacResearchSignalLifecycle.advances(from: nil, to: .forming))
+    #expect(MacResearchSignalLifecycle.advances(from: .forming, to: .confirmed))
+    #expect(MacResearchSignalLifecycle.advances(from: .confirmed, to: .actionable))
+    #expect(!MacResearchSignalLifecycle.advances(from: .actionable, to: .confirmed))
+    #expect(!MacResearchSignalLifecycle.advances(from: .confirmed, to: .forming))
+}
+
 @Test func elapsedSetupExpiresOnRestoreAndCannotBeReactivated() async throws {
     let root = try historyTemporaryRoot()
     defer { try? FileManager.default.removeItem(at: root) }
