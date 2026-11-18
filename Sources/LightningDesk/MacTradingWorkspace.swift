@@ -232,6 +232,29 @@ struct MacTradingWorkspace: View {
                 }
                 .accessibilityIdentifier("mac.research-evaluator-diagnostics")
             }
+            if !model.macResearchSignalHistory.isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("SAVED PRACTICE SIGNAL HISTORY")
+                        .font(.system(size: max(8, diagnosticFontSize - 1), weight: .bold))
+                        .foregroundStyle(muted)
+                    ForEach(Array(model.macResearchSignalHistory.suffix(12).reversed())) { event in
+                        HStack(spacing: 6) {
+                            Text(event.lifecycle.rawValue)
+                                .font(.system(size: max(8, diagnosticFontSize - 1), weight: .bold, design: .monospaced))
+                            Text("\(event.signal.direction == .long ? "LONG" : "SHORT") · \(event.signal.strategyID)")
+                                .font(.system(size: max(8, diagnosticFontSize - 1), weight: .medium))
+                            Text("\(event.recordedAt.formatted(date: .omitted, time: .shortened)) · scan \(event.signal.scanGeneration)")
+                                .font(.system(size: max(8, diagnosticFontSize - 1), weight: .regular, design: .monospaced))
+                                .foregroundStyle(muted)
+                            if let reasonCode = event.reasonCode {
+                                Text(reasonCode).font(.system(size: max(8, diagnosticFontSize - 1))).foregroundStyle(muted)
+                            }
+                        }
+                        .accessibilityIdentifier("mac.research-history.\(event.id)")
+                    }
+                }
+                .accessibilityIdentifier("mac.research-signal-history")
+            }
         }
     }
 

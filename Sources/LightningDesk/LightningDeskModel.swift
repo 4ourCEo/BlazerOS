@@ -193,6 +193,7 @@ public final class LightningDeskModel: ObservableObject {
     @Published public private(set) var liveStrategyResearchObservations: [LiveStrategyResearchObservation] = []
 #if os(macOS)
     @Published public private(set) var macResearchSignals: [MacResearchSignal] = []
+    @Published public private(set) var macResearchSignalHistory: [MacResearchSignalHistoryEvent] = []
     @Published public private(set) var macResearchEvaluationDiagnostics: [MacResearchEvaluationDiagnostic] = []
     @Published public private(set) var macResearchSignalStatus: MacResearchSignalStatus = .awaitingFreshScan
     @Published public private(set) var isGBPJPYPracticeMonitoring = false
@@ -200,6 +201,9 @@ public final class LightningDeskModel: ObservableObject {
     @Published public private(set) var practiceSizingMessage: String?
     private var macResearchExpiryTask: Task<Void, Never>?
     private var gbpJPYPracticeMonitorTask: Task<Void, Never>?
+    private var macResearchSignalHistoryStore: MacResearchSignalHistoryStore {
+        MacResearchSignalHistoryStore(root: ResearchStore.defaultRoot())
+    }
 #endif
     private let macResearchSourceAttestationVerified: Bool
     /// Latest adaptive research decision projected for native presentation.
@@ -1327,6 +1331,20 @@ public final class LightningDeskModel: ObservableObject {
         adaptiveResearchProjection = AdaptiveResearchProjection(record: latest, now: now)
     }
 
+#if os(macOS)
+    /// Restores Practice history for review only. Expired records are retained and
+    /// written as terminal lifecycle events; none are restored as a current signal.
+    public func restoreMacResearchSignalHistory(now: Date = Date()) async {
+        let store = macResearchSignalHistoryStore
+        do {
+            _ = try await store.expireElapsedSignals(asOf: now)
+            macResearchSignalHistory = try await store.events()
+        } catch {
+            notice = "Practice signal history could not be restored"
+        }
+    }
+#endif
+
     /// Loads normalized completed candles through the service cache. Broker networking and cache
     /// policy are intentionally absent from the SwiftUI facade.
     public func loadCandles(for asset: String, force: Bool = false) async {
@@ -1424,6 +1442,9 @@ public final class LightningDeskModel: ObservableObject {
         await reloadFromDisk()
         await restoreLiveStrategyDecisions()
         await restoreAdaptiveResearchProjection()
+#if os(macOS)
+        await restoreMacResearchSignalHistory()
+#endif
         await refreshOTCValidationReport()
         Task { await assistant.refreshAvailability() }
         // Finish any settlement that was interrupted by a crash or a failed write.
@@ -2665,10 +2686,29 @@ public final class LightningDeskModel: ObservableObject {
             m5: snapshot.m5Candles, bid: bid, ask: ask, spread: spread,
             quoteAsOfMs: signal.asOfMs, expirySeconds: snapshot.expirySeconds,
             engineSHA: snapshot.engineSHA, policy: snapshot.policy).identity
-        let visibleSignals = MacResearchSignalProjector.project(
+        let projectedSignals = MacResearchSignalProjector.project(
             candidates: result.record.candidates, profiles: [], instrument: asset,
             scanGeneration: Int(clamping: request.generation),
             sourceInputIdentity: sourceInputIdentity, now: receivedAt, source: .oandaPractice)
+        let historyStore = macResearchSignalHistoryStore
+        var visibleSignals: [MacResearchSignal] = []
+        var signalHistoryPersistenceFailed = false
+        for candidate in projectedSignals {
+            guard isCurrentScan(request), session?.environment == .practice else { return }
+            do {
+                switch try await historyStore.recordObservation(candidate) {
+                case .appended, .duplicate:
+                    visibleSignals.append(candidate)
+                case .superseded, .terminalSetup:
+                    // A stale generation or terminal setup must not become current again.
+                    continue
+                }
+            } catch {
+                // Keep the fresh candidate visible; surface that its lifecycle write failed.
+                signalHistoryPersistenceFailed = true
+                visibleSignals.append(candidate)
+            }
+        }
         var failedFamilies = Set<MacResearchEvaluatorFamily>()
         var unavailableFamilies = Set<MacResearchEvaluatorFamily>()
         var notConfiguredFamilies = Set<MacResearchEvaluatorFamily>()
@@ -2706,12 +2746,18 @@ public final class LightningDeskModel: ObservableObject {
             sourceInputIdentity: sourceInputIdentity,
             expectedSourceInputIdentity: sourceInputIdentity, now: receivedAt)
         guard isCurrentScan(request), session?.environment == .practice, pair == asset else { return }
+        do {
+            macResearchSignalHistory = try await historyStore.events()
+        } catch {
+            signalHistoryPersistenceFailed = true
+        }
+        guard isCurrentScan(request), session?.environment == .practice, pair == asset else { return }
         macResearchSignals = visibleSignals
         macResearchEvaluationDiagnostics = diagnostics
         updateMacResearchSignalStatus()
         scheduleMacResearchSignalExpiry()
-        if persistenceFailed {
-            notice = "Signal evaluation is visible, but this scan could not be saved to history"
+        if persistenceFailed || signalHistoryPersistenceFailed {
+            notice = "Signal evaluation is visible, but this scan could not be fully saved to history"
         }
 #endif
         if let candidate = result.record.decision.selectedCandidateID.flatMap({ id in
@@ -2889,9 +2935,21 @@ public final class LightningDeskModel: ObservableObject {
         macResearchExpiryTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(min(delay, 86_400) * 1_000_000_000))
             guard !Task.isCancelled, let self else { return }
-            self.macResearchSignals = self.macResearchSignals.filter { Date() <= $0.validUntil }
+            let now = Date()
+            let expiring = self.macResearchSignals.filter {
+                $0.environment == .practice && now > $0.validUntil
+            }
+            let historyStore = self.macResearchSignalHistoryStore
+            for signal in expiring {
+                _ = try? await historyStore.recordExpiry(for: signal, at: now)
+            }
+            if !expiring.isEmpty, let history = try? await historyStore.events() {
+                self.macResearchSignalHistory = history
+            }
+            guard !Task.isCancelled else { return }
+            self.macResearchSignals = self.macResearchSignals.filter { now <= $0.validUntil }
             self.macResearchEvaluationDiagnostics = self.macResearchEvaluationDiagnostics.filter {
-                Date() <= $0.validUntil
+                now <= $0.validUntil
             }
             self.updateMacResearchSignalStatus()
             if !self.macResearchSignals.isEmpty || !self.macResearchEvaluationDiagnostics.isEmpty {
