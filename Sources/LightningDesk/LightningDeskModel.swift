@@ -2693,18 +2693,8 @@ public final class LightningDeskModel: ObservableObject {
         let historyStore = macResearchSignalHistoryStore
         var signalHistoryPersistenceFailed = false
         let currentSetupIDs = Set(projectedSignals.map(\.id))
-        let invalidationReasonCodes = Set([
-            "setup_invalidated", "retest_failed", "retest_expired", "setup_too_old",
-            "stop_touched_before_entry", "entry_invalidated"
-        ])
-        let explicitInvalidations = Dictionary(
-            (result.record.evaluatorOutcomes ?? []).flatMap { outcome in
-                (outcome.rawDiagnostics ?? []).compactMap { diagnostic -> (String, String)? in
-                    let reason = diagnostic.reasonCode.lowercased()
-                    guard invalidationReasonCodes.contains(reason) else { return nil }
-                    return (diagnostic.candidateID, reason)
-                }
-            }, uniquingKeysWith: { first, _ in first })
+        let explicitInvalidations = MacResearchSignalInvalidationResolver.explicitReasons(
+            from: result.record.evaluatorOutcomes ?? [])
         if !explicitInvalidations.isEmpty {
             do {
                 let priorEvents = try await historyStore.events()
