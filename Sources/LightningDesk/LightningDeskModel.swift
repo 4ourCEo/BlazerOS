@@ -36,6 +36,8 @@ public enum MacResearchSignalStatus: Equatable {
     case awaitingFreshScan
     case completedNoCandidate
     case completedWithCandidates
+    case conditionsNotMet
+    case partialResults
     case failed
     case sourceAttestationUnavailable
 }
@@ -180,7 +182,9 @@ public final class LightningDeskModel: ObservableObject {
     @Published public private(set) var macResearchSignals: [MacResearchSignal] = []
     @Published public private(set) var macResearchEvaluationDiagnostics: [MacResearchEvaluationDiagnostic] = []
     @Published public private(set) var macResearchSignalStatus: MacResearchSignalStatus = .awaitingFreshScan
+    @Published public private(set) var isGBPJPYPracticeMonitoring = false
     private var macResearchExpiryTask: Task<Void, Never>?
+    private var gbpJPYPracticeMonitorTask: Task<Void, Never>?
 #endif
     private let macResearchSourceAttestationVerified: Bool
     /// Latest adaptive research decision projected for native presentation.
@@ -338,13 +342,7 @@ public final class LightningDeskModel: ObservableObject {
     /// Form drafts. Cleared when the Keychain write succeeds. Never synced.
     @Published var draftToken = ""
     @Published var draftAccount = ""
-    @Published var draftEnvironment: OandaEnvironment = {
-        #if os(macOS)
-        .live
-        #else
-        .practice
-        #endif
-    }()
+    @Published var draftEnvironment: OandaEnvironment = .practice
     @Published var isEditingCredentials = false
     @Published var credentialSaveFailed = false
     @Published var credentialConfigurationError: String?
@@ -1130,6 +1128,12 @@ public final class LightningDeskModel: ObservableObject {
     }
 
     public func select(pair next: String) {
+#if os(macOS)
+        guard !isGBPJPYPracticeMonitoring || next == "GBP/JPY" else {
+            notice = "Stop the GBP/JPY Practice monitor before switching pairs"
+            return
+        }
+#endif
         guard activeTrade == nil, !awaitingOutcome, !settlementInFlight else {
             notice = "Resolve the current outcome before switching pairs"
             return
@@ -1299,7 +1303,9 @@ public final class LightningDeskModel: ObservableObject {
         }
         let store = ResearchStore(root: ResearchStore.defaultRoot())
         guard let records = try? await store.adaptiveRehearsals(),
-              let latest = records.max(by: { $0.receivedAt < $1.receivedAt }) else {
+              let latest = records.filter({
+                  $0.environment == .oandaPractice && $0.validation().isEmpty
+              }).max(by: { $0.receivedAt < $1.receivedAt }) else {
             adaptiveResearchProjection = nil
             return
         }
@@ -1604,6 +1610,76 @@ public final class LightningDeskModel: ObservableObject {
         }
         await enqueueScan(market: .fx, asset: request.asset, assets: request.assets)
     }
+
+    /// Starts bounded, read-only GBP/JPY Practice scans using the existing scan coordinator.
+    /// The user must explicitly start this monitor; it never submits broker orders.
+    public func toggleGBPJPYPracticeMonitoring() async {
+        if isGBPJPYPracticeMonitoring {
+            stopGBPJPYPracticeMonitoring()
+            return
+        }
+        guard marketMode == .fx, pair == "GBP/JPY" else {
+            notice = "Select GBP/JPY before starting the Practice monitor"
+            return
+        }
+        guard let activeSession = await loadSession(allowPrompt: false),
+              activeSession.environment == .practice else {
+            notice = "Connect an OANDA Practice account before starting the GBP/JPY monitor"
+            return
+        }
+        isGBPJPYPracticeMonitoring = true
+        notice = "GBP/JPY Practice monitor started · scans every minute while the market is open"
+        gbpJPYPracticeMonitorTask?.cancel()
+        gbpJPYPracticeMonitorTask = Task { [weak self] in
+            await self?.runGBPJPYPracticeMonitor()
+        }
+    }
+
+    public func stopGBPJPYPracticeMonitoring() {
+        gbpJPYPracticeMonitorTask?.cancel()
+        gbpJPYPracticeMonitorTask = nil
+        isGBPJPYPracticeMonitoring = false
+        notice = "GBP/JPY Practice monitor stopped"
+    }
+
+    private func runGBPJPYPracticeMonitor() async {
+        var consecutiveFailures = 0
+        while !Task.isCancelled, isGBPJPYPracticeMonitoring {
+            guard marketMode == .fx, pair == "GBP/JPY" else {
+                stopGBPJPYPracticeMonitoring()
+                return
+            }
+            if backgroundedAt != nil {
+                try? await Task.sleep(for: .seconds(30))
+                continue
+            }
+            guard let activeSession = await loadSession(allowPrompt: false),
+                  activeSession.environment == .practice else {
+                stopGBPJPYPracticeMonitoring()
+                notice = "Practice session unavailable · GBP/JPY monitoring stopped"
+                return
+            }
+
+            let now = Date()
+            var delay: TimeInterval = 60
+            if FxSession.isOpen(now) {
+                if !scanning, activeTrade == nil, !awaitingOutcome, !settlementInFlight {
+                    await scanSelectedFXPair("GBP/JPY")
+                    let scanFailed = feed == .error || macResearchSignalStatus == .failed
+                    consecutiveFailures = scanFailed ? min(consecutiveFailures + 1, 3) : 0
+                    if scanFailed {
+                        delay = min(60 * pow(2, Double(consecutiveFailures)), 300)
+                    }
+                } else if activeTrade != nil || awaitingOutcome || settlementInFlight {
+                    delay = 60
+                }
+            } else {
+                notice = FxSession.label(now)
+                delay = 300
+            }
+            try? await Task.sleep(for: .seconds(delay))
+        }
+    }
 #endif
 
     /// Crypto scan via the shared BlazerCrypto engine. No OANDA credential, no FX session gate.
@@ -1621,6 +1697,14 @@ public final class LightningDeskModel: ObservableObject {
             notice = "Entry is being saved; scan again after it completes"
             return
         }
+#if os(macOS)
+        if market == .fx {
+            macResearchExpiryTask?.cancel()
+            macResearchSignals = []
+            macResearchEvaluationDiagnostics = []
+            macResearchSignalStatus = .awaitingFreshScan
+        }
+#endif
         await scanCoordinator.submit(market: market, asset: asset, assets: assets) { [weak self] request in
             guard let self else { return }
             switch request.market {
@@ -2449,8 +2533,8 @@ public final class LightningDeskModel: ObservableObject {
     }
 
     /// Feeds the exact FX observation already returned by the desk scan into
-    /// adaptive research. This is presentation/evidence work only: it does not
-    /// replace `ScanKernel`, mutate entry gates, or authorize manual execution.
+    /// configured strategy evaluation and the user-facing signal projection.
+    /// This does not replace `ScanKernel` or submit broker orders.
     private func evaluateAdaptiveSnapshot(_ snapshot: MarketScanSnapshot,
                                           asset: String,
                                           signal: EngineSignal,
@@ -2458,7 +2542,8 @@ public final class LightningDeskModel: ObservableObject {
         guard let bid = snapshot.bid, let ask = snapshot.ask,
               let spread = snapshot.spread,
               bid.isFinite, ask.isFinite, spread.isFinite,
-              !snapshot.candles.isEmpty else { return }
+              !snapshot.candles.isEmpty, isCurrentScan(request),
+              session?.environment == .practice else { return }
         let payloads = snapshot.candles.compactMap { candle -> StrategyEngine.CandlePayload? in
             guard let time = candle.time, let open = candle.open,
                   let high = candle.high, let low = candle.low else { return nil }
@@ -2482,9 +2567,73 @@ public final class LightningDeskModel: ObservableObject {
         let store = ResearchStore(root: ResearchStore.defaultRoot())
         guard let result = try? await AdaptiveMarketRehearsal.evaluateSnapshot(
             input, observedAt: Self.evaluationDate(signal.asOfMs, fallback: receivedAt),
-            receivedAt: receivedAt, store: store) else { return }
-        guard isCurrentScan(request) else { return }
+            receivedAt: receivedAt, environment: .oandaPractice, store: nil) else { return }
+        guard isCurrentScan(request), session?.environment == .practice else { return }
+        var persistenceFailed = false
+        do {
+            try await store.record(result.record)
+        } catch {
+            guard isCurrentScan(request) else { return }
+            persistenceFailed = true
+        }
+        guard isCurrentScan(request), session?.environment == .practice else { return }
         adaptiveResearchProjection = AdaptiveResearchProjection(record: result.record, now: receivedAt)
+#if os(macOS)
+        guard let activeSession = session, activeSession.environment == .practice,
+              marketMode == .fx, pair == asset else { return }
+        let sourceInputIdentity = ScanInputSnapshot(pair: asset, m1: snapshot.candles,
+            m5: snapshot.m5Candles, bid: bid, ask: ask, spread: spread,
+            quoteAsOfMs: signal.asOfMs, expirySeconds: snapshot.expirySeconds,
+            engineSHA: snapshot.engineSHA, policy: snapshot.policy).identity
+        let visibleSignals = MacResearchSignalProjector.project(
+            candidates: result.record.candidates, profiles: [], instrument: asset,
+            scanGeneration: Int(clamping: request.generation),
+            sourceInputIdentity: sourceInputIdentity, now: receivedAt, source: .oandaPractice)
+        var failedFamilies = Set<MacResearchEvaluatorFamily>()
+        var unavailableFamilies = Set<MacResearchEvaluatorFamily>()
+        var notConfiguredFamilies = Set<MacResearchEvaluatorFamily>()
+        var conditionReasons = [MacResearchEvaluatorFamily: String]()
+        for outcome in result.record.evaluatorOutcomes ?? [] {
+            let family: MacResearchEvaluatorFamily?
+            switch outcome.strategyID {
+            case "CANDIDATE_001_CHOCH_FVG_FIB": family = .candidate001
+            case "CANDIDATE_002_AUCTION_FAILURE": family = .candidate002
+            case GBPJPYLondonBreakRetestV1.strategyID: family = .londonBreakRetest
+            case GBPJPYTrendPullbackV1.strategyID: family = .trendPullback
+            case GBPJPYRangeRejectionV1.strategyID: family = .rangeRejection
+            default: family = nil
+            }
+            guard let family else { continue }
+            switch outcome.state {
+            case .failed: failedFamilies.insert(family)
+            case .dataUnavailable: unavailableFamilies.insert(family)
+            case .notConfigured: notConfiguredFamilies.insert(family)
+            case .conditionsNotMet:
+                conditionReasons[family] = outcome.rawDiagnostics?.first?.reasonCode ?? outcome.reasonCode
+            case .completed: break
+            }
+        }
+        let diagnostics = MacResearchEvaluationDiagnosticProjector.project(
+            candidates: result.record.candidates, failedFamilies: failedFamilies,
+            unavailableFamilies: unavailableFamilies, notConfiguredFamilies: notConfiguredFamilies,
+            conditionsNotMetReasons: conditionReasons,
+            visibleSignalIDs: Set(visibleSignals.map(\.id)),
+            quoteAsOf: signal.asOfMs.flatMap {
+                $0.isFinite ? Date(timeIntervalSince1970: $0 / 1_000) : nil
+            },
+            scanGeneration: Int(clamping: request.generation),
+            currentScanGeneration: Int(clamping: request.generation),
+            sourceInputIdentity: sourceInputIdentity,
+            expectedSourceInputIdentity: sourceInputIdentity, now: receivedAt)
+        guard isCurrentScan(request), session?.environment == .practice, pair == asset else { return }
+        macResearchSignals = visibleSignals
+        macResearchEvaluationDiagnostics = diagnostics
+        updateMacResearchSignalStatus()
+        scheduleMacResearchSignalExpiry()
+        if persistenceFailed {
+            notice = "Signal evaluation is visible, but this scan could not be saved to history"
+        }
+#endif
         if let candidate = result.record.decision.selectedCandidateID.flatMap({ id in
             result.record.candidates.first { $0.id == id }
         }), let notification = AdaptiveNotificationPlanner.plan(
@@ -2634,13 +2783,17 @@ public final class LightningDeskModel: ObservableObject {
 
 #if os(macOS)
     private func updateMacResearchSignalStatus() {
-        if !macResearchSignals.isEmpty
+        if macResearchEvaluationDiagnostics.contains(where: { $0.state == .dataUnavailable }) {
+            macResearchSignalStatus = .partialResults
+        } else if !macResearchSignals.isEmpty
             || macResearchEvaluationDiagnostics.contains(where: {
                 $0.state == .candidateShown || $0.state == .candidateWithheld
             }) {
             macResearchSignalStatus = .completedWithCandidates
         } else if macResearchEvaluationDiagnostics.contains(where: { $0.state == .evaluationFailed }) {
             macResearchSignalStatus = .failed
+        } else if macResearchEvaluationDiagnostics.contains(where: { $0.state == .conditionsNotMet }) {
+            macResearchSignalStatus = .conditionsNotMet
         } else if macResearchEvaluationDiagnostics.isEmpty {
             macResearchSignalStatus = .awaitingFreshScan
         } else {

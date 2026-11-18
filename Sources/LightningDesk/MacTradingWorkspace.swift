@@ -6,6 +6,7 @@ import SwiftUI
 struct MacTradingWorkspace: View {
     @ObservedObject var model: LightningDeskModel
     @State private var destination = "Trade"
+    @State private var selectedPracticeSignalID: String?
     @ScaledMetric(relativeTo: .caption) private var diagnosticFontSize = 9.0
 
     private let ink = Color(red: 0.12, green: 0.19, blue: 0.29)
@@ -77,7 +78,7 @@ struct MacTradingWorkspace: View {
                     .accessibilityIdentifier("mac.pair.\(pair.replacingOccurrences(of: "/", with: "-"))")
             }
             Spacer()
-            Label("LIVE MARKET · NO ORDERS", systemImage: "waveform.path.ecg")
+            Label("\(model.connectedOandaEnvironment?.rawValue.uppercased() ?? "OANDA") · SIGNALS · MANUAL EXECUTION", systemImage: "waveform.path.ecg")
                 .font(.system(size: 9, weight: .semibold)).foregroundStyle(muted)
         }
         .padding(16).background(.white)
@@ -91,7 +92,7 @@ struct MacTradingWorkspace: View {
                 Text("OANDA FX workstation · structural plans and market evidence").font(.system(size: 11)).foregroundStyle(muted)
             }
             Spacer()
-            Label("OANDA LIVE · \(model.feed.rawValue)", systemImage: model.feed == .live ? "checkmark.circle.fill" : "exclamationmark.circle")
+            Label(oandaEnvironmentLabel, systemImage: model.feed == .live ? "checkmark.circle.fill" : "exclamationmark.circle")
                 .font(.system(size: 11, weight: .medium)).foregroundStyle(model.feed == .live ? blue : muted)
             Button("Credentials") { model.showingCredentials = true }
                 .buttonStyle(.bordered).tint(blue).accessibilityIdentifier("mac.connect-oanda")
@@ -107,17 +108,22 @@ struct MacTradingWorkspace: View {
                 setupPanel.frame(width: 276).frame(maxHeight: .infinity)
             }
             researchSignalsPanel.frame(height: 160)
-            HStack(spacing: 12) { researchEvaluationPanel; checklistPanel; nextPanel }.frame(height: 126)
+            strategySignalSummaryPanel.frame(height: 126)
         }.padding(14).frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var oandaEnvironmentLabel: String {
+        guard let environment = model.connectedOandaEnvironment else { return "OANDA DISCONNECTED" }
+        return "OANDA \(environment.rawValue.uppercased()) · \(model.feed.rawValue)"
     }
 
     private var researchSignalsPanel: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 10) {
-                Text("RESEARCH SIGNALS").font(.system(size: 10, weight: .bold)).tracking(0.7)
-                Text("RESEARCH ONLY · NOT PROMOTED · NO ORDER")
+                Text("STRATEGY SIGNALS").font(.system(size: 10, weight: .bold)).tracking(0.7)
+                Text("SETUP STAGE · PLAN DETAILS · MANUAL BROKER ACTION")
                     .font(.system(size: 9, weight: .semibold)).foregroundStyle(muted)
-                Text("CONNECTED · ORB / CANDIDATE001 / CANDIDATE002")
+                Text("GBP/JPY · EVALUATOR COVERAGE")
                     .font(.system(size: 8, weight: .medium)).foregroundStyle(muted)
             }
             ScrollView(.vertical) { researchSignalDetails }
@@ -134,7 +140,7 @@ struct MacTradingWorkspace: View {
             Text(researchSignalStatusText).font(.system(size: diagnosticFontSize, weight: .medium))
                 .foregroundStyle(muted)
             if model.macResearchSignals.isEmpty && model.macResearchEvaluationDiagnostics.isEmpty {
-                Text("Signal details appear after a verified, fresh OANDA scan.")
+                Text("Signal details appear after a fresh scan with supported market data.")
                     .font(.system(size: diagnosticFontSize)).foregroundStyle(muted)
             }
             if !model.macResearchSignals.isEmpty {
@@ -142,16 +148,57 @@ struct MacTradingWorkspace: View {
                           alignment: .leading, spacing: 8) {
                     ForEach(model.macResearchSignals) { signal in
                         VStack(alignment: .leading, spacing: 3) {
-                            Text("\(signal.direction == .long ? "LONG" : "SHORT") CANDIDATE · \(signal.instrument)")
+                            Text("\(signal.stage.rawValue) · \(signal.direction == .long ? "LONG" : "SHORT") · \(signal.instrument) · \(signal.environment.rawValue)")
                                 .font(.system(size: diagnosticFontSize, weight: .bold, design: .monospaced))
                             Text("\(signal.strategyID) · \(signal.strategyVersion)")
                                 .font(.system(size: max(8, diagnosticFontSize - 1), weight: .medium))
+                            if signal.profileID == "GBPJPY_LONDON_PRACTICE_OBSERVATION_PROVISIONAL_0.1.0" {
+                                Text("PROVISIONAL PRACTICE PROFILE · \(signal.profileID)")
+                                    .font(.system(size: max(8, diagnosticFontSize - 1), weight: .medium))
+                                    .foregroundStyle(muted)
+                            }
+                            Text("TIMEFRAME · \(signal.timeframe ?? "UNSPECIFIED")")
+                                .font(.system(size: max(8, diagnosticFontSize - 1), weight: .medium))
+                                .foregroundStyle(muted)
+                            Text("ENTRY \(signal.entryReference.map(PriceFormat.px) ?? "—") · STOP \(signal.stopPrice.map(PriceFormat.px) ?? "—") · TARGET \(signal.targetPrice.map(PriceFormat.px) ?? "—")")
+                                .font(.system(size: max(8, diagnosticFontSize - 1), weight: .semibold, design: .monospaced))
+                            if let plan = signal.planPreview {
+                                Text("R:R \(plan.rewardRisk, specifier: "%.2f") · MAX SPREAD \(PriceFormat.px(plan.maxSpread))")
+                                    .font(.system(size: max(8, diagnosticFontSize - 1), weight: .medium, design: .monospaced))
+                                    .foregroundStyle(muted)
+                                Text("Plan preview only · account risk and margin are not checked here.")
+                                    .font(.system(size: max(8, diagnosticFontSize - 1), weight: .medium))
+                                    .foregroundStyle(muted)
+                            } else if signal.profileID == "GBPJPY_LONDON_PRACTICE_OBSERVATION_PROVISIONAL_0.1.0",
+                                      signal.stage == .actionable,
+                                      signal.entryReference != nil, signal.stopPrice != nil, signal.targetPrice != nil {
+                                Text("Technical setup only · order units withheld; verify account risk, margin, quote freshness and execute manually.")
+                                    .font(.system(size: max(8, diagnosticFontSize - 1), weight: .medium))
+                                    .foregroundStyle(muted)
+                            } else {
+                                let missing = [
+                                    signal.entryReference == nil ? "entry" : nil,
+                                    signal.stopPrice == nil ? "stop" : nil,
+                                    signal.targetPrice == nil ? "target" : nil
+                                ].compactMap { $0 }
+                                let blocker = missing.isEmpty ? "plan validation" : missing.joined(separator: ", ")
+                                Text("PLAN PREVIEW BLOCKED · \(blocker)")
+                                    .font(.system(size: max(8, diagnosticFontSize - 1), weight: .medium))
+                                    .foregroundStyle(.orange)
+                            }
                             Text(LiveDecisionAgeLabel.text(observedAt: signal.observedAt))
                                 .font(.system(size: max(8, diagnosticFontSize - 1), weight: .medium))
                                 .foregroundStyle(muted)
                             Text(signal.reasons.joined(separator: " · "))
                                 .font(.system(size: max(8, diagnosticFontSize - 1)))
                                     .foregroundStyle(muted).lineLimit(2)
+                            Button(selectedPracticeSignalID == signal.id ? "Selected for setup" : "Use in setup") {
+                                selectedPracticeSignalID = signal.id
+                            }
+                            .font(.system(size: max(8, diagnosticFontSize - 1), weight: .semibold))
+                            .buttonStyle(.bordered).tint(blue)
+                            .disabled(signal.environment != .practice)
+                            .accessibilityIdentifier("mac.use-practice-signal.\(signal.id)")
                         }
                         .padding(6).frame(maxWidth: .infinity, alignment: .leading)
                         .background(.white, in: RoundedRectangle(cornerRadius: 7))
@@ -193,6 +240,8 @@ struct MacTradingWorkspace: View {
         case .awaitingFreshScan: "Awaiting fresh scan"
         case .completedNoCandidate: "Scan complete · no candidates"
         case .completedWithCandidates: "Fresh scan complete"
+        case .conditionsNotMet: "Setup detected · waiting on conditions"
+        case .partialResults: "Some evaluators lack required data"
         case .failed: "Evaluation issue"
         case .sourceAttestationUnavailable: "Verified source manifest unavailable"
         }
@@ -360,7 +409,8 @@ struct MacTradingWorkspace: View {
             HStack {
                 Text("TRADE SETUP").font(.system(size: 11, weight: .bold)).tracking(0.7)
                 Spacer()
-                Text("OANDA LIVE").font(.system(size: 9, weight: .bold)).foregroundStyle(blue)
+                Text(model.connectedOandaEnvironment?.rawValue.uppercased() ?? "DISCONNECTED")
+                    .font(.system(size: 9, weight: .bold)).foregroundStyle(blue)
                     .padding(.horizontal, 7).padding(.vertical, 4).background(blue.opacity(0.08), in: Capsule())
             }
             HStack(spacing: 8) {
@@ -382,17 +432,43 @@ struct MacTradingWorkspace: View {
                     .accessibilityIdentifier("mac.scan-selected-pair")
                     .help("Run the normal OANDA FX scan for \(model.pair) only")
             }
-            let decision = model.strategyDecision(for: model.pair)
+            if model.pair == "GBP/JPY" {
+                Button {
+                    Task { await model.toggleGBPJPYPracticeMonitoring() }
+                } label: {
+                    Label(model.isGBPJPYPracticeMonitoring
+                          ? "STOP PRACTICE MONITOR" : "MONITOR GBP/JPY · PRACTICE",
+                          systemImage: model.isGBPJPYPracticeMonitoring ? "pause.circle" : "waveform.path.ecg")
+                        .font(.system(size: 9, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.7)
+                        .frame(maxWidth: .infinity).padding(.vertical, 7)
+                }
+                .buttonStyle(.bordered)
+                .tint(blue)
+                .disabled(model.scanning && !model.isGBPJPYPracticeMonitoring)
+                .accessibilityIdentifier("mac.gbpjpy-practice-monitor")
+                .help("Run read-only GBP/JPY Practice scans every minute while the market is open")
+            }
+            let practiceSignal = practiceSignalForSetup
+            let decision = practiceSignal == nil ? model.strategyDecision(for: model.pair) : nil
             let plan = decision?.plan
-            value("Status", decision?.action.rawValue ?? (model.scanning ? "Scanning" : "Waiting for scan"))
-            value("Direction", decision?.action == .buy ? "BUY" : decision?.action == .sell ? "SELL" : "WAIT / NO TRADE")
-            value("Entry", plan.map { PriceFormat.px($0.entryPrice) } ?? "—")
-            value("Stop", plan.map { PriceFormat.px($0.stopPrice) } ?? "—")
-            value("Target", plan.map { PriceFormat.px($0.targetPrice) } ?? "—")
-            if let plan {
-                let pipSize = Assets.pipScale(for: plan.instrument)
-                let stopPips = abs(plan.entryPrice - plan.stopPrice) / pipSize
-                let targetPips = abs(plan.targetPrice - plan.entryPrice) / pipSize
+            let entry = practiceSignal?.entryReference ?? practiceSignal?.planPreview?.entryPrice ?? plan?.entryPrice
+            let stop = practiceSignal?.stopPrice ?? practiceSignal?.planPreview?.stopPrice ?? plan?.stopPrice
+            let target = practiceSignal?.targetPrice ?? practiceSignal?.planPreview?.targetPrice ?? plan?.targetPrice
+            value("Status", practiceSignal.map { "\($0.stage.rawValue) · PRACTICE PLAN" }
+                  ?? decision?.action.rawValue ?? (model.scanning ? "Scanning" : "Waiting for scan"))
+            value("Direction", practiceSignal.map { $0.direction == .long ? "LONG" : "SHORT" }
+                  ?? (decision?.action == .buy ? "BUY" : decision?.action == .sell ? "SELL" : "WAIT / NO TRADE"))
+            if let practiceSignal {
+                value("Strategy", practiceSignal.strategyID)
+                value("Timeframe", practiceSignal.timeframe ?? "unspecified")
+            }
+            value("Entry", entry.map(PriceFormat.px) ?? "—")
+            value("Stop", stop.map(PriceFormat.px) ?? "—")
+            value("Target", target.map(PriceFormat.px) ?? "—")
+            if let entry, let stop, let target {
+                let pipSize = Assets.pipScale(for: model.pair)
+                let stopPips = abs(entry - stop) / pipSize
+                let targetPips = abs(target - entry) / pipSize
                 if pipSize.isFinite && pipSize > 0 && stopPips.isFinite && targetPips.isFinite {
                     value("Stop distance", String(format: "%.1f pips", stopPips))
                     value("Target distance", String(format: "%.1f pips", targetPips))
@@ -405,6 +481,10 @@ struct MacTradingWorkspace: View {
                 value("Target distance", "—")
             }
             value("Risk", "risk_missing · units withheld")
+            if practiceSignal != nil {
+                Text("Practice plan preview · verify account risk and margin in OANDA before manual entry.")
+                    .font(.system(size: 10)).foregroundStyle(muted).lineLimit(3)
+            }
             if let decision {
                 let reasons = decision.reasons.joined(separator: ", ")
                 let strategies = decision.supportingStrategies.map(strategyName).joined(separator: " · ")
@@ -420,58 +500,45 @@ struct MacTradingWorkspace: View {
         }.padding(14).background(.white, in: RoundedRectangle(cornerRadius: 10)).overlay(RoundedRectangle(cornerRadius: 10).stroke(line))
     }
 
-    private var researchEvaluationPanel: some View {
-        let observations = model.strategyResearchObservations(for: model.pair)
+    private var practiceSignalForSetup: MacResearchSignal? {
+        guard model.connectedOandaEnvironment == .practice else { return nil }
+        let currentSignals = model.macResearchSignals.filter {
+            $0.instrument == model.pair && $0.environment == .practice
+        }
+        if let selectedPracticeSignalID,
+           let selected = currentSignals.first(where: { $0.id == selectedPracticeSignalID }) {
+            return selected
+        }
+        return currentSignals.first
+    }
+
+    private var strategySignalSummaryPanel: some View {
+        let unconfigured = model.macResearchEvaluationDiagnostics
+            .filter { $0.state == .notConfigured }
+            .map { $0.family.rawValue }
         return VStack(alignment: .leading, spacing: 5) {
-            Text("RESEARCH EVALUATIONS · NON-ACTIONABLE")
+            Text("SIGNAL ENGINE")
                 .font(.system(size: 9, weight: .bold)).tracking(0.45)
-            if observations.isEmpty {
-                Text("Run SCAN to evaluate registered research rules against fresh Live data.")
-                    .font(.system(size: 10)).foregroundStyle(muted)
-                    .lineLimit(3).frame(maxWidth: .infinity, alignment: .leading)
-                Spacer(minLength: 0)
-            } else {
-                ScrollView(.vertical) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(observations) { observation in
-                            let identity = observation.profileID ?? observation.strategyID
-                            let reason = observation.reasons.joined(separator: " · ")
-                            VStack(alignment: .leading, spacing: 2) {
-                                HStack(spacing: 5) {
-                                    Text(identity.replacingOccurrences(of: "_", with: " ").capitalized)
-                                        .font(.system(size: 9, weight: .semibold))
-                                        .lineLimit(1)
-                                    Spacer(minLength: 3)
-                                    Text(observation.status.rawValue.uppercased())
-                                        .font(.system(size: 8, weight: .medium, design: .monospaced))
-                                        .foregroundStyle(muted)
-                                }
-                                Text("\(observation.strategyVersion) · \(reason)")
-                                    .font(.system(size: 8, design: .monospaced))
-                                    .foregroundStyle(muted)
-                                    .lineLimit(2)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .accessibilityElement(children: .combine)
-                            .accessibilityIdentifier("mac.research-evaluation.\(observation.strategyID)")
-                        }
-                    }.frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .accessibilityIdentifier("mac.research-evaluations.list")
+            Text("\(model.pair) · \(researchSignalStatusText)")
+                .font(.system(size: 10, weight: .medium)).foregroundStyle(muted)
+            HStack(spacing: 12) {
+                value("VISIBLE SETUPS", String(model.macResearchSignals.count))
+                value("EVALUATORS", String(model.macResearchEvaluationDiagnostics.count))
             }
+            if !unconfigured.isEmpty {
+                Text("PROFILE REQUIRED · \(unconfigured.joined(separator: " · "))")
+                    .font(.system(size: 8, weight: .medium, design: .monospaced))
+                    .foregroundStyle(muted).lineLimit(2)
+            }
+            Text("Use qualifying signals to prepare a manual OANDA Practice trade. Live orders still require their own authorization.")
+                .font(.system(size: 9)).foregroundStyle(muted).lineLimit(2)
+            Spacer(minLength: 0)
         }
         .padding(12).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(.white, in: RoundedRectangle(cornerRadius: 9))
         .overlay(RoundedRectangle(cornerRadius: 9).stroke(line))
-        .accessibilityIdentifier("mac.research-evaluations")
+        .accessibilityIdentifier("mac.strategy-signal-summary")
     }
-    private var checklistPanel: some View {
-        let decision = model.strategyDecision(for: model.pair)
-        return infoPanel("SETUP CHECKLIST", "Market data: \(model.currentFXQuote == nil ? "unknown" : "available")  ·  Strategy decision: \(decision?.action.rawValue ?? "pending")  ·  Risk: unresolved")
-    }
-    private var nextPanel: some View { infoPanel("NEXT STEP", model.currentFXQuote == nil ? "Connect OANDA Live credentials or scan for current source data." : "Review the engine decision; do not treat a forming setup as actionable.") }
-
     @ViewBuilder private var secondaryView: some View {
         switch destination {
         case "Plans":
@@ -494,8 +561,8 @@ struct MacTradingWorkspace: View {
         case "Settings":
             VStack(alignment: .leading, spacing: 12) {
                 Text("Settings").font(.system(size: 20, weight: .semibold))
-                Text("OANDA Live credentials are stored in this Mac’s Keychain.").font(.system(size: 12)).foregroundStyle(muted)
-                Button("Manage OANDA Live credentials") { model.showingCredentials = true }.buttonStyle(.borderedProminent).tint(blue)
+                Text("OANDA credentials are stored in this Mac’s Keychain.").font(.system(size: 12)).foregroundStyle(muted)
+                Button("Manage OANDA credentials") { model.showingCredentials = true }.buttonStyle(.borderedProminent).tint(blue)
             }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         case "Learn": infoPanel("LEARN · ORB", "Opening Range Breakout: the engine evaluates a defined opening range and subsequent market structure. A forming condition is not an entry confirmation.").padding(22)
         default: ReviewScreen(model: model).padding(14)

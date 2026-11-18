@@ -30,13 +30,16 @@ private func macSignalCandidate(id: String = "orb-1", instrument: String = macSi
                                 configDigest: String? = nil,
                                 evaluatorDigest: String? = nil,
                                 adapterDigest: String? = nil,
-                                selectorDigest: String? = nil) -> AdaptiveOpportunityCandidate {
+                                selectorDigest: String? = nil,
+                                plan: V3TradePlan? = nil,
+                                reasons: [String] = []) -> AdaptiveOpportunityCandidate {
     let config = AdaptiveOpportunityAdapters.effectiveConfiguration(
         strategyID: macSignalStrategy, instrument: instrument)!.sha256()!
     return .init(id: id, strategyID: macSignalStrategy, strategyVersion: macSignalVersion,
         instrument: instrument, provider: provider, direction: direction, observedAt: observedAt,
         validUntil: validUntil, evaluationStartedAt: observedAt ?? Date(timeIntervalSince1970: 1_000),
         evaluationCompletedAt: Date(timeIntervalSince1970: 1_000), state: state,
+        rejectionReasons: reasons, entryReference: nil, plan: plan,
         evidenceReferences: ["event-1", "bar-2"], provenance: "test",
         freshness: freshness, spreadState: spreadState,
         effectiveConfigurationSHA256: configDigest ?? config,
@@ -56,9 +59,93 @@ private func macSignalCandidate(id: String = "orb-1", instrument: String = macSi
 
     var json = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
     json.removeValue(forKey: "validUntil")
+    json.removeValue(forKey: "stopReference")
+    json.removeValue(forKey: "targetReference")
     let legacy = try JSONSerialization.data(withJSONObject: json)
     let oldCandidate = try decoder.decode(AdaptiveOpportunityCandidate.self, from: legacy)
     #expect(oldCandidate.validUntil == nil)
+    #expect(oldCandidate.stopReference == nil)
+    #expect(oldCandidate.targetReference == nil)
+}
+
+@Test func selectedLondonPracticeCandidateKeepsReferencesAndProjectsAsActionable() throws {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let strategy = GBPJPYLondonBreakRetestV1.strategyID
+    let config = try #require(AdaptiveOpportunityAdapters.effectiveConfiguration(
+        strategyID: strategy, instrument: "GBP/JPY"))
+    let candidate = AdaptiveOpportunityCandidate(id: "london-signal", strategyID: strategy,
+        strategyVersion: AdaptiveOpportunityAdapters.londonPracticeObservationConfiguration.version,
+        instrument: "GBP/JPY", provider: "oanda", direction: .long,
+        session: "Europe/London 08:00–12:00 local · provisional Practice profile",
+        observedAt: now, validUntil: now.addingTimeInterval(600),
+        evaluationStartedAt: now, evaluationCompletedAt: now,
+        state: .eligible, entryReference: 190.12, stopReference: 190.08,
+        targetReference: 190.18, evidenceReferences: ["breakout-m1", "retest-m1"],
+        provenance: "provisional Practice profile", freshness: .fresh, spread: 1,
+        spreadState: .accepted,
+        effectiveConfigurationSHA256: config.sha256(),
+        evaluatorCodeSHA256: StrategyImplementationDigests.evaluatorCodeSHA256["LONDON_BREAK_RETEST"],
+        adapterCodeSHA256: StrategyImplementationDigests.adapterCodeSHA256,
+        selectorCodeSHA256: StrategyImplementationDigests.selectorCodeSHA256)
+    let decision = AdaptiveOpportunitySelector.select([candidate], now: now)
+    let selected = try #require(decision.candidates.first)
+    #expect(selected.stopReference == candidate.stopReference)
+    #expect(selected.targetReference == candidate.targetReference)
+    #expect(selected.effectiveConfigurationSHA256 == candidate.effectiveConfigurationSHA256)
+    let signals = MacResearchSignalProjector.project(candidates: decision.candidates,
+        profiles: [], instrument: "GBP/JPY", scanGeneration: 1,
+        sourceInputIdentity: "snapshot", now: now,
+        source: .oandaPractice)
+    let signal = try #require(signals.first)
+    #expect(signal.profileID == "GBPJPY_LONDON_PRACTICE_OBSERVATION_PROVISIONAL_0.1.0")
+    #expect(signal.timeframe == "M1")
+    #expect(signal.stage == .actionable)
+    #expect(signal.entryReference == candidate.entryReference)
+    #expect(signal.stopPrice == candidate.stopReference)
+    #expect(signal.targetPrice == candidate.targetReference)
+    #expect(signal.planPreview == nil)
+
+    let agedSignals = MacResearchSignalProjector.project(candidates: decision.candidates,
+        profiles: [], instrument: "GBP/JPY", scanGeneration: 2,
+        sourceInputIdentity: "snapshot", now: now.addingTimeInterval(30),
+        source: .oandaPractice)
+    let agedSignal = try #require(agedSignals.first)
+    #expect(agedSignal.stage == .confirmed)
+    #expect(agedSignal.reasons.contains("quote_refresh_required"))
+    #expect(agedSignal.validUntil == now.addingTimeInterval(600))
+    #expect(agedSignal.entryReference == candidate.entryReference)
+    #expect(agedSignal.stopPrice == candidate.stopReference)
+    #expect(agedSignal.targetPrice == candidate.targetReference)
+}
+
+@Test func londonFormingSignalSurvivesSelectorTagAndQuoteAgingUntilSetupExpiry() throws {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let strategy = GBPJPYLondonBreakRetestV1.strategyID
+    let config = AdaptiveOpportunityAdapters.effectiveConfiguration(
+        strategyID: strategy, instrument: "GBP/JPY")!
+    let candidate = AdaptiveOpportunityCandidate(id: "london-forming", strategyID: strategy,
+        strategyVersion: AdaptiveOpportunityAdapters.londonPracticeObservationConfiguration.version,
+        instrument: "GBP/JPY", provider: "oanda", direction: .long,
+        observedAt: now, validUntil: now.addingTimeInterval(600),
+        evaluationStartedAt: now, evaluationCompletedAt: now,
+        state: .rejected, rejectionReasons: ["retest_confirmation_pending"],
+        entryReference: nil, stopReference: nil, targetReference: nil,
+        evidenceReferences: ["breakout-m1"], provenance: "provisional Practice profile",
+        freshness: .fresh, spread: 1, spreadState: .accepted,
+        effectiveConfigurationSHA256: config.sha256(),
+        evaluatorCodeSHA256: StrategyImplementationDigests.evaluatorCodeSHA256["LONDON_BREAK_RETEST"],
+        adapterCodeSHA256: StrategyImplementationDigests.adapterCodeSHA256,
+        selectorCodeSHA256: StrategyImplementationDigests.selectorCodeSHA256)
+    let decision = AdaptiveOpportunitySelector.select([candidate], now: now)
+    let selected = try #require(decision.candidates.first)
+    #expect(selected.rejectionReasons.contains("candidate_not_eligible"))
+    let signals = MacResearchSignalProjector.project(candidates: decision.candidates,
+        profiles: [], instrument: "GBP/JPY", scanGeneration: 2,
+        sourceInputIdentity: "snapshot", now: now.addingTimeInterval(30),
+        source: .oandaPractice)
+    let signal = try #require(signals.first)
+    #expect(signal.stage == .forming)
+    #expect(signal.validUntil == now.addingTimeInterval(600))
 }
 
 @Test func adapterDeadlinesUseQuoteAndConfiguredEventExpiryMinimum() {
@@ -117,6 +204,9 @@ private func diagnosticCandidate(family: MacResearchEvaluatorFamily,
     case .orb: ("ORB_BREAK_RETEST_V1", "ORB_BREAK_RETEST_V1")
     case .candidate001: ("CANDIDATE_001_CHOCH_FVG_FIB", "candidate-001-v2")
     case .candidate002: ("CANDIDATE_002_AUCTION_FAILURE", "candidate-002-auction-failure-v2")
+    case .londonBreakRetest: (GBPJPYLondonBreakRetestV1.strategyID, "GBPJPY_LONDON_RANGE_BREAK_RETEST_V1")
+    case .trendPullback: (GBPJPYTrendPullbackV1.strategyID, "PROFILE_REQUIRED")
+    case .rangeRejection: (GBPJPYRangeRejectionV1.strategyID, "PROFILE_REQUIRED")
     }
     return .init(id: "diagnostic-\(family.rawValue)", strategyID: identity.0,
         strategyVersion: identity.1, instrument: "EUR/USD", provider: "OANDA_LIVE",
@@ -140,6 +230,7 @@ private func diagnosticCandidate(family: MacResearchEvaluatorFamily,
     #expect(result[1].statusLabel == "Completed · no candidate emitted")
     #expect(result[2].state == .evaluationFailed)
     #expect(result[2].statusLabel == "Evaluation failed")
+    #expect(result[3].state == .completedNoCandidate)
     #expect(result.allSatisfy { $0.sourceInputIdentity == "snapshot-7" && $0.scanGeneration == 7 })
     #expect(MacResearchEvaluationDiagnosticProjector.project(candidates: [orb], failedFamilies: [],
         visibleSignalIDs: [], quoteAsOf: quote, scanGeneration: 7, currentScanGeneration: 8,
@@ -165,7 +256,7 @@ private func diagnosticCandidate(family: MacResearchEvaluatorFamily,
         failedFamilies: [], visibleSignalIDs: [], quoteAsOf: quote, scanGeneration: 9,
         currentScanGeneration: 9, sourceInputIdentity: "exact-snapshot",
         expectedSourceInputIdentity: "exact-snapshot", now: quote.addingTimeInterval(1))
-    #expect(result.count == 3)
+    #expect(result.count == MacResearchEvaluatorFamily.allCases.count)
     let candidate001 = result.first { $0.family == .candidate001 }
     #expect(candidate001?.state == .candidateWithheld)
     #expect(candidate001?.detail == "Spread filter rejected the candidate")
@@ -202,7 +293,7 @@ private func diagnosticCandidate(family: MacResearchEvaluatorFamily,
     #expect(project(nil).isEmpty)
     #expect(project(Date(timeIntervalSince1970: .infinity)).isEmpty)
     #expect(project(quote.addingTimeInterval(2)).isEmpty)
-    #expect(project(quote.addingTimeInterval(1)).count == 3)
+    #expect(project(quote.addingTimeInterval(1)).count == MacResearchEvaluatorFamily.allCases.count)
     let orbAtBoundary = MacResearchEvaluationDiagnosticProjector.project(candidates: [],
         failedFamilies: [], visibleSignalIDs: [], quoteAsOf: quote, scanGeneration: 2,
         currentScanGeneration: 2, sourceInputIdentity: "snapshot",
@@ -213,15 +304,28 @@ private func diagnosticCandidate(family: MacResearchEvaluatorFamily,
         visibleSignalIDs: [], quoteAsOf: quote, scanGeneration: 2,
         currentScanGeneration: 2, sourceInputIdentity: "snapshot",
         expectedSourceInputIdentity: "snapshot", now: quote.addingTimeInterval(5.001)).map(\.family)
-        == [.candidate001, .candidate002])
+        == [.candidate001, .candidate002, .londonBreakRetest, .trendPullback, .rangeRejection])
     #expect(MacResearchEvaluationDiagnosticProjector.project(candidates: [], failedFamilies: [],
         visibleSignalIDs: [], quoteAsOf: quote, scanGeneration: 2,
         currentScanGeneration: 2, sourceInputIdentity: "snapshot",
-        expectedSourceInputIdentity: "snapshot", now: quote.addingTimeInterval(8)).count == 2)
+        expectedSourceInputIdentity: "snapshot", now: quote.addingTimeInterval(8)).count == 5)
     #expect(MacResearchEvaluationDiagnosticProjector.project(candidates: [], failedFamilies: [],
         visibleSignalIDs: [], quoteAsOf: quote, scanGeneration: 2,
         currentScanGeneration: 2, sourceInputIdentity: "snapshot",
         expectedSourceInputIdentity: "snapshot", now: quote.addingTimeInterval(8.001)).isEmpty)
+}
+
+@Test func macDiagnosticsExposeImplementedButUnconfiguredGBPJPYFamilies() {
+    let quote = Date(timeIntervalSince1970: 10_000)
+    let result = MacResearchEvaluationDiagnosticProjector.project(candidates: [],
+        failedFamilies: [], notConfiguredFamilies: [.londonBreakRetest, .trendPullback, .rangeRejection],
+        visibleSignalIDs: [], quoteAsOf: quote, scanGeneration: 14,
+        currentScanGeneration: 14, sourceInputIdentity: "snapshot",
+        expectedSourceInputIdentity: "snapshot", now: quote.addingTimeInterval(1))
+    let unconfigured = result.filter { $0.state == .notConfigured }
+    #expect(unconfigured.map(\.family) == [.londonBreakRetest, .trendPullback, .rangeRejection])
+    #expect(unconfigured.allSatisfy { $0.statusLabel.contains("approved profile required") })
+    #expect(unconfigured.allSatisfy { $0.detail == "Approved strategy profile is not configured" })
 }
 
 @Test func macDiagnosticReasonAllowlistUsesSafeFallback() {
@@ -266,7 +370,8 @@ private func diagnosticCandidate(family: MacResearchEvaluatorFamily,
         .appendingPathComponent("mac-diagnostic-lifecycle-\(UUID().uuidString)", isDirectory: true))
 
     model.installMacResearchStateForTesting(signals: [signal], diagnostics: diagnostics)
-    #expect(model.macResearchSignals.count == 1 && model.macResearchEvaluationDiagnostics.count == 3)
+    #expect(model.macResearchSignals.count == 1
+        && model.macResearchEvaluationDiagnostics.count == MacResearchEvaluatorFamily.allCases.count)
     _ = model.beginLiveDecisionRefreshForTesting(for: "EUR/USD")
     #expect(model.macResearchSignals.isEmpty && model.macResearchEvaluationDiagnostics.isEmpty)
 
@@ -278,6 +383,24 @@ private func diagnosticCandidate(family: MacResearchEvaluatorFamily,
     await model.withdrawLiveStrategyDecisionForTesting("EUR/USD", reason: "test_withdrawal")
     #expect(model.macResearchSignals.isEmpty && model.macResearchEvaluationDiagnostics.isEmpty)
     #expect(model.macResearchSignalStatus == .failed)
+}
+
+@MainActor
+@Test func gbpJpyPracticeMonitorRequiresItsTargetPair() async {
+    let model = LightningDeskModel(storageRoot: FileManager.default.temporaryDirectory
+        .appendingPathComponent("gbpjpy-practice-monitor-guard-\(UUID().uuidString)", isDirectory: true))
+
+    await model.toggleGBPJPYPracticeMonitoring()
+
+    #expect(!model.isGBPJPYPracticeMonitoring)
+    #expect(model.notice == "Select GBP/JPY before starting the Practice monitor")
+}
+
+@MainActor
+@Test func macCredentialDraftDefaultsToPractice() {
+    let model = LightningDeskModel(storageRoot: FileManager.default.temporaryDirectory
+        .appendingPathComponent("practice-credential-draft-\(UUID().uuidString)", isDirectory: true))
+    #expect(model.draftEnvironment == .practice)
 }
 #endif
 
@@ -336,7 +459,7 @@ private func diagnosticCandidate(family: MacResearchEvaluatorFamily,
         instrument: macSignalInstrument, scanGeneration: 1, sourceInputIdentity: "input", now: now).isEmpty)
 }
 
-@Test func projectionRetainsDistinctConflictingCandidatesAndRequiresRegisteredShadow() {
+@Test func projectionRetainsDistinctConflictingCandidatesWithoutPromotionProfile() {
     let now = Date(timeIntervalSince1970: 1_001)
     let candidates = [macSignalCandidate(id: "candidate-a"), macSignalCandidate(id: "candidate-b", direction: .short)]
     let projected = MacResearchSignalProjector.project(candidates: candidates,
@@ -352,6 +475,68 @@ private func diagnosticCandidate(family: MacResearchEvaluatorFamily,
         evaluatorCodeSHA256: StrategyImplementationDigests.evaluatorCodeSHA256["ORB_BREAK_RETEST"],
         adapterCodeSHA256: StrategyImplementationDigests.adapterCodeSHA256,
         selectorCodeSHA256: StrategyImplementationDigests.selectorCodeSHA256)
-    #expect(MacResearchSignalProjector.project(candidates: candidates, profiles: [live],
-        instrument: macSignalInstrument, scanGeneration: 4, sourceInputIdentity: "input", now: now).isEmpty)
+    let visibleWithLiveRoleProfile = MacResearchSignalProjector.project(candidates: candidates, profiles: [live],
+        instrument: macSignalInstrument, scanGeneration: 4, sourceInputIdentity: "input", now: now)
+    #expect(visibleWithLiveRoleProfile.map(\.id) == ["candidate-a", "candidate-b"])
+}
+
+@Test func practiceResearchProjectsWithoutPromotionAndBindsProvider() {
+    let now = Date(timeIntervalSince1970: 1_001)
+    let practiceCandidate = macSignalCandidate(provider: "OANDA_PRACTICE")
+    let projected = MacResearchSignalProjector.project(candidates: [practiceCandidate], profiles: [],
+        instrument: macSignalInstrument, scanGeneration: 13, sourceInputIdentity: "practice-snapshot",
+        now: now, source: .oandaPractice)
+    #expect(projected.count == 1)
+    #expect(projected[0].environment == .practice)
+    #expect(projected[0].stage == .confirmed)
+    #expect(projected[0].timeframe == "M1")
+    #expect(projected[0].entryReference == nil)
+    #expect(projected[0].profileID == "research:\(macSignalStrategy)")
+
+    let genericOandaPractice = macSignalCandidate(provider: "OANDA")
+    #expect(MacResearchSignalProjector.project(candidates: [genericOandaPractice], profiles: [],
+        instrument: macSignalInstrument, scanGeneration: 13, sourceInputIdentity: "practice-snapshot",
+        now: now, source: .oandaPractice).count == 1)
+
+    #expect(MacResearchSignalProjector.project(candidates: [macSignalCandidate()], profiles: [],
+        instrument: macSignalInstrument, scanGeneration: 13, sourceInputIdentity: "practice-snapshot",
+        now: now, source: .oandaPractice).isEmpty)
+    #expect(MacResearchSignalProjector.project(candidates: [practiceCandidate], profiles: [],
+        instrument: macSignalInstrument, scanGeneration: 13, sourceInputIdentity: "live-snapshot",
+        now: now, source: .oandaLive).isEmpty)
+}
+
+@Test func projectionKeepsFormingCandidatesAndAttachesOnlyValidatedPlanPreview() {
+    let now = Date(timeIntervalSince1970: 1_001)
+    let plan = V3TradePlan(id: "preview", instrument: macSignalInstrument,
+        strategyID: macSignalStrategy, strategyVersion: macSignalVersion,
+        engineVersion: "test", sourceObservationID: "observation", state: .draft,
+        side: .long, entryPrice: 1.1, stopPrice: 1.0, targetPrice: 1.3,
+        units: 1, maxSpread: 0.01, riskFraction: 0.01,
+        evidenceIDs: ["plan-event"], createdAt: now)
+    let candidates = [
+        macSignalCandidate(id: "forming", state: .rejected,
+            reasons: ["breakout_confirmed_retest_pending"]),
+        macSignalCandidate(id: "with-plan", plan: plan)
+    ]
+    let projected = MacResearchSignalProjector.project(candidates: candidates,
+        profiles: [], instrument: macSignalInstrument, scanGeneration: 2,
+        sourceInputIdentity: "input", now: now)
+    #expect(projected.map(\.id) == ["forming", "with-plan"])
+    #expect(projected[0].stage == .forming)
+    #expect(projected[0].planPreview == nil)
+    #expect(projected[0].timeframe == "M1")
+    #expect(projected[1].planPreview?.entryPrice == 1.1)
+    #expect(projected[1].entryReference == 1.1)
+    #expect(projected[1].stopPrice == 1.0)
+    #expect(projected[1].targetPrice == 1.3)
+    #expect(abs((projected[1].planPreview?.rewardRisk ?? 0) - 2) < 1e-9)
+
+    let rejected = [
+        macSignalCandidate(id: "risk-rejected", state: .rejected, reasons: ["invalid_long_structure"]),
+        macSignalCandidate(id: "data-rejected", state: .rejected, reasons: ["m15_context_unavailable"]),
+        macSignalCandidate(id: "unknown-rejected", state: .rejected, reasons: ["unknown"])
+    ]
+    #expect(MacResearchSignalProjector.project(candidates: rejected, profiles: [],
+        instrument: macSignalInstrument, scanGeneration: 2, sourceInputIdentity: "input", now: now).isEmpty)
 }

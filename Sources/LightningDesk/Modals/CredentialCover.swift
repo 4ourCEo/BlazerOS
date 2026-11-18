@@ -49,7 +49,7 @@ struct CredentialCover: View {
 
                     Button("Enter credentials manually") {
                         model.isEditingCredentials = true
-                        model.draftEnvironment = .live
+                        model.draftEnvironment = .practice
                         model.draftToken = ""
                         model.draftAccount = ""
                     }
@@ -77,7 +77,7 @@ struct CredentialCover: View {
                 if model.keychainState == .ready && !model.isEditingCredentials {
                     Button("Change OANDA account") {
                         model.isEditingCredentials = true
-                        model.draftEnvironment = .live
+                        model.draftEnvironment = model.connectedOandaEnvironment ?? .practice
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(DeskInk.electric)
@@ -105,23 +105,15 @@ struct CredentialCover: View {
 
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 10) {
-                        #if os(iOS)
                         environmentChoice(.practice, title: "Practice")
-                        #endif
                         environmentChoice(.live, title: "Live")
                     }
 
-                    #if os(macOS)
-                    Text("Live connects to OANDA fxtrade and requests live account market data.")
-                        .font(.system(size: 13, weight: .regular))
-                        .foregroundStyle(DeskInk.slate)
-                    #else
                     Text(model.draftEnvironment == .practice
-                        ? "Practice connects to OANDA fxpractice (demo account)."
-                        : "Live connects to OANDA fxtrade (real funded account).")
+                        ? "Practice uses OANDA fxpractice (demo account). Orders remain manual."
+                        : "Live uses OANDA fxtrade (real funded account).")
                         .font(.system(size: 13, weight: .regular))
                         .foregroundStyle(DeskInk.slate)
-                    #endif
                 }
 
                 if model.credentialSaveFailed {
@@ -223,9 +215,9 @@ struct CredentialCover: View {
         }
         #if os(macOS)
         if model.keychainState == .locked {
-            return "Saved OANDA Live credentials are locked. Unlock them to scan, or enter replacement credentials manually."
+            return "Saved OANDA credentials are locked. Unlock them to scan, or enter replacement credentials and choose Practice or Live."
         }
-        return "Connect an OANDA Live account. Credentials are stored in this Mac’s Keychain."
+        return "Connect OANDA Practice or Live. Credentials are stored in this Mac’s Keychain."
         #else
         return "Connect OANDA credentials stored in this device’s Keychain."
         #endif
@@ -258,5 +250,6 @@ struct CredentialCover: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
+        .accessibilityIdentifier("oanda.environment.\(choice.rawValue)")
     }
 }

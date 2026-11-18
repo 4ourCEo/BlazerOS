@@ -2,8 +2,56 @@ import Foundation
 
 /// Translates existing authorities into the composition contract without changing them.
 public enum AdaptiveOpportunityAdapters {
+    /// User-requested, provisional configuration for manual GBP/JPY Practice
+    /// observation. It carries no order units or execution authorization.
+    public static let londonPracticeObservationConfiguration = GBPJPYLondonBreakRetestConfiguration(
+        version: "GBPJPY_LONDON_PRACTICE_OBSERVATION_PROVISIONAL_0.1.0",
+        pipSize: 0.01,
+        rangeDurationSeconds: 300,
+        minimumRangePips: 5,
+        maximumRangePips: 20,
+        minimumBreakoutPips: 5,
+        retestTolerancePips: 2,
+        maximumRetestBars: 5,
+        atrMethod: .simpleMeanTrueRangeV1,
+        atrLookbackBars: 14,
+        stopBufferATRMultiple: 0.2,
+        targetRMultiple: 1.5,
+        maximumSpreadPips: 4.5,
+        maximumQuoteAgeSeconds: 3,
+        maximumSetupAgeSeconds: 600,
+        cooldownSeconds: 0)
+
     public static func effectiveConfiguration(strategyID: String, instrument: String) -> StrategyEffectiveConfiguration? {
         switch strategyID {
+        case GBPJPYLondonBreakRetestV1.strategyID:
+            let c = londonPracticeObservationConfiguration
+            return .init(profileID: "GBPJPY_LONDON_PRACTICE_OBSERVATION",
+                profileVersion: c.version, evaluatorVersion: "GBPJPY_LONDON_RANGE_BREAK_RETEST_V1",
+                adapterVersion: StrategyImplementationDigests.adapterVersion,
+                instrument: instrument, stringSettings: [
+                    "timeZoneIdentifier": "Europe/London",
+                    "sessionCalendar": "LONDON_0800_1200_LOCAL_V1",
+                    "atrMethod": "SIMPLE_MEAN_TRUE_RANGE_V1",
+                    "profileMaturity": "provisional-practice-observation",
+                    "adapter.candleSource": "input.candles1m_completed;midpoint-ohlc;contiguous-session-only",
+                    "adapter.quoteSource": "input.bid-ask;quoteAsOfMs-required;no-candle-quote-fallback",
+                    "adapter.planConstruction": "structural-entry-stop-target-references;no-units;no-risk-approval",
+                    "adapter.spreadUnits": "pips"
+                ], numericSettings: [
+                    "pipSize": c.pipSize, "rangeDurationSeconds": Double(c.rangeDurationSeconds),
+                    "minimumRangePips": c.minimumRangePips, "maximumRangePips": c.maximumRangePips,
+                    "minimumBreakoutPips": c.minimumBreakoutPips,
+                    "retestTolerancePips": c.retestTolerancePips,
+                    "maximumRetestBars": Double(c.maximumRetestBars),
+                    "atrLookbackBars": Double(c.atrLookbackBars),
+                    "stopBufferATRMultiple": c.stopBufferATRMultiple,
+                    "targetRMultiple": c.targetRMultiple,
+                    "maximumSpreadPips": c.maximumSpreadPips,
+                    "maximumQuoteAgeSeconds": c.maximumQuoteAgeSeconds,
+                    "maximumSetupAgeSeconds": c.maximumSetupAgeSeconds,
+                    "cooldownSeconds": c.cooldownSeconds
+                ])
         case "ORB_BREAK_RETEST_V1", "ORB_BREAK_RETEST":
             let c = ORBBreakRetestV1.configuration(for: instrument)
             return .init(profileID: "ORB_BREAK_RETEST", profileVersion: c.strategyVersion,
@@ -72,6 +120,7 @@ public enum AdaptiveOpportunityAdapters {
         let config = effectiveConfiguration(strategyID: strategyID, instrument: instrument)?.sha256()
         let family: String
         switch strategyID {
+        case GBPJPYLondonBreakRetestV1.strategyID: family = "LONDON_BREAK_RETEST"
         case "ORB_BREAK_RETEST_V1": family = "ORB_BREAK_RETEST"
         case "CANDIDATE_001_CHOCH_FVG_FIB": family = "CHOCH_FVG_FIB"
         case "CANDIDATE_002_AUCTION_FAILURE": family = "AUCTION_FAILURE"
@@ -111,9 +160,22 @@ public enum AdaptiveOpportunityAdapters {
     public static func evaluateCandidate001Result(_ input: StrategyEngine.MarketInput,
                                                   asOf: Date = Date(),
                                                   startedAt: Date = Date()) -> AdaptiveCandidateEvaluationBatch {
+        return switch evaluateCandidate001DetailedResult(input, asOf: asOf, startedAt: startedAt) {
+        case .completed(let candidates, _): .completed(candidates)
+        case .failed(let reason): .failed(reason)
+        }
+    }
+
+    public static func evaluateCandidate001DetailedResult(_ input: StrategyEngine.MarketInput,
+                                                          asOf: Date = Date(),
+                                                          startedAt: Date = Date()) -> AdaptiveDetailedCandidateEvaluationBatch {
         let candles = input.candles1m.map(candidate001Candle)
         let m15 = aggregateM15(input.candles5m).map(candidate001Candle)
-        let configuration = Candidate001Configuration(requireM15Confirmation: true,
+        // Ask the analyzer to expose the raw retracement recognition even when
+        // M15 confirmation is missing. The adapter applies the configured
+        // confirmation gate before emitting an eligible candidate and records
+        // the unmet condition in diagnostics.
+        let configuration = Candidate001Configuration(requireM15Confirmation: false,
             signalFreshnessSeconds: 300)
         let analyzed: [Candidate001Candidate]
         do {
@@ -123,13 +185,29 @@ public enum AdaptiveOpportunityAdapters {
         let observedAt = input.quoteAsOfMs.map { Date(timeIntervalSince1970: $0 / 1_000) }
         let completion = Date()
         let spreadAccepted = acceptedSpread(input)
-        return .completed(analyzed.compactMap { candidate in
+        var diagnostics: [AdaptiveCandidateRawDiagnostic] = []
+        let adapted = analyzed.compactMap { candidate -> AdaptiveOpportunityCandidate? in
+            let namespacedID = "candidate001:\(candidate.id)"
             guard candidate.terminalState == .candidateTriggered,
                   let triggeredAt = candidate.triggeredAt,
                   eventIsWithinSignalTTL(start: triggeredAt, asOf: asOf,
                       ttlSeconds: TimeInterval(configuration.resolvedSignalFreshnessSeconds)),
-                  candidate.m15Confirmed else { return nil }
-            return AdaptiveOpportunityCandidate(id: candidate.id,
+                  candidate.m15Confirmed else {
+                let reason: String
+                switch candidate.terminalState {
+                case .expired: reason = "setup_expired"
+                case .invalidated: reason = "setup_invalidated"
+                case .candidateTriggered where !candidate.m15Confirmed: reason = "m15_confirmation_missing"
+                case .candidateTriggered where candidate.triggeredAt == nil: reason = "trigger_time_missing"
+                case .candidateTriggered: reason = "entry_window_expired"
+                case .observe, .structureConfirmed, .fvgConfirmed, .retracementEligible:
+                    reason = "conditions_not_met"
+                }
+                diagnostics.append(AdaptiveCandidateRawDiagnostic(candidateID: namespacedID,
+                    rawState: candidate.terminalState.rawValue, reasonCode: reason))
+                return nil
+            }
+            return AdaptiveOpportunityCandidate(id: namespacedID,
                 strategyID: "CANDIDATE_001_CHOCH_FVG_FIB", strategyVersion: candidate.version,
                 instrument: input.asset, provider: input.source,
                 direction: candidate.direction == .bullish ? .long : .short,
@@ -140,7 +218,7 @@ public enum AdaptiveOpportunityAdapters {
                 state: observedAt == nil || !spreadAccepted ? .rejected : .eligible,
                 rejectionReasons: observedAt == nil ? ["quote_missing"] : [],
                 entryReference: candidate.fibonacci.level618, plan: nil,
-                evidenceReferences: [candidate.id, candidate.fvg.formedAt.ISO8601Format()],
+                evidenceReferences: [namespacedID, candidate.fvg.formedAt.ISO8601Format()],
                 provenance: candidate.version, freshness: freshness(observedAt, now: completion),
                 spread: input.spread,
                 spreadState: spreadAccepted ? .accepted : .rejected, rankingScore: 1,
@@ -148,7 +226,8 @@ public enum AdaptiveOpportunityAdapters {
                 evaluatorCodeSHA256: provenance("CANDIDATE_001_CHOCH_FVG_FIB", input.asset).1,
                 adapterCodeSHA256: provenance("CANDIDATE_001_CHOCH_FVG_FIB", input.asset).2,
                 selectorCodeSHA256: provenance("CANDIDATE_001_CHOCH_FVG_FIB", input.asset).3)
-        })
+        }
+        return .completed(candidates: adapted, diagnostics: diagnostics)
     }
 
     /// Adapts the existing OHLC auction-failure analyzer. Its higher timeframe
@@ -164,6 +243,15 @@ public enum AdaptiveOpportunityAdapters {
     public static func evaluateCandidate002Result(_ input: StrategyEngine.MarketInput,
                                                   asOf: Date = Date(),
                                                   startedAt: Date = Date()) -> AdaptiveCandidateEvaluationBatch {
+        return switch evaluateCandidate002DetailedResult(input, asOf: asOf, startedAt: startedAt) {
+        case .completed(let candidates, _): .completed(candidates)
+        case .failed(let reason): .failed(reason)
+        }
+    }
+
+    public static func evaluateCandidate002DetailedResult(_ input: StrategyEngine.MarketInput,
+                                                          asOf: Date = Date(),
+                                                          startedAt: Date = Date()) -> AdaptiveDetailedCandidateEvaluationBatch {
         let candles = input.candles1m.map(candidate002Candle)
         let m15 = aggregateM15(input.candles5m).map(candidate002Candle)
         let configuration = Candidate002Configuration(signalFreshnessSeconds: 120)
@@ -175,22 +263,41 @@ public enum AdaptiveOpportunityAdapters {
         let observedAt = input.quoteAsOfMs.map { Date(timeIntervalSince1970: $0 / 1_000) }
         let completion = Date()
         let spreadAccepted = acceptedSpread(input)
-        return .completed(analyzed.compactMap { candidate in
+        var diagnostics: [AdaptiveCandidateRawDiagnostic] = []
+        let adapted = analyzed.compactMap { candidate -> AdaptiveOpportunityCandidate? in
+            let namespacedID = "candidate002:\(candidate.id)"
             guard candidate.terminalState == .confirmed,
                   let confirmedAt = candidate.confirmationAt,
                   eventIsWithinSignalTTL(start: confirmedAt, asOf: asOf,
-                      ttlSeconds: TimeInterval(configuration.resolvedSignalFreshnessSeconds))
-            else { return nil }
+                      ttlSeconds: TimeInterval(configuration.resolvedSignalFreshnessSeconds)) else {
+                let reason: String
+                switch candidate.terminalState {
+                case .invalidated: reason = "setup_invalidated"
+                case .expired: reason = "confirmation_window_expired"
+                case .confirmed where candidate.confirmationAt == nil: reason = "confirmation_missing"
+                case .confirmed: reason = "entry_window_expired"
+                }
+                diagnostics.append(AdaptiveCandidateRawDiagnostic(candidateID: namespacedID,
+                    rawState: candidate.terminalState.rawValue, reasonCode: reason))
+                return nil
+            }
             let hasM15Context = candidate.environment != .unavailable
             let plan = hasM15Context
                 ? candidate002Plan(candidate, candles: candles, instrument: input.asset,
                                    configuration: configuration)
                 : nil
+            if !hasM15Context {
+                diagnostics.append(AdaptiveCandidateRawDiagnostic(candidateID: namespacedID,
+                    rawState: candidate.terminalState.rawValue, reasonCode: "m15_context_unavailable"))
+            } else if plan == nil {
+                diagnostics.append(AdaptiveCandidateRawDiagnostic(candidateID: namespacedID,
+                    rawState: candidate.terminalState.rawValue, reasonCode: "entry_plan_incomplete"))
+            }
             var rejectionReasons: [String] = []
             if observedAt == nil { rejectionReasons.append("quote_missing") }
             if !spreadAccepted { rejectionReasons.append("spread_rejected") }
             if !hasM15Context { rejectionReasons.append("m15_context_unavailable") }
-            return AdaptiveOpportunityCandidate(id: candidate.id,
+            return AdaptiveOpportunityCandidate(id: namespacedID,
                 strategyID: "CANDIDATE_002_AUCTION_FAILURE", strategyVersion: candidate.version,
                 instrument: input.asset, provider: input.source,
                 direction: hasM15Context
@@ -202,7 +309,7 @@ public enum AdaptiveOpportunityAdapters {
                 state: observedAt == nil || !spreadAccepted || !hasM15Context ? .rejected : .eligible,
                 rejectionReasons: rejectionReasons,
                 entryReference: plan?.entryPrice, plan: plan,
-                evidenceReferences: [candidate.id, candidate.failedAt.ISO8601Format(), confirmedAt.ISO8601Format()],
+                evidenceReferences: [namespacedID, candidate.failedAt.ISO8601Format(), confirmedAt.ISO8601Format()],
                 provenance: candidate.version,
                 freshness: freshness(observedAt, now: completion), spread: input.spread,
                 spreadState: spreadAccepted ? .accepted : .rejected, rankingScore: 1,
@@ -210,7 +317,8 @@ public enum AdaptiveOpportunityAdapters {
                 evaluatorCodeSHA256: provenance("CANDIDATE_002_AUCTION_FAILURE", input.asset).1,
                 adapterCodeSHA256: provenance("CANDIDATE_002_AUCTION_FAILURE", input.asset).2,
                 selectorCodeSHA256: provenance("CANDIDATE_002_AUCTION_FAILURE", input.asset).3)
-        })
+        }
+        return .completed(candidates: adapted, diagnostics: diagnostics)
     }
 
     private static func acceptedSpread(_ input: StrategyEngine.MarketInput) -> Bool {

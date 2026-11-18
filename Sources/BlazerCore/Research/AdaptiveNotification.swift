@@ -2,6 +2,7 @@ import Foundation
 
 public enum AdaptiveNotificationKind: String, Codable, Sendable, Equatable {
     case setupForming = "SETUP_FORMING"
+    case setupConfirmed = "SETUP_CONFIRMED"
     case entryReady = "ENTRY_READY"
     case setupInvalidated = "SETUP_INVALIDATED"
     case opportunityExpired = "OPPORTUNITY_EXPIRED"
@@ -20,14 +21,16 @@ public struct AdaptiveNotification: Codable, Sendable, Equatable, Identifiable {
     public let deepLink: String
 
     public init(kind: AdaptiveNotificationKind, instrument: String,
-                strategyID: String?, sourceTime: Date, expiresAt: Date) {
+                strategyID: String?, sourceTime: Date, expiresAt: Date,
+                signalIdentity: String? = nil) {
         self.kind = kind
         self.instrument = instrument
         self.strategyID = strategyID
         self.sourceTime = sourceTime
         self.expiresAt = expiresAt
         let strategy = strategyID ?? "adaptive"
-        id = "adaptive-\(instrument)-\(strategy)-\(kind.rawValue)-\(sourceTime.timeIntervalSince1970)"
+        let identity = signalIdentity ?? String(sourceTime.timeIntervalSince1970)
+        id = "adaptive-\(instrument)-\(strategy)-\(kind.rawValue)-\(identity)"
         var components = URLComponents()
         components.scheme = "blazer"
         components.host = "opportunity"
@@ -52,14 +55,17 @@ public enum AdaptiveNotificationPlanner {
                             lifetime: TimeInterval = 30) -> AdaptiveNotification? {
         let kind: AdaptiveNotificationKind
         switch state {
+        case .conditionsNotMet: return nil
         case .opportunityForming: kind = .setupForming
+        case .confirmedOpportunity: kind = .setupConfirmed
         case .actionableOpportunity: kind = .entryReady
         case .unavailable: kind = .providerUnavailable
         case .noOpportunity: return nil
         }
         let notification = AdaptiveNotification(kind: kind, instrument: instrument,
             strategyID: selectedCandidate?.strategyID, sourceTime: sourceTime,
-            expiresAt: sourceTime.addingTimeInterval(lifetime))
+            expiresAt: sourceTime.addingTimeInterval(lifetime),
+            signalIdentity: selectedCandidate?.id)
         guard notification.isFresh(at: now), !previouslyDelivered.contains(notification.id) else {
             return nil
         }
@@ -74,7 +80,8 @@ public enum AdaptiveNotificationPlanner {
               candidate.direction != .wait else { return nil }
         let notification = AdaptiveNotification(kind: .opportunityExpired,
             instrument: candidate.instrument, strategyID: candidate.strategyID,
-            sourceTime: observedAt, expiresAt: now.addingTimeInterval(30))
+            sourceTime: observedAt, expiresAt: now.addingTimeInterval(30),
+            signalIdentity: candidate.id)
         return previouslyDelivered.contains(notification.id) ? nil : notification
     }
 }

@@ -34,6 +34,27 @@ public enum AdaptiveCandidateEvaluationBatch: Sendable, Equatable {
     case failed(String)
 }
 
+/// Raw analyzer recognition preserved when the execution-ready adapter filters
+/// an expired, invalidated, or unconfirmed structure from its candidate output.
+public struct AdaptiveCandidateRawDiagnostic: Codable, Sendable, Equatable, Identifiable {
+    public let candidateID: String
+    public let rawState: String
+    public let reasonCode: String
+    public var id: String { "\(candidateID):\(rawState)" }
+
+    public init(candidateID: String, rawState: String, reasonCode: String) {
+        self.candidateID = candidateID
+        self.rawState = rawState
+        self.reasonCode = reasonCode
+    }
+}
+
+public enum AdaptiveDetailedCandidateEvaluationBatch: Sendable, Equatable {
+    case completed(candidates: [AdaptiveOpportunityCandidate],
+                   diagnostics: [AdaptiveCandidateRawDiagnostic])
+    case failed(String)
+}
+
 public struct AdaptiveOpportunityCandidate: Codable, Sendable, Equatable, Identifiable {
     public let id: String
     public let strategyID: String
@@ -51,6 +72,9 @@ public struct AdaptiveOpportunityCandidate: Codable, Sendable, Equatable, Identi
     public let state: AdaptiveCandidateState
     public let rejectionReasons: [String]
     public let entryReference: Double?
+    /// Structural signal levels do not imply broker units or risk approval.
+    public let stopReference: Double?
+    public let targetReference: Double?
     public let plan: V3TradePlan?
     public let horizonsSeconds: [Int]
     public let evidenceReferences: [String]
@@ -73,7 +97,8 @@ public struct AdaptiveOpportunityCandidate: Codable, Sendable, Equatable, Identi
                 validUntil: Date? = nil,
                 evaluationStartedAt: Date, evaluationCompletedAt: Date,
                 state: AdaptiveCandidateState, rejectionReasons: [String] = [],
-                entryReference: Double? = nil, plan: V3TradePlan? = nil,
+                entryReference: Double? = nil, stopReference: Double? = nil,
+                targetReference: Double? = nil, plan: V3TradePlan? = nil,
                  horizonsSeconds: [Int] = [],
                 evidenceReferences: [String] = [], provenance: String,
                 freshness: AdaptiveFreshnessState, spread: Double? = nil,
@@ -88,6 +113,7 @@ public struct AdaptiveOpportunityCandidate: Codable, Sendable, Equatable, Identi
         self.validUntil = validUntil
         self.evaluationStartedAt = evaluationStartedAt; self.evaluationCompletedAt = evaluationCompletedAt
         self.state = state; self.rejectionReasons = rejectionReasons; self.entryReference = entryReference
+        self.stopReference = stopReference; self.targetReference = targetReference
         self.plan = plan; self.horizonsSeconds = horizonsSeconds; self.evidenceReferences = evidenceReferences
         self.provenance = provenance; self.freshness = freshness; self.spread = spread
         self.spreadState = spreadState; self.rankingScore = rankingScore

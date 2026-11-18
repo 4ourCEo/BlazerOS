@@ -1,0 +1,3904 @@
+{
+  "activeInApplication": false,
+  "allowedPurpose": "MANUAL_PRACTICE_MARKET_OBSERVATION_ONLY",
+  "authenticatedPracticeReceiptPresent": false,
+  "candidate": {
+    "atrLookbackBars": 14,
+    "atrMethod": "SIMPLE_MEAN_TRUE_RANGE_V1",
+    "cooldownSeconds": 0.0,
+    "maximumQuoteAgeSeconds": 3.0,
+    "maximumRangePips": 20.0,
+    "maximumRetestBars": 5,
+    "maximumSetupAgeSeconds": 600.0,
+    "maximumSpreadPips": 4.5,
+    "minimumBreakoutPips": 5.0,
+    "minimumRangePips": 5.0,
+    "pipSize": 0.01,
+    "rangeDurationSeconds": 300,
+    "retestTolerancePips": 2.0,
+    "stopBufferATRMultiple": 0.2,
+    "targetRMultiple": 1.5,
+    "version": "GBPJPY_LONDON_PRACTICE_OBSERVATION_PROVISIONAL_0.1.0"
+  },
+  "candidateConfigurationDigest": "661620fe4684ce0e8b39cc3043dc63534a0e25e52c52679880bec9062caf98a4",
+  "codeDigest": "a883b28bdebd3c672413fb0b0dc79935f1067398c2a68598c9b1d0d32784eb2c",
+  "experiment": {
+    "interpretation": "QUOTE_MISSING means structural evaluation reached retest but stopped before quote validation; it is not actionable. Reason counts include repeated per-minute observations; unique event bar IDs are listed separately.",
+    "method": "Existing GBPJPYLondonBreakRetestArchiveReplay and checked-in evaluator; each configuration replayed once for each full session. No quote was supplied.",
+    "objective": "Exploration for deterministic structural setup diagnostics while retaining explicit spread and freshness gates. Do not maximize signal count or infer performance.",
+    "sample": "Eight complete London-local sessions, Nov 2\u201311 2026, GBP_JPY M1. Archive labels and transport metadata are not independently authenticated Practice receipts.",
+    "sensitivity": "One factor at a time around the starter: range duration 300/600/900 s; minimum range 3/5/8 pips; maximum range 18/20/25 pips; minimum breakout 3/5/8 pips; retest tolerance 1/2/3 pips; maximum retest bars 3/5/8; maximum setup age 300/600/900 s."
+  },
+  "inputFileManifestSHA256": "8b4e35fc7f52f88eeda9b2cb9b42a900018e7d56e2036606202acf2bdeb503ed",
+  "inputFiles": [
+    {
+      "filename": "oanda-practice-GBP_JPY-M1-1793412384-1793671584.json",
+      "sha256": "403c664842a001a1fc84340009dd7de71c4794deddab34895a38f5e81b9ed4c2"
+    },
+    {
+      "filename": "oanda-practice-GBP_JPY-M1-1793671583-1793930783.json",
+      "sha256": "6913f0dd82de962651a4fabd5eb060e13dd3b816c94aeef12558af15d40f15b2"
+    },
+    {
+      "filename": "oanda-practice-GBP_JPY-M1-1793930783-1794189983.json",
+      "sha256": "3b412a5129a749648e9ab5ae7091de516ec67eadb75dcd436c14c57ff50cbdbd"
+    },
+    {
+      "filename": "oanda-practice-GBP_JPY-M1-1794186281-1794445481.json",
+      "sha256": "88f4512a36aedd736050aa26c2c402e9ac8edc21b48390698688acd37b0d6146"
+    },
+    {
+      "filename": "oanda-practice-GBP_JPY-M1-1794358206-1794444606.json",
+      "sha256": "b3f887d50fed3c3d357ae79c5774ab7485cf3eefa328fd6b3934de928810bf98"
+    }
+  ],
+  "liveEligible": false,
+  "orderSubmissionAuthorized": false,
+  "profileStatus": "PROVISIONAL_CANDIDATE_PENDING_OWNER_REVIEW",
+  "profitabilityValidated": false,
+  "runCount": 120,
+  "runManifest": [
+    {
+      "configurationDigest": "661620fe4684ce0e8b39cc3043dc63534a0e25e52c52679880bec9062caf98a4",
+      "reports": [
+        "f7c50504ab66275c49da1095e4a7892d5b78bc9bd74dedfdbc1f97f7f06fcbd6",
+        "db35a585f88f78629de15eb64e6a54dda51ef7d62017148aec2e34f0d6cf39f1",
+        "eb0ca1c53c9b905e56d2e07d8f78f79057881c0c2e249d2ae193124b4ca5408f",
+        "681c1d60e1d28d792437145a4eb4073d827745de9f032fcbf377c9eb3302d53f",
+        "aa33fd89f9f3783f23dcdce7f6cc9709c7ff50add16ac40bbd37793f04d781c1",
+        "eb69c068d33a861c8224d99ae4c579b7ce9f0180668622a4a72689a46b4e6350",
+        "30cab0f3395c95772171f205e431943bb8f64c36d724160769f9366289ab3d52",
+        "fdf4abb3087a4dafe2af4c5fd19a91daff05001ce91c4c3d02106928a64b11a8"
+      ],
+      "variant": "starter"
+    },
+    {
+      "configurationDigest": "d87e3f4374ee8558a0841ccf497e4519a815ab23da0e8b7327a405f21fac57dc",
+      "reports": [
+        "7273c325b2d7d8d27a9638b99d0c9ff553d13338c12acaab23731d4f04c99415",
+        "f6103ba81c6f7a4c88bc9a2c750410976e8dc49da6b0b9ed1c4ce627254245d1",
+        "caab2e2c808b5a6c2baa71f0fc18b16ca9aeca70dc98bba87c52cde0bc787a51",
+        "bc02047f56e978491ea98d17be60b7ea7c99f2f698db0e34623eb0fe860c09e2",
+        "559703e8433fbf9ef8bcae7669fc86ec599f36a160cb5161c1627e9e6e25773c",
+        "6867e45fc2cba085faf70b6052656982d94c9d71205d1b2996e9b1d174216c6a",
+        "6e5f7dd68abf73575aa42909ac7eb1e468cc799a0373321049895f1c6bb09fd4",
+        "9a4ca1a50fb2f8e94eb2b7a796e161bc6d77e850cf86987927fdd8834445b76f"
+      ],
+      "variant": "rangeDurationSeconds=600"
+    },
+    {
+      "configurationDigest": "7da7ed89d1cfc61fe23040955b523ace680fbc4e5616f92e445c06434723f20e",
+      "reports": [
+        "e2c27076f20dacafcebf19292e67fc39cc97e3f6db238d516759ea5cfa7050b2",
+        "8c9519be872d0b02c04953bfbb2e8e6264f39b34438f9cfd164e99e1537672ba",
+        "f7571fa9cf928023e5775decfc71ce832fb4bc3040e10b0878197cc6a4cf646b",
+        "a3fb0b267f71d38d31841528b8ae6112c7480b9a7ab3dd4c6ee04117d3bac6fa",
+        "9438d3bc5b85cf3a53ff927bf26c0e79b4dfd80846284d94f5cb271d64c5162f",
+        "5c03667db981cf3e45a5a27bb33c67d4216c415016f67d26bba8123fac0f42d1",
+        "e3c1efcb7c0a6e9b57ecbea5d51166515cd2d0af989bc465bc92313e702ef07d",
+        "f4c76f8db1aa26b0a1f7c5dece28fe7774d7b491fd95005046aa25a5f6b8c88c"
+      ],
+      "variant": "rangeDurationSeconds=900"
+    },
+    {
+      "configurationDigest": "c1494907806f86e107b7332825e4642a2ebacc028e661a0576929207c01b3bd7",
+      "reports": [
+        "b3f222c75540f7101e2ccc504ebae2b85ab3611475ee5bf13b5c2e1e65902617",
+        "1d390f2d942ac6e4ce7ee2542a36b64eb6a9e7c9bc71c45ca5c7727252fbc665",
+        "48bcb5e3cc3d857d84042860a1cf58b3920199b92d627b224577a2d7bfbca531",
+        "47ea2e651eb4cf98f31d1e68f0b436d5c6d919b7d188fb3e8b4df3b3bc28ae97",
+        "6180bf468fa58ea7f4bfa2e8594f6e4ba5fbeb9aa88e73bd0bfc400259168e21",
+        "57e5a4978bf53e6c1182cba476346cad8981590f1e51e96839192c515fbbc08c",
+        "c4c76275e4d34ba6d0c20714081bc0696dfaaa9aef4211737e25dc16979d32e0",
+        "595843be79402642cec40b62d19192731d65a6b0c311e35a6e46d574caabac13"
+      ],
+      "variant": "minimumRangePips=3.0"
+    },
+    {
+      "configurationDigest": "e05cd0dcbdaf49242769f5c299be0169a919c3ef9cccae39df79e2704c98e0c0",
+      "reports": [
+        "b81e2924674fe0326db068fa4ddae4c28a545d5156b6f799c7fec7e81351d635",
+        "538509482c1cd74576b8d57d09558e5201e73d0f5aeca1d4fd007230edca86aa",
+        "a031f71c3bf3abfb877ada0dd3efa9a3066bc08fed892916c6265585839df299",
+        "8b47a1c58a94e22887d0edcc4fb5a4797ddb6bd721973b6858d9643eed488c8c",
+        "0e36a182e1afff7a681cdea04faff7712e5cbdd00b53f9372137e22600814d5e",
+        "d5c10426db8ec5015e715aa2fd55ce52f475a603a7741456076cd69e566c0c44",
+        "014758842ceade4e63e04074933fa5f370c49bddade05ef94f311bdc5c3953c8",
+        "2aed3216879d50ab209284b9547e278fa5a6801c2d4aabde57ba74d0a4fed4c8"
+      ],
+      "variant": "minimumRangePips=8.0"
+    },
+    {
+      "configurationDigest": "46b91c02c2f85718f0d7dab2e8d680b86384f5c69a243e2be3108b90dab88a78",
+      "reports": [
+        "8bc637f83c63a12ffbad2447ed8764c257d89eaf6dc29e89ff5a65ada2ee1d5f",
+        "2fa3819ea6ec1aac646321dbde8b04d7c7b35d584b66aebea73716328c507e79",
+        "68a9815305f41b2b6fbf9962160817500962cc2b40a55de1ae9ebbdc84999afb",
+        "0cf354ed64469f1b7f97e50400b56a74f15a2924e5a3553d9abf255433a01953",
+        "0eca703f9dcf98606b004c79371cf64a13d7149fc3849cf1e8f6f622160c0576",
+        "0fbd4aabb65c93396947cb583e5538030feb2b2b0d4eba0eb0cfe73954b110be",
+        "e3ae9842e4d93aeff4723170ce5d413bcba59c26536f1805d46f59fc284b7d7d",
+        "cd8994337c1a4bd30ce261d6507a8de1b4734c70fd7647743f157c29fc56d348"
+      ],
+      "variant": "maximumRangePips=18.0"
+    },
+    {
+      "configurationDigest": "15a32d4a5654013dbde74058717fd74910c536fec2223d3e3318fb1050b8a09f",
+      "reports": [
+        "2499d97891b2e7820024008ef3c0eeea2e659771e539babe2730fd16ed9f58e3",
+        "b501a0f71e8fa03c543698a0b40c807fa29df6ae64060ab30d50703df86b67b7",
+        "286323c234cb42bf9569e8656fee6f808b91eb07ac409ffffe963c64d01fe0c1",
+        "cea9222f7fe746dca4692b7fcd4dbdffef50ba542c63fec46c8dbc0866ab4805",
+        "d7f69e3b7050ab2f9482b04b72223b615d80bada8a5d92d1f36a424705cc812e",
+        "91d948d4f6ddac0913d8ea130757e40c4a68276502756acd8725b87a41fffb00",
+        "182d088525d29bae82ffd6d89f9ddbd3376d12e92a0799e25fc3629bf982eff1",
+        "1b06d93bbff476bb35fcd1da2394cce2f9236d3a8d6628c391e61ae291d8250a"
+      ],
+      "variant": "maximumRangePips=25.0"
+    },
+    {
+      "configurationDigest": "af2d90e39160aa51c3f070db3c1d71b92ef1146c5c276120a698c6a65304994b",
+      "reports": [
+        "8b17c9c7ea67b1fec7c645eed7a07a7efdd7d01bf90efd8db94dca11efe616b7",
+        "1ce3dddaf5d00a8175b8244b499d203d91a47a6d4105dd19c05a377c51fc0021",
+        "1bdc4e3bc37a9acb861cf05c7c91b325d63e4f8fa063574c42792ab2ac660519",
+        "9643b403ed9255fa89ecaf8561d5e41d3a4092767a6b339b65f7d71474e7bb95",
+        "0c030ea1630215155c1c5240d62a0ff241aefc643552ac105b9920e08f6ba0b5",
+        "679bd8c7eb19af15ef2ef060afd1be58bff9890faa07c8f8fcc8d1008587af66",
+        "beea86c502d22669552ef19f6ad3c487e5b6f2588ad7a4e60897e264e89e07a1",
+        "b519e6c693d21134d77941e0a2b8469f226b152f14de365dec62b25d6dc26d7f"
+      ],
+      "variant": "minimumBreakoutPips=3.0"
+    },
+    {
+      "configurationDigest": "1a5a1fe3968bd0a2526c3adfaa8c9e33350ea4f3141e7e36a36ce9c3e54477f3",
+      "reports": [
+        "fe25694a83b85b5a094f71cf457886605c1fc659e917c15bea950e34e7997bc2",
+        "e0bc34984d9acf90b9fdacba543ffbf2ad9671e6ad04276e5e675fd23a129cba",
+        "333be26c59c5167b9eadb0ea3ee6f12ddacbe61465d6daeda04b229ba23e3a46",
+        "f722044bf597520e767a4e731db3dd69b69ccf4f9e2d726e8ff851d0915ff878",
+        "4b90b26301bd11bce7406f235c49c32f3f4ee8ac5f2d957880000ee3f8afab0d",
+        "82266e3d0f01961750b733d545b74e25ee59eeeb059109c5d4cccee07bd9ae89",
+        "071ca0389ab9357201593aa9d2e27a0c1c7ba453619ab4f42bb2880fd612d734",
+        "1c137f5b6d00f86a4b0dbdb387ad9edfe7cf2cb264e9d50cdbc0241c787fe2ae"
+      ],
+      "variant": "minimumBreakoutPips=8.0"
+    },
+    {
+      "configurationDigest": "c3abbf3e622517a031e1326ff1ce1358aa7ac9127dd6166ff25712a5b7b6d603",
+      "reports": [
+        "2aca044dc44c0ac3ade72cdfa06e3cb08627982ebdc59eb2c8e4f53d5685f97d",
+        "a5a187478bc774116f5e2dd597c020894f7b531f701272e62a809105347005d4",
+        "b402afa3af7d0943feb104b1a723ed6aaa324150d029c1e4791afbb58985d522",
+        "05432eb208265f557034cec097a4fb53364dd06b07ab952bfc13a7baba98d9a8",
+        "c24c6cd4d15379b86b80b64b93046340127f9ab0ee8f7b240ab9bdf56b5a2d54",
+        "7726a8e1888cf3795d370ab522cbc0939307d5ac7a1888135e96f3c6a0ee3658",
+        "b8da427f029278045ba587e12f0389fbdbf498ffdd4c7fd960e72912482c886d",
+        "cc11476225acced31c74a74963779eb06a12381c0de337633241d9c4e9306b3b"
+      ],
+      "variant": "retestTolerancePips=1.0"
+    },
+    {
+      "configurationDigest": "7fccacc0896086a5bb6a7b00f9ded347225c6496ea31f927dcf5ebbdc99c1782",
+      "reports": [
+        "15c226e36c2d6f8bc4c67059197d014582fb276708e196533cfe32ebde8f15de",
+        "e4e2bda4fe3906bcc16121e6e84c6730e53d6e2587579c978b5bec8bcca69413",
+        "8a0b6da828124c91000eeece4c8afe879064a7cd3084fcc3077e6a50847e3b91",
+        "0ffd5739da2174322d1d18a9f54b4e3557b4387052dcf210cc8748d3069a0798",
+        "7823be93a73af992cce251f1847de74a5bcbf3affe046518d64066e02d60c619",
+        "e97c0d4e804664733815760ceda59bdeaf3fe119e754cfc07da6cd22b5ddc72b",
+        "6daba90fa5f1c5c39e2ea5be109ed8190b42c403dbc686253e952bd9ac5d6dbc",
+        "411ce3db4dc6daf361d83331d5863ed609c1c3d68492e165aec27c0b8814fadc"
+      ],
+      "variant": "retestTolerancePips=3.0"
+    },
+    {
+      "configurationDigest": "949879c19449ee269613f8d7868cae1e7be730245d746b1c6d28e4d0017ce960",
+      "reports": [
+        "97414fe0542043b15adee2920c361e195315d62411982d30a63ed4f080e81bc5",
+        "0bc7991c6441a3de9771876ffdaf3873f48a5ce85748a4bad76b19b881a46f7c",
+        "e4695b606f0e6e4cb09f88c8996c2ef69060c56dfb2f6c09e1ee6840c52c959b",
+        "dc8c671c83386a163f2102bb0028ded5354da19d752cc7772a36134033df8dd7",
+        "c633b9d475abc3fd35b884029ce5ab6a359e16589116d9401b2cbde868861ab6",
+        "f59971248b62c529cf2894f99619fa711214c9e24b9262977074242fcad36900",
+        "ce2483209059ec9b952ee611f2a76b69f67282cfb1cd9fd6092519f78bf360e2",
+        "de6a21fa65dbb316b05aa58d023957547f1af46b40896097ae376d33ed0e46f3"
+      ],
+      "variant": "maximumRetestBars=3"
+    },
+    {
+      "configurationDigest": "e80fb1adb6f06a674f1b4522a4d681cc9424c54583908c7af7a923576ca7aa9f",
+      "reports": [
+        "656f271d09626f685365d2f6bea218817599c57bed51300fef4e8148f17f5711",
+        "bcb2c6df22d7ae207630db811438b7e1658091f6e8a0e44004096774c21471d4",
+        "72ed28fd362ad9af2be2682d50973c6d22108c62675be76fe36c7d021ccaee97",
+        "d937a1e594da71e56f84bff3f2e2a0f488f6e03f1913930fbf758e30f4827aa5",
+        "3a2c58cf5c292d4c8381c6e0a5cd0aed2a6db656b2755d43463fc79bed538ca0",
+        "e6969b631e01a5a2e0fc2f2ce54d5dc0893f7f26ab8d548c5ceba8f6efcd520d",
+        "845962cec8e70a751bc8f0043dc3d25cb16262e67bbd8862da62d1674218d93b",
+        "beca6b23ff0e9050557669ffaedacb97993741bba255d15534515c33521f535f"
+      ],
+      "variant": "maximumRetestBars=8"
+    },
+    {
+      "configurationDigest": "049216a32843275313b7c63723cbac4e28c5259c1ffc58ea5b5660433bbfec50",
+      "reports": [
+        "37d0a788486ce1dfeb9ccb1d92262f829e7f0a9c20444fe261f2c087728a8dbf",
+        "16e0043f4ceefc8e8db6aa78be59a83c85970d9a00111694148c5da01e08f6c4",
+        "dd83a0c8ea249b2b1f8deeaeec937721f6495703520321f2da509df90adcbbc1",
+        "4f7ba9deb6ba4564438a3ce006bfedd46d68aef723cd5836b727874cfb4923cf",
+        "86f2d133fa8a8292348269921993ed64c9d6e2cf0c0e5bf385bf3a85aadaeb17",
+        "7f38d3b3193cac415d6996698ffef3cf9a7409b9bd711fc7c413e6b3fff84658",
+        "d3220884e9cab456b847133041c74de3a92a19b81a7f2580317e991185d77ed1",
+        "25264e7864c0e4eeb4d475e9069fc8f2d5c8f9d5b1ffcd6e32fc469beff25ae0"
+      ],
+      "variant": "maximumSetupAgeSeconds=300.0"
+    },
+    {
+      "configurationDigest": "8d2cabc211a49abcdc7840ee70087a6a454e9a9e29a69a5f9d630aef8329278e",
+      "reports": [
+        "c4afc3de4d86e44fcfd67c334391055c0c9f548b9876f54fc0c0d03bba6f0adc",
+        "1f3b9ecb5839d581f8c9e0b7971b127ca6bddafc3705da4e08db237b6365f1f4",
+        "ab1e6baa323ec3e7f691f3f9c74b94829e8574eeb86d03f41ee5533a9990cdfd",
+        "1728084ef28f7aaa17e1408d722e7d89a7d7c42f416d2c4acc399aa71c59bc5a",
+        "280c879d0bb0313957d30ab72f767c022b9af038d51638884b4ee04f3d2cd841",
+        "6f48ea82fa045c98cb4e437aeb2e9fe69e6a10a43fb81a2ab1c94eacea2aa253",
+        "661fe0fbc2c7b8b3c6af4d91c4261e9d51ae26130c04d24fec477c46cf5094d2",
+        "90cfb5606f5570c01cbe7e5372965dc5a41135a8ec83cbb283ec0f2e5ec6d025"
+      ],
+      "variant": "maximumSetupAgeSeconds=900.0"
+    }
+  ],
+  "runManifestSHA256": "e20a79a4013b5883bc34d092d5f740e41385014142e419f3421c961cf7f0bbe3",
+  "snapshotDigest": "81db0a0f0433dd255cbcf6ba3b2277247a5661c72429f655298599e0c686a7cc",
+  "variants": [
+    {
+      "configuration": {
+        "atrLookbackBars": 14,
+        "atrMethod": "SIMPLE_MEAN_TRUE_RANGE_V1",
+        "cooldownSeconds": 0.0,
+        "maximumQuoteAgeSeconds": 3.0,
+        "maximumRangePips": 20.0,
+        "maximumRetestBars": 5,
+        "maximumSetupAgeSeconds": 600.0,
+        "maximumSpreadPips": 4.5,
+        "minimumBreakoutPips": 5.0,
+        "minimumRangePips": 5.0,
+        "pipSize": 0.01,
+        "rangeDurationSeconds": 300,
+        "retestTolerancePips": 2.0,
+        "stopBufferATRMultiple": 0.2,
+        "targetRMultiple": 1.5,
+        "version": "GBPJPY_LONDON_PRACTICE_OBSERVATION_PROVISIONAL_0.1.0"
+      },
+      "configurationDigest": "661620fe4684ce0e8b39cc3043dc63534a0e25e52c52679880bec9062caf98a4",
+      "overrides": {},
+      "sessions": [
+        {
+          "configurationDigest": "661620fe4684ce0e8b39cc3043dc63534a0e25e52c52679880bec9062caf98a4",
+          "date": "2026-11-02",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 9,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 216,
+            "WAITING_FOR_BREAKOUT": 8,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 2
+          },
+          "reportDigest": "f7c50504ab66275c49da1095e4a7892d5b78bc9bd74dedfdbc1f97f7f06fcbd6",
+          "sessionInputDigest": "3fbf88b35d87667c746bb0c02189083bf33817a03bdd12f83e7a1676fe035931",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 217,
+            "WAIT": 23
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793607120"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793607240"
+          ]
+        },
+        {
+          "configurationDigest": "661620fe4684ce0e8b39cc3043dc63534a0e25e52c52679880bec9062caf98a4",
+          "date": "2026-11-03",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 10,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 222,
+            "WAITING_FOR_BREAKOUT": 2,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 1
+          },
+          "reportDigest": "db35a585f88f78629de15eb64e6a54dda51ef7d62017148aec2e34f0d6cf39f1",
+          "sessionInputDigest": "a877c04ddc5aa2a8ea0b3db62f91e16d184aaf5cff3a86d73d5c9081ff07a75e",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 223,
+            "WAIT": 17
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793693160"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793693220"
+          ]
+        },
+        {
+          "configurationDigest": "661620fe4684ce0e8b39cc3043dc63534a0e25e52c52679880bec9062caf98a4",
+          "date": "2026-11-04",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 9,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 207,
+            "WAITING_FOR_BREAKOUT": 17,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 2
+          },
+          "reportDigest": "eb0ca1c53c9b905e56d2e07d8f78f79057881c0c2e249d2ae193124b4ca5408f",
+          "sessionInputDigest": "9409972da6ed87856def59bda78352e4f819672d188431e6d5969555937803b2",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 208,
+            "WAIT": 32
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793780460"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793780580"
+          ]
+        },
+        {
+          "configurationDigest": "661620fe4684ce0e8b39cc3043dc63534a0e25e52c52679880bec9062caf98a4",
+          "date": "2026-11-05",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 7,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 219,
+            "WAITING_FOR_BREAKOUT": 5,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 4
+          },
+          "reportDigest": "681c1d60e1d28d792437145a4eb4073d827745de9f032fcbf377c9eb3302d53f",
+          "sessionInputDigest": "6dbe53658e082b33a5331972a0f3ec56cde7011421790cdbbf3abf02c4b16a27",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 220,
+            "WAIT": 20
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793866140"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793866380"
+          ]
+        },
+        {
+          "configurationDigest": "661620fe4684ce0e8b39cc3043dc63534a0e25e52c52679880bec9062caf98a4",
+          "date": "2026-11-06",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 200,
+            "WAITING_FOR_BREAKOUT": 24,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "aa33fd89f9f3783f23dcdce7f6cc9709c7ff50add16ac40bbd37793f04d781c1",
+          "sessionInputDigest": "b681daebb5f32b4af9a6c0faa00dda77dea39aef31324cbbcfa8a143cfb9529e",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 207,
+            "WAIT": 33
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793953680"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "661620fe4684ce0e8b39cc3043dc63534a0e25e52c52679880bec9062caf98a4",
+          "date": "2026-11-09",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 215,
+            "WAITING_FOR_BREAKOUT": 9,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "eb69c068d33a861c8224d99ae4c579b7ce9f0180668622a4a72689a46b4e6350",
+          "sessionInputDigest": "cf1471ca7a5a5be6ed671c85a618a0d04d666de2b2a10451e815b5a6082b25a5",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 222,
+            "WAIT": 18
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794211980"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "661620fe4684ce0e8b39cc3043dc63534a0e25e52c52679880bec9062caf98a4",
+          "date": "2026-11-10",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 7,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 186,
+            "WAITING_FOR_BREAKOUT": 38,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 4
+          },
+          "reportDigest": "30cab0f3395c95772171f205e431943bb8f64c36d724160769f9366289ab3d52",
+          "sessionInputDigest": "6b5a47fb6fb400292f15b23f39029e8c1a296e2efb937f219e672f21c95bbc6f",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 187,
+            "WAIT": 53
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794300120"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1794300360"
+          ]
+        },
+        {
+          "configurationDigest": "661620fe4684ce0e8b39cc3043dc63534a0e25e52c52679880bec9062caf98a4",
+          "date": "2026-11-11",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 212,
+            "WAITING_FOR_BREAKOUT": 12,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "fdf4abb3087a4dafe2af4c5fd19a91daff05001ce91c4c3d02106928a64b11a8",
+          "sessionInputDigest": "38597beefd604e327d4374692e051b1308f8aa37b1179bf6066d7f533f146665",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 219,
+            "WAIT": 21
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794384960"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        }
+      ],
+      "variant": "starter"
+    },
+    {
+      "configuration": {
+        "atrLookbackBars": 14,
+        "atrMethod": "SIMPLE_MEAN_TRUE_RANGE_V1",
+        "cooldownSeconds": 0.0,
+        "maximumQuoteAgeSeconds": 3.0,
+        "maximumRangePips": 20.0,
+        "maximumRetestBars": 5,
+        "maximumSetupAgeSeconds": 600.0,
+        "maximumSpreadPips": 4.5,
+        "minimumBreakoutPips": 5.0,
+        "minimumRangePips": 5.0,
+        "pipSize": 0.01,
+        "rangeDurationSeconds": 600,
+        "retestTolerancePips": 2.0,
+        "stopBufferATRMultiple": 0.2,
+        "targetRMultiple": 1.5,
+        "version": "GBPJPY_LONDON_PRACTICE_OBSERVATION_PROVISIONAL_0.1.0"
+      },
+      "configurationDigest": "d87e3f4374ee8558a0841ccf497e4519a815ab23da0e8b7327a405f21fac57dc",
+      "overrides": {
+        "rangeDurationSeconds": 600
+      },
+      "sessions": [
+        {
+          "configurationDigest": "d87e3f4374ee8558a0841ccf497e4519a815ab23da0e8b7327a405f21fac57dc",
+          "date": "2026-11-02",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 9,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 189,
+            "WAITING_FOR_BREAKOUT": 30,
+            "WAITING_FOR_RANGE": 9,
+            "WAITING_FOR_RETEST": 2
+          },
+          "reportDigest": "7273c325b2d7d8d27a9638b99d0c9ff553d13338c12acaab23731d4f04c99415",
+          "sessionInputDigest": "a2425621f5fdcea2009fea8807e925c49e98ac85083f848b9979fa59c02ffea0",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 190,
+            "WAIT": 50
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793608740"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793608860"
+          ]
+        },
+        {
+          "configurationDigest": "d87e3f4374ee8558a0841ccf497e4519a815ab23da0e8b7327a405f21fac57dc",
+          "date": "2026-11-03",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 162,
+            "WAITING_FOR_BREAKOUT": 57,
+            "WAITING_FOR_RANGE": 9,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "f6103ba81c6f7a4c88bc9a2c750410976e8dc49da6b0b9ed1c4ce627254245d1",
+          "sessionInputDigest": "f5a203c0f74f8ba6dfdcb62ef7f46a8d6f3e9d2437b8f4620c723cba537092c4",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 169,
+            "WAIT": 71
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793696760"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "d87e3f4374ee8558a0841ccf497e4519a815ab23da0e8b7327a405f21fac57dc",
+          "date": "2026-11-04",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 190,
+            "WAITING_FOR_BREAKOUT": 29,
+            "WAITING_FOR_RANGE": 9,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "caab2e2c808b5a6c2baa71f0fc18b16ca9aeca70dc98bba87c52cde0bc787a51",
+          "sessionInputDigest": "983b417f5b9bbdfd210a8218901d7e1dbaeadae10d6b2b431d648ad0c5729cfc",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 197,
+            "WAIT": 43
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793781480"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "d87e3f4374ee8558a0841ccf497e4519a815ab23da0e8b7327a405f21fac57dc",
+          "date": "2026-11-05",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 8,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 203,
+            "WAITING_FOR_BREAKOUT": 16,
+            "WAITING_FOR_RANGE": 9,
+            "WAITING_FOR_RETEST": 3
+          },
+          "reportDigest": "bc02047f56e978491ea98d17be60b7ea7c99f2f698db0e34623eb0fe860c09e2",
+          "sessionInputDigest": "32c7fb34c455d18129cb54cab7c52b5212b6b106c514835402d4878afbf5e7fd",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 204,
+            "WAIT": 36
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793867100"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793867280"
+          ]
+        },
+        {
+          "configurationDigest": "d87e3f4374ee8558a0841ccf497e4519a815ab23da0e8b7327a405f21fac57dc",
+          "date": "2026-11-06",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 200,
+            "WAITING_FOR_BREAKOUT": 19,
+            "WAITING_FOR_RANGE": 9,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "559703e8433fbf9ef8bcae7669fc86ec599f36a160cb5161c1627e9e6e25773c",
+          "sessionInputDigest": "896867dbd6211d84c40662477a5a5729f4c8a30f438d3bdb759254e7e76aed56",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 207,
+            "WAIT": 33
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793953680"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "d87e3f4374ee8558a0841ccf497e4519a815ab23da0e8b7327a405f21fac57dc",
+          "date": "2026-11-09",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 214,
+            "WAITING_FOR_BREAKOUT": 5,
+            "WAITING_FOR_RANGE": 9,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "6867e45fc2cba085faf70b6052656982d94c9d71205d1b2996e9b1d174216c6a",
+          "sessionInputDigest": "a7b8ffc8e8e64ba3f97398cc76e5cb68379d6a4bde665b13127d3282fd089153",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 221,
+            "WAIT": 19
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794212040"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "d87e3f4374ee8558a0841ccf497e4519a815ab23da0e8b7327a405f21fac57dc",
+          "date": "2026-11-10",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 176,
+            "WAITING_FOR_BREAKOUT": 43,
+            "WAITING_FOR_RANGE": 9,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "6e5f7dd68abf73575aa42909ac7eb1e468cc799a0373321049895f1c6bb09fd4",
+          "sessionInputDigest": "271c3e99a1bd5d24e39223996c87d776a4dba763d5f1797a55b519e4f08856bf",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 177,
+            "WAIT": 63
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794300720"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1794301020"
+          ]
+        },
+        {
+          "configurationDigest": "d87e3f4374ee8558a0841ccf497e4519a815ab23da0e8b7327a405f21fac57dc",
+          "date": "2026-11-11",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 212,
+            "WAITING_FOR_BREAKOUT": 7,
+            "WAITING_FOR_RANGE": 9,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "9a4ca1a50fb2f8e94eb2b7a796e161bc6d77e850cf86987927fdd8834445b76f",
+          "sessionInputDigest": "1de304eb91cd644b285f43937e5b987404454f00f71dc364b8fe81c7840bb440",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 219,
+            "WAIT": 21
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794384960"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        }
+      ],
+      "variant": "rangeDurationSeconds=600"
+    },
+    {
+      "configuration": {
+        "atrLookbackBars": 14,
+        "atrMethod": "SIMPLE_MEAN_TRUE_RANGE_V1",
+        "cooldownSeconds": 0.0,
+        "maximumQuoteAgeSeconds": 3.0,
+        "maximumRangePips": 20.0,
+        "maximumRetestBars": 5,
+        "maximumSetupAgeSeconds": 600.0,
+        "maximumSpreadPips": 4.5,
+        "minimumBreakoutPips": 5.0,
+        "minimumRangePips": 5.0,
+        "pipSize": 0.01,
+        "rangeDurationSeconds": 900,
+        "retestTolerancePips": 2.0,
+        "stopBufferATRMultiple": 0.2,
+        "targetRMultiple": 1.5,
+        "version": "GBPJPY_LONDON_PRACTICE_OBSERVATION_PROVISIONAL_0.1.0"
+      },
+      "configurationDigest": "7da7ed89d1cfc61fe23040955b523ace680fbc4e5616f92e445c06434723f20e",
+      "overrides": {
+        "rangeDurationSeconds": 900
+      },
+      "sessions": [
+        {
+          "configurationDigest": "7da7ed89d1cfc61fe23040955b523ace680fbc4e5616f92e445c06434723f20e",
+          "date": "2026-11-02",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 9,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 189,
+            "WAITING_FOR_BREAKOUT": 25,
+            "WAITING_FOR_RANGE": 14,
+            "WAITING_FOR_RETEST": 2
+          },
+          "reportDigest": "e2c27076f20dacafcebf19292e67fc39cc97e3f6db238d516759ea5cfa7050b2",
+          "sessionInputDigest": "a5f7254daaaf63122d450653320082ea0af83f93dedf28d1227bd5aede4447b3",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 190,
+            "WAIT": 50
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793608740"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793608860"
+          ]
+        },
+        {
+          "configurationDigest": "7da7ed89d1cfc61fe23040955b523ace680fbc4e5616f92e445c06434723f20e",
+          "date": "2026-11-03",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 162,
+            "WAITING_FOR_BREAKOUT": 52,
+            "WAITING_FOR_RANGE": 14,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "8c9519be872d0b02c04953bfbb2e8e6264f39b34438f9cfd164e99e1537672ba",
+          "sessionInputDigest": "fea583d69d81a047714188c8d4fcfb0342fcdedafab231ea02f757da6dc5a448",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 169,
+            "WAIT": 71
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793696760"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "7da7ed89d1cfc61fe23040955b523ace680fbc4e5616f92e445c06434723f20e",
+          "date": "2026-11-04",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 190,
+            "WAITING_FOR_BREAKOUT": 24,
+            "WAITING_FOR_RANGE": 14,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "f7571fa9cf928023e5775decfc71ce832fb4bc3040e10b0878197cc6a4cf646b",
+          "sessionInputDigest": "2ba4f3361d63a928a034f63dd68140647323c7974b9d4b6a1935c4420415e5f7",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 197,
+            "WAIT": 43
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793781480"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "7da7ed89d1cfc61fe23040955b523ace680fbc4e5616f92e445c06434723f20e",
+          "date": "2026-11-05",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 7,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 181,
+            "WAITING_FOR_BREAKOUT": 33,
+            "WAITING_FOR_RANGE": 14,
+            "WAITING_FOR_RETEST": 4
+          },
+          "reportDigest": "a3fb0b267f71d38d31841528b8ae6112c7480b9a7ab3dd4c6ee04117d3bac6fa",
+          "sessionInputDigest": "e7847f366c38c362f07eb055997fa7abc51cd150a2208b500a5de8824c670566",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 182,
+            "WAIT": 58
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793868420"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793868660"
+          ]
+        },
+        {
+          "configurationDigest": "7da7ed89d1cfc61fe23040955b523ace680fbc4e5616f92e445c06434723f20e",
+          "date": "2026-11-06",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RANGE_TOO_WIDE": 225,
+            "SESSION_CLOSED": 1,
+            "WAITING_FOR_RANGE": 14
+          },
+          "reportDigest": "9438d3bc5b85cf3a53ff927bf26c0e79b4dfd80846284d94f5cb271d64c5162f",
+          "sessionInputDigest": "556761fa77ad673ffe5e79d3b8029ef5fe0030bd34485d739e2b03cc4b93d768",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 1,
+            "REJECTED": 225,
+            "WAIT": 14
+          },
+          "uniqueBreakoutBarIDs": [],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "7da7ed89d1cfc61fe23040955b523ace680fbc4e5616f92e445c06434723f20e",
+          "date": "2026-11-09",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 211,
+            "WAITING_FOR_BREAKOUT": 3,
+            "WAITING_FOR_RANGE": 14,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "5c03667db981cf3e45a5a27bb33c67d4216c415016f67d26bba8123fac0f42d1",
+          "sessionInputDigest": "6473d02a2236021c3b4fb43a669ed6159b22471a9d41fe03d388b60dc33f1907",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 218,
+            "WAIT": 22
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794212220"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "7da7ed89d1cfc61fe23040955b523ace680fbc4e5616f92e445c06434723f20e",
+          "date": "2026-11-10",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 9,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 167,
+            "WAITING_FOR_BREAKOUT": 47,
+            "WAITING_FOR_RANGE": 14,
+            "WAITING_FOR_RETEST": 2
+          },
+          "reportDigest": "e3c1efcb7c0a6e9b57ecbea5d51166515cd2d0af989bc465bc92313e702ef07d",
+          "sessionInputDigest": "d26aee6f3919c4dade85773494d028e1a3141b344007b3f2528c654d3ab8ab15",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 168,
+            "WAIT": 72
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794301260"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1794301380"
+          ]
+        },
+        {
+          "configurationDigest": "7da7ed89d1cfc61fe23040955b523ace680fbc4e5616f92e445c06434723f20e",
+          "date": "2026-11-11",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 208,
+            "WAITING_FOR_BREAKOUT": 6,
+            "WAITING_FOR_RANGE": 14,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "f4c76f8db1aa26b0a1f7c5dece28fe7774d7b491fd95005046aa25a5f6b8c88c",
+          "sessionInputDigest": "508cb08b817742de6277aaac702a7954c2f2bafc5e01831597fc9e1a52266e22",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 215,
+            "WAIT": 25
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794385200"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        }
+      ],
+      "variant": "rangeDurationSeconds=900"
+    },
+    {
+      "configuration": {
+        "atrLookbackBars": 14,
+        "atrMethod": "SIMPLE_MEAN_TRUE_RANGE_V1",
+        "cooldownSeconds": 0.0,
+        "maximumQuoteAgeSeconds": 3.0,
+        "maximumRangePips": 20.0,
+        "maximumRetestBars": 5,
+        "maximumSetupAgeSeconds": 600.0,
+        "maximumSpreadPips": 4.5,
+        "minimumBreakoutPips": 5.0,
+        "minimumRangePips": 3.0,
+        "pipSize": 0.01,
+        "rangeDurationSeconds": 300,
+        "retestTolerancePips": 2.0,
+        "stopBufferATRMultiple": 0.2,
+        "targetRMultiple": 1.5,
+        "version": "GBPJPY_LONDON_PRACTICE_OBSERVATION_PROVISIONAL_0.1.0"
+      },
+      "configurationDigest": "c1494907806f86e107b7332825e4642a2ebacc028e661a0576929207c01b3bd7",
+      "overrides": {
+        "minimumRangePips": 3.0
+      },
+      "sessions": [
+        {
+          "configurationDigest": "c1494907806f86e107b7332825e4642a2ebacc028e661a0576929207c01b3bd7",
+          "date": "2026-11-02",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 9,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 216,
+            "WAITING_FOR_BREAKOUT": 8,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 2
+          },
+          "reportDigest": "b3f222c75540f7101e2ccc504ebae2b85ab3611475ee5bf13b5c2e1e65902617",
+          "sessionInputDigest": "bf1f5d0afdda1e3590cee25c3e9f670f9ca56030cd397320c2a02d8df0f93b9c",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 217,
+            "WAIT": 23
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793607120"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793607240"
+          ]
+        },
+        {
+          "configurationDigest": "c1494907806f86e107b7332825e4642a2ebacc028e661a0576929207c01b3bd7",
+          "date": "2026-11-03",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 10,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 222,
+            "WAITING_FOR_BREAKOUT": 2,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 1
+          },
+          "reportDigest": "1d390f2d942ac6e4ce7ee2542a36b64eb6a9e7c9bc71c45ca5c7727252fbc665",
+          "sessionInputDigest": "2a706d84549de6e1fee7030be957bca874370a53d2dafa8551ed97dadd7e0172",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 223,
+            "WAIT": 17
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793693160"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793693220"
+          ]
+        },
+        {
+          "configurationDigest": "c1494907806f86e107b7332825e4642a2ebacc028e661a0576929207c01b3bd7",
+          "date": "2026-11-04",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 9,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 207,
+            "WAITING_FOR_BREAKOUT": 17,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 2
+          },
+          "reportDigest": "48bcb5e3cc3d857d84042860a1cf58b3920199b92d627b224577a2d7bfbca531",
+          "sessionInputDigest": "d59cebe5037e1a2b790a5390e1e8f5521808fd2240a450310ac0bd18b69a3fd6",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 208,
+            "WAIT": 32
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793780460"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793780580"
+          ]
+        },
+        {
+          "configurationDigest": "c1494907806f86e107b7332825e4642a2ebacc028e661a0576929207c01b3bd7",
+          "date": "2026-11-05",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 7,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 219,
+            "WAITING_FOR_BREAKOUT": 5,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 4
+          },
+          "reportDigest": "47ea2e651eb4cf98f31d1e68f0b436d5c6d919b7d188fb3e8b4df3b3bc28ae97",
+          "sessionInputDigest": "94f957863e5414315ee711fed307b5e22e531620499f38b65dfccfe65d9f480f",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 220,
+            "WAIT": 20
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793866140"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793866380"
+          ]
+        },
+        {
+          "configurationDigest": "c1494907806f86e107b7332825e4642a2ebacc028e661a0576929207c01b3bd7",
+          "date": "2026-11-06",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 200,
+            "WAITING_FOR_BREAKOUT": 24,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "6180bf468fa58ea7f4bfa2e8594f6e4ba5fbeb9aa88e73bd0bfc400259168e21",
+          "sessionInputDigest": "453e54dc84b8f9ea99feb521c3631bcaba94dd62ebe2d2a65afb47fdbe985d24",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 207,
+            "WAIT": 33
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793953680"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "c1494907806f86e107b7332825e4642a2ebacc028e661a0576929207c01b3bd7",
+          "date": "2026-11-09",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 215,
+            "WAITING_FOR_BREAKOUT": 9,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "57e5a4978bf53e6c1182cba476346cad8981590f1e51e96839192c515fbbc08c",
+          "sessionInputDigest": "599b2b5ec67e239caca62021ba64f2286b6088434a4e05c565496b21d6050024",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 222,
+            "WAIT": 18
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794211980"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "c1494907806f86e107b7332825e4642a2ebacc028e661a0576929207c01b3bd7",
+          "date": "2026-11-10",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 7,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 186,
+            "WAITING_FOR_BREAKOUT": 38,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 4
+          },
+          "reportDigest": "c4c76275e4d34ba6d0c20714081bc0696dfaaa9aef4211737e25dc16979d32e0",
+          "sessionInputDigest": "3ba7cf4952c0d29a981853f6bba619ac46c7728a1c8e4ac5d9558ee469b4a1b3",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 187,
+            "WAIT": 53
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794300120"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1794300360"
+          ]
+        },
+        {
+          "configurationDigest": "c1494907806f86e107b7332825e4642a2ebacc028e661a0576929207c01b3bd7",
+          "date": "2026-11-11",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 212,
+            "WAITING_FOR_BREAKOUT": 12,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "595843be79402642cec40b62d19192731d65a6b0c311e35a6e46d574caabac13",
+          "sessionInputDigest": "0ebede3b18f7764a7cbc182d362ce1e748904ba6cdfbdbb1024ed40cdbf1be1f",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 219,
+            "WAIT": 21
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794384960"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        }
+      ],
+      "variant": "minimumRangePips=3.0"
+    },
+    {
+      "configuration": {
+        "atrLookbackBars": 14,
+        "atrMethod": "SIMPLE_MEAN_TRUE_RANGE_V1",
+        "cooldownSeconds": 0.0,
+        "maximumQuoteAgeSeconds": 3.0,
+        "maximumRangePips": 20.0,
+        "maximumRetestBars": 5,
+        "maximumSetupAgeSeconds": 600.0,
+        "maximumSpreadPips": 4.5,
+        "minimumBreakoutPips": 5.0,
+        "minimumRangePips": 8.0,
+        "pipSize": 0.01,
+        "rangeDurationSeconds": 300,
+        "retestTolerancePips": 2.0,
+        "stopBufferATRMultiple": 0.2,
+        "targetRMultiple": 1.5,
+        "version": "GBPJPY_LONDON_PRACTICE_OBSERVATION_PROVISIONAL_0.1.0"
+      },
+      "configurationDigest": "e05cd0dcbdaf49242769f5c299be0169a919c3ef9cccae39df79e2704c98e0c0",
+      "overrides": {
+        "minimumRangePips": 8.0
+      },
+      "sessions": [
+        {
+          "configurationDigest": "e05cd0dcbdaf49242769f5c299be0169a919c3ef9cccae39df79e2704c98e0c0",
+          "date": "2026-11-02",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 9,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 216,
+            "WAITING_FOR_BREAKOUT": 8,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 2
+          },
+          "reportDigest": "b81e2924674fe0326db068fa4ddae4c28a545d5156b6f799c7fec7e81351d635",
+          "sessionInputDigest": "b16de0caa826f2ce90eb32c77f7d71e062d52f5d5a278302990d3afaa5b470ae",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 217,
+            "WAIT": 23
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793607120"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793607240"
+          ]
+        },
+        {
+          "configurationDigest": "e05cd0dcbdaf49242769f5c299be0169a919c3ef9cccae39df79e2704c98e0c0",
+          "date": "2026-11-03",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 10,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 222,
+            "WAITING_FOR_BREAKOUT": 2,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 1
+          },
+          "reportDigest": "538509482c1cd74576b8d57d09558e5201e73d0f5aeca1d4fd007230edca86aa",
+          "sessionInputDigest": "81fe27b3874872000f8ebd3d054b0744b02be49f394dc68745f41739965303e9",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 223,
+            "WAIT": 17
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793693160"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793693220"
+          ]
+        },
+        {
+          "configurationDigest": "e05cd0dcbdaf49242769f5c299be0169a919c3ef9cccae39df79e2704c98e0c0",
+          "date": "2026-11-04",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RANGE_TOO_NARROW": 235,
+            "SESSION_CLOSED": 1,
+            "WAITING_FOR_RANGE": 4
+          },
+          "reportDigest": "a031f71c3bf3abfb877ada0dd3efa9a3066bc08fed892916c6265585839df299",
+          "sessionInputDigest": "1479282fed23f1be056500a1863ab5bf874d6659c5810924e1411fc203f0355a",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 1,
+            "REJECTED": 235,
+            "WAIT": 4
+          },
+          "uniqueBreakoutBarIDs": [],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "e05cd0dcbdaf49242769f5c299be0169a919c3ef9cccae39df79e2704c98e0c0",
+          "date": "2026-11-05",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RANGE_TOO_NARROW": 235,
+            "SESSION_CLOSED": 1,
+            "WAITING_FOR_RANGE": 4
+          },
+          "reportDigest": "8b47a1c58a94e22887d0edcc4fb5a4797ddb6bd721973b6858d9643eed488c8c",
+          "sessionInputDigest": "08d732d30983a9433d83cfe2bd508c9a83fbac3f98af431539ccba7c6574f075",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 1,
+            "REJECTED": 235,
+            "WAIT": 4
+          },
+          "uniqueBreakoutBarIDs": [],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "e05cd0dcbdaf49242769f5c299be0169a919c3ef9cccae39df79e2704c98e0c0",
+          "date": "2026-11-06",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 200,
+            "WAITING_FOR_BREAKOUT": 24,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "0e36a182e1afff7a681cdea04faff7712e5cbdd00b53f9372137e22600814d5e",
+          "sessionInputDigest": "9ace77e1e6a93499bc89c603408890902825204793813dbfda5d4f92c96648b1",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 207,
+            "WAIT": 33
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793953680"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "e05cd0dcbdaf49242769f5c299be0169a919c3ef9cccae39df79e2704c98e0c0",
+          "date": "2026-11-09",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RANGE_TOO_NARROW": 235,
+            "SESSION_CLOSED": 1,
+            "WAITING_FOR_RANGE": 4
+          },
+          "reportDigest": "d5c10426db8ec5015e715aa2fd55ce52f475a603a7741456076cd69e566c0c44",
+          "sessionInputDigest": "a2c4da41c64d65282d41708971a7b608721fbff104b1fd7989823c0b7bbbda17",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 1,
+            "REJECTED": 235,
+            "WAIT": 4
+          },
+          "uniqueBreakoutBarIDs": [],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "e05cd0dcbdaf49242769f5c299be0169a919c3ef9cccae39df79e2704c98e0c0",
+          "date": "2026-11-10",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 7,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 186,
+            "WAITING_FOR_BREAKOUT": 38,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 4
+          },
+          "reportDigest": "014758842ceade4e63e04074933fa5f370c49bddade05ef94f311bdc5c3953c8",
+          "sessionInputDigest": "7a7b15e68ea635324ec3e2144aea04d26bc2b8c166f81ec1c732195cdf06fd97",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 187,
+            "WAIT": 53
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794300120"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1794300360"
+          ]
+        },
+        {
+          "configurationDigest": "e05cd0dcbdaf49242769f5c299be0169a919c3ef9cccae39df79e2704c98e0c0",
+          "date": "2026-11-11",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 212,
+            "WAITING_FOR_BREAKOUT": 12,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "2aed3216879d50ab209284b9547e278fa5a6801c2d4aabde57ba74d0a4fed4c8",
+          "sessionInputDigest": "034f6f905df81db42da9ba41f0d7f774e4a40f6d03b3c95e07809b87efe71318",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 219,
+            "WAIT": 21
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794384960"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        }
+      ],
+      "variant": "minimumRangePips=8.0"
+    },
+    {
+      "configuration": {
+        "atrLookbackBars": 14,
+        "atrMethod": "SIMPLE_MEAN_TRUE_RANGE_V1",
+        "cooldownSeconds": 0.0,
+        "maximumQuoteAgeSeconds": 3.0,
+        "maximumRangePips": 18.0,
+        "maximumRetestBars": 5,
+        "maximumSetupAgeSeconds": 600.0,
+        "maximumSpreadPips": 4.5,
+        "minimumBreakoutPips": 5.0,
+        "minimumRangePips": 5.0,
+        "pipSize": 0.01,
+        "rangeDurationSeconds": 300,
+        "retestTolerancePips": 2.0,
+        "stopBufferATRMultiple": 0.2,
+        "targetRMultiple": 1.5,
+        "version": "GBPJPY_LONDON_PRACTICE_OBSERVATION_PROVISIONAL_0.1.0"
+      },
+      "configurationDigest": "46b91c02c2f85718f0d7dab2e8d680b86384f5c69a243e2be3108b90dab88a78",
+      "overrides": {
+        "maximumRangePips": 18.0
+      },
+      "sessions": [
+        {
+          "configurationDigest": "46b91c02c2f85718f0d7dab2e8d680b86384f5c69a243e2be3108b90dab88a78",
+          "date": "2026-11-02",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 9,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 216,
+            "WAITING_FOR_BREAKOUT": 8,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 2
+          },
+          "reportDigest": "8bc637f83c63a12ffbad2447ed8764c257d89eaf6dc29e89ff5a65ada2ee1d5f",
+          "sessionInputDigest": "ff0729a7e5be798cfe8b37950bd6de85b1e639c707be18827d60b451b901cb2f",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 217,
+            "WAIT": 23
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793607120"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793607240"
+          ]
+        },
+        {
+          "configurationDigest": "46b91c02c2f85718f0d7dab2e8d680b86384f5c69a243e2be3108b90dab88a78",
+          "date": "2026-11-03",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 10,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 222,
+            "WAITING_FOR_BREAKOUT": 2,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 1
+          },
+          "reportDigest": "2fa3819ea6ec1aac646321dbde8b04d7c7b35d584b66aebea73716328c507e79",
+          "sessionInputDigest": "788247ef06638d29218e9146f46cecc076eff62fde39abc8146bcabec6a649dd",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 223,
+            "WAIT": 17
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793693160"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793693220"
+          ]
+        },
+        {
+          "configurationDigest": "46b91c02c2f85718f0d7dab2e8d680b86384f5c69a243e2be3108b90dab88a78",
+          "date": "2026-11-04",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 9,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 207,
+            "WAITING_FOR_BREAKOUT": 17,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 2
+          },
+          "reportDigest": "68a9815305f41b2b6fbf9962160817500962cc2b40a55de1ae9ebbdc84999afb",
+          "sessionInputDigest": "9e2491c86c67aec9e91a3797f6046a428ef2cbd92155d5d864ba1426e570f7bc",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 208,
+            "WAIT": 32
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793780460"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793780580"
+          ]
+        },
+        {
+          "configurationDigest": "46b91c02c2f85718f0d7dab2e8d680b86384f5c69a243e2be3108b90dab88a78",
+          "date": "2026-11-05",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 7,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 219,
+            "WAITING_FOR_BREAKOUT": 5,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 4
+          },
+          "reportDigest": "0cf354ed64469f1b7f97e50400b56a74f15a2924e5a3553d9abf255433a01953",
+          "sessionInputDigest": "99b72ea041b18f3038ebea46ff618d6c8344510cfb16709c2d6b0f59428c7d33",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 220,
+            "WAIT": 20
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793866140"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793866380"
+          ]
+        },
+        {
+          "configurationDigest": "46b91c02c2f85718f0d7dab2e8d680b86384f5c69a243e2be3108b90dab88a78",
+          "date": "2026-11-06",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 200,
+            "WAITING_FOR_BREAKOUT": 24,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "0eca703f9dcf98606b004c79371cf64a13d7149fc3849cf1e8f6f622160c0576",
+          "sessionInputDigest": "ba60a31471333d4daea8f38915435c0eee931f3d91d40ba712079bb9e193b736",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 207,
+            "WAIT": 33
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793953680"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "46b91c02c2f85718f0d7dab2e8d680b86384f5c69a243e2be3108b90dab88a78",
+          "date": "2026-11-09",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 215,
+            "WAITING_FOR_BREAKOUT": 9,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "0fbd4aabb65c93396947cb583e5538030feb2b2b0d4eba0eb0cfe73954b110be",
+          "sessionInputDigest": "ded85b8fdacff7895751847172cd7d1ab008fd9e37b54caa12f0e94174a6fc46",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 222,
+            "WAIT": 18
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794211980"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "46b91c02c2f85718f0d7dab2e8d680b86384f5c69a243e2be3108b90dab88a78",
+          "date": "2026-11-10",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 7,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 186,
+            "WAITING_FOR_BREAKOUT": 38,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 4
+          },
+          "reportDigest": "e3ae9842e4d93aeff4723170ce5d413bcba59c26536f1805d46f59fc284b7d7d",
+          "sessionInputDigest": "e55f5655c09f3d631bc00dd3d9a0e989aff8a30bd61ef47f73eac0a5f09d771b",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 187,
+            "WAIT": 53
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794300120"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1794300360"
+          ]
+        },
+        {
+          "configurationDigest": "46b91c02c2f85718f0d7dab2e8d680b86384f5c69a243e2be3108b90dab88a78",
+          "date": "2026-11-11",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 212,
+            "WAITING_FOR_BREAKOUT": 12,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "cd8994337c1a4bd30ce261d6507a8de1b4734c70fd7647743f157c29fc56d348",
+          "sessionInputDigest": "a7c2c1077363a953e02a6c13b07a70561c33d2096d87da7d41e5bc0654f9bc1f",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 219,
+            "WAIT": 21
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794384960"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        }
+      ],
+      "variant": "maximumRangePips=18.0"
+    },
+    {
+      "configuration": {
+        "atrLookbackBars": 14,
+        "atrMethod": "SIMPLE_MEAN_TRUE_RANGE_V1",
+        "cooldownSeconds": 0.0,
+        "maximumQuoteAgeSeconds": 3.0,
+        "maximumRangePips": 25.0,
+        "maximumRetestBars": 5,
+        "maximumSetupAgeSeconds": 600.0,
+        "maximumSpreadPips": 4.5,
+        "minimumBreakoutPips": 5.0,
+        "minimumRangePips": 5.0,
+        "pipSize": 0.01,
+        "rangeDurationSeconds": 300,
+        "retestTolerancePips": 2.0,
+        "stopBufferATRMultiple": 0.2,
+        "targetRMultiple": 1.5,
+        "version": "GBPJPY_LONDON_PRACTICE_OBSERVATION_PROVISIONAL_0.1.0"
+      },
+      "configurationDigest": "15a32d4a5654013dbde74058717fd74910c536fec2223d3e3318fb1050b8a09f",
+      "overrides": {
+        "maximumRangePips": 25.0
+      },
+      "sessions": [
+        {
+          "configurationDigest": "15a32d4a5654013dbde74058717fd74910c536fec2223d3e3318fb1050b8a09f",
+          "date": "2026-11-02",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 9,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 216,
+            "WAITING_FOR_BREAKOUT": 8,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 2
+          },
+          "reportDigest": "2499d97891b2e7820024008ef3c0eeea2e659771e539babe2730fd16ed9f58e3",
+          "sessionInputDigest": "b6313a16c669673261bb0452e7925a3b382805024de911155e24d49d5ab7b476",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 217,
+            "WAIT": 23
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793607120"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793607240"
+          ]
+        },
+        {
+          "configurationDigest": "15a32d4a5654013dbde74058717fd74910c536fec2223d3e3318fb1050b8a09f",
+          "date": "2026-11-03",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 10,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 222,
+            "WAITING_FOR_BREAKOUT": 2,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 1
+          },
+          "reportDigest": "b501a0f71e8fa03c543698a0b40c807fa29df6ae64060ab30d50703df86b67b7",
+          "sessionInputDigest": "4008894185e1d06d4719685f590e96cec80eb606c52d1308fb9a3c6f065bcab0",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 223,
+            "WAIT": 17
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793693160"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793693220"
+          ]
+        },
+        {
+          "configurationDigest": "15a32d4a5654013dbde74058717fd74910c536fec2223d3e3318fb1050b8a09f",
+          "date": "2026-11-04",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 9,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 207,
+            "WAITING_FOR_BREAKOUT": 17,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 2
+          },
+          "reportDigest": "286323c234cb42bf9569e8656fee6f808b91eb07ac409ffffe963c64d01fe0c1",
+          "sessionInputDigest": "85d9014b20df49070572c6fe25bf0f06561a0813fd9275e2c62cdbc5afa5b2cb",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 208,
+            "WAIT": 32
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793780460"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793780580"
+          ]
+        },
+        {
+          "configurationDigest": "15a32d4a5654013dbde74058717fd74910c536fec2223d3e3318fb1050b8a09f",
+          "date": "2026-11-05",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 7,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 219,
+            "WAITING_FOR_BREAKOUT": 5,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 4
+          },
+          "reportDigest": "cea9222f7fe746dca4692b7fcd4dbdffef50ba542c63fec46c8dbc0866ab4805",
+          "sessionInputDigest": "07c7881368a90eef4fa203045ca6e91398db7997d3f1f2bd4ca5d16820a16d42",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 220,
+            "WAIT": 20
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793866140"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793866380"
+          ]
+        },
+        {
+          "configurationDigest": "15a32d4a5654013dbde74058717fd74910c536fec2223d3e3318fb1050b8a09f",
+          "date": "2026-11-06",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 200,
+            "WAITING_FOR_BREAKOUT": 24,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "d7f69e3b7050ab2f9482b04b72223b615d80bada8a5d92d1f36a424705cc812e",
+          "sessionInputDigest": "7652e0f4e0b478923adc793fa2d125211cc77b54e6cb2d4b8d50dd132c7f3f59",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 207,
+            "WAIT": 33
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793953680"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "15a32d4a5654013dbde74058717fd74910c536fec2223d3e3318fb1050b8a09f",
+          "date": "2026-11-09",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 215,
+            "WAITING_FOR_BREAKOUT": 9,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "91d948d4f6ddac0913d8ea130757e40c4a68276502756acd8725b87a41fffb00",
+          "sessionInputDigest": "882a74b19b4cf807bd96d3ed39f6efda7b2727a78c3015124159ff00fcd6e563",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 222,
+            "WAIT": 18
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794211980"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "15a32d4a5654013dbde74058717fd74910c536fec2223d3e3318fb1050b8a09f",
+          "date": "2026-11-10",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 7,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 186,
+            "WAITING_FOR_BREAKOUT": 38,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 4
+          },
+          "reportDigest": "182d088525d29bae82ffd6d89f9ddbd3376d12e92a0799e25fc3629bf982eff1",
+          "sessionInputDigest": "9cb4cd0d48a40e43be8caa66b30343d01c68b2e904e26199c9c32462e44aaad1",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 187,
+            "WAIT": 53
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794300120"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1794300360"
+          ]
+        },
+        {
+          "configurationDigest": "15a32d4a5654013dbde74058717fd74910c536fec2223d3e3318fb1050b8a09f",
+          "date": "2026-11-11",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 212,
+            "WAITING_FOR_BREAKOUT": 12,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "1b06d93bbff476bb35fcd1da2394cce2f9236d3a8d6628c391e61ae291d8250a",
+          "sessionInputDigest": "33834a5e441a2f74add948e217e6f923b3bf4fe8aff1ebe8d99dff722259eee2",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 219,
+            "WAIT": 21
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794384960"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        }
+      ],
+      "variant": "maximumRangePips=25.0"
+    },
+    {
+      "configuration": {
+        "atrLookbackBars": 14,
+        "atrMethod": "SIMPLE_MEAN_TRUE_RANGE_V1",
+        "cooldownSeconds": 0.0,
+        "maximumQuoteAgeSeconds": 3.0,
+        "maximumRangePips": 20.0,
+        "maximumRetestBars": 5,
+        "maximumSetupAgeSeconds": 600.0,
+        "maximumSpreadPips": 4.5,
+        "minimumBreakoutPips": 3.0,
+        "minimumRangePips": 5.0,
+        "pipSize": 0.01,
+        "rangeDurationSeconds": 300,
+        "retestTolerancePips": 2.0,
+        "stopBufferATRMultiple": 0.2,
+        "targetRMultiple": 1.5,
+        "version": "GBPJPY_LONDON_PRACTICE_OBSERVATION_PROVISIONAL_0.1.0"
+      },
+      "configurationDigest": "af2d90e39160aa51c3f070db3c1d71b92ef1146c5c276120a698c6a65304994b",
+      "overrides": {
+        "minimumBreakoutPips": 3.0
+      },
+      "sessions": [
+        {
+          "configurationDigest": "af2d90e39160aa51c3f070db3c1d71b92ef1146c5c276120a698c6a65304994b",
+          "date": "2026-11-02",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_FAILED": 10,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 221,
+            "WAITING_FOR_BREAKOUT": 3,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 1
+          },
+          "reportDigest": "8b17c9c7ea67b1fec7c645eed7a07a7efdd7d01bf90efd8db94dca11efe616b7",
+          "sessionInputDigest": "525d37c9b01726542979970ef29321d282c7506acbf29744e8439e21b4e4ed3f",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 222,
+            "REJECTED": 10,
+            "WAIT": 8
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793606820"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "af2d90e39160aa51c3f070db3c1d71b92ef1146c5c276120a698c6a65304994b",
+          "date": "2026-11-03",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 10,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 222,
+            "WAITING_FOR_BREAKOUT": 2,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 1
+          },
+          "reportDigest": "1ce3dddaf5d00a8175b8244b499d203d91a47a6d4105dd19c05a377c51fc0021",
+          "sessionInputDigest": "059b2e9897e86de0b240b091231f1b01edcb0ba99be1ba9f7a093d2bb1320317",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 223,
+            "WAIT": 17
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793693160"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793693220"
+          ]
+        },
+        {
+          "configurationDigest": "af2d90e39160aa51c3f070db3c1d71b92ef1146c5c276120a698c6a65304994b",
+          "date": "2026-11-04",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 10,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 214,
+            "WAITING_FOR_BREAKOUT": 10,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 1
+          },
+          "reportDigest": "1bdc4e3bc37a9acb861cf05c7c91b325d63e4f8fa063574c42792ab2ac660519",
+          "sessionInputDigest": "41989504e28b563c7daea4e1913ab1285f6ba932fb68a695d62df145057a5d1f",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 215,
+            "WAIT": 25
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793780040"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793780100"
+          ]
+        },
+        {
+          "configurationDigest": "af2d90e39160aa51c3f070db3c1d71b92ef1146c5c276120a698c6a65304994b",
+          "date": "2026-11-05",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 220,
+            "WAITING_FOR_BREAKOUT": 4,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "9643b403ed9255fa89ecaf8561d5e41d3a4092767a6b339b65f7d71474e7bb95",
+          "sessionInputDigest": "f0ead1b033964168cab68ce7828c96b01f24f00a5c6e011e1d12cd5cdc6dc932",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 221,
+            "WAIT": 19
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793866080"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793866380"
+          ]
+        },
+        {
+          "configurationDigest": "af2d90e39160aa51c3f070db3c1d71b92ef1146c5c276120a698c6a65304994b",
+          "date": "2026-11-06",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_FAILED": 10,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 205,
+            "WAITING_FOR_BREAKOUT": 19,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 1
+          },
+          "reportDigest": "0c030ea1630215155c1c5240d62a0ff241aefc643552ac105b9920e08f6ba0b5",
+          "sessionInputDigest": "a2e93dfc23999776da1de403d9a609884f0de58e9af73cd20227a0ba8c0f1e70",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 206,
+            "REJECTED": 10,
+            "WAIT": 24
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793953380"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "af2d90e39160aa51c3f070db3c1d71b92ef1146c5c276120a698c6a65304994b",
+          "date": "2026-11-09",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 216,
+            "WAITING_FOR_BREAKOUT": 8,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "679bd8c7eb19af15ef2ef060afd1be58bff9890faa07c8f8fcc8d1008587af66",
+          "sessionInputDigest": "f15392cfe67ef4af2de49aeb6f50925f968523fa24a4a7dfa54358dfebc3a727",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 223,
+            "WAIT": 17
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794211920"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "af2d90e39160aa51c3f070db3c1d71b92ef1146c5c276120a698c6a65304994b",
+          "date": "2026-11-10",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_FAILED": 10,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 214,
+            "WAITING_FOR_BREAKOUT": 10,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 1
+          },
+          "reportDigest": "beea86c502d22669552ef19f6ad3c487e5b6f2588ad7a4e60897e264e89e07a1",
+          "sessionInputDigest": "8400d66ea54e0f184ef67512530dd43914799179d2cc6812919525f228afadcc",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 215,
+            "REJECTED": 10,
+            "WAIT": 15
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794298440"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "af2d90e39160aa51c3f070db3c1d71b92ef1146c5c276120a698c6a65304994b",
+          "date": "2026-11-11",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 212,
+            "WAITING_FOR_BREAKOUT": 12,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "b519e6c693d21134d77941e0a2b8469f226b152f14de365dec62b25d6dc26d7f",
+          "sessionInputDigest": "400efccd0d636af1dc94425259e9f2834108a28db6581e636d0d90fec80a1bb0",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 219,
+            "WAIT": 21
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794384960"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        }
+      ],
+      "variant": "minimumBreakoutPips=3.0"
+    },
+    {
+      "configuration": {
+        "atrLookbackBars": 14,
+        "atrMethod": "SIMPLE_MEAN_TRUE_RANGE_V1",
+        "cooldownSeconds": 0.0,
+        "maximumQuoteAgeSeconds": 3.0,
+        "maximumRangePips": 20.0,
+        "maximumRetestBars": 5,
+        "maximumSetupAgeSeconds": 600.0,
+        "maximumSpreadPips": 4.5,
+        "minimumBreakoutPips": 8.0,
+        "minimumRangePips": 5.0,
+        "pipSize": 0.01,
+        "rangeDurationSeconds": 300,
+        "retestTolerancePips": 2.0,
+        "stopBufferATRMultiple": 0.2,
+        "targetRMultiple": 1.5,
+        "version": "GBPJPY_LONDON_PRACTICE_OBSERVATION_PROVISIONAL_0.1.0"
+      },
+      "configurationDigest": "1a5a1fe3968bd0a2526c3adfaa8c9e33350ea4f3141e7e36a36ce9c3e54477f3",
+      "overrides": {
+        "minimumBreakoutPips": 8.0
+      },
+      "sessions": [
+        {
+          "configurationDigest": "1a5a1fe3968bd0a2526c3adfaa8c9e33350ea4f3141e7e36a36ce9c3e54477f3",
+          "date": "2026-11-02",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 183,
+            "WAITING_FOR_BREAKOUT": 41,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "fe25694a83b85b5a094f71cf457886605c1fc659e917c15bea950e34e7997bc2",
+          "sessionInputDigest": "7ee9547b61eb91614410dd3d60f1e58589623301126fc9fa45fb08d5527744fa",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 190,
+            "WAIT": 50
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793609100"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "1a5a1fe3968bd0a2526c3adfaa8c9e33350ea4f3141e7e36a36ce9c3e54477f3",
+          "date": "2026-11-03",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 168,
+            "WAITING_FOR_BREAKOUT": 56,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "e0bc34984d9acf90b9fdacba543ffbf2ad9671e6ad04276e5e675fd23a129cba",
+          "sessionInputDigest": "3482889999c9e460ef4b9300e1834d1610761b3246a43e161ad685b54f10cded",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 175,
+            "WAIT": 65
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793696400"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "1a5a1fe3968bd0a2526c3adfaa8c9e33350ea4f3141e7e36a36ce9c3e54477f3",
+          "date": "2026-11-04",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 9,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 207,
+            "WAITING_FOR_BREAKOUT": 17,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 2
+          },
+          "reportDigest": "333be26c59c5167b9eadb0ea3ee6f12ddacbe61465d6daeda04b229ba23e3a46",
+          "sessionInputDigest": "2c937eb0ab1dd3c8f41fdddd4db39d6f8bc399405822f09803836696c6f823b9",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 208,
+            "WAIT": 32
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793780460"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793780580"
+          ]
+        },
+        {
+          "configurationDigest": "1a5a1fe3968bd0a2526c3adfaa8c9e33350ea4f3141e7e36a36ce9c3e54477f3",
+          "date": "2026-11-05",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 8,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 218,
+            "WAITING_FOR_BREAKOUT": 6,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 3
+          },
+          "reportDigest": "f722044bf597520e767a4e731db3dd69b69ccf4f9e2d726e8ff851d0915ff878",
+          "sessionInputDigest": "cfd4bed67cd2d6b9857c336202f304974a26dd2ee53ea121e4fab4500af5f4f0",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 219,
+            "WAIT": 21
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793866200"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793866380"
+          ]
+        },
+        {
+          "configurationDigest": "1a5a1fe3968bd0a2526c3adfaa8c9e33350ea4f3141e7e36a36ce9c3e54477f3",
+          "date": "2026-11-06",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 199,
+            "WAITING_FOR_BREAKOUT": 25,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "4b90b26301bd11bce7406f235c49c32f3f4ee8ac5f2d957880000ee3f8afab0d",
+          "sessionInputDigest": "b3273da67805444f0c9ef4fa31b7cb66e9b05fa2d650bcc208edd80691ab3a67",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 206,
+            "WAIT": 34
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793953740"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "1a5a1fe3968bd0a2526c3adfaa8c9e33350ea4f3141e7e36a36ce9c3e54477f3",
+          "date": "2026-11-09",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 214,
+            "WAITING_FOR_BREAKOUT": 10,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "82266e3d0f01961750b733d545b74e25ee59eeeb059109c5d4cccee07bd9ae89",
+          "sessionInputDigest": "fbe051cc975ac5ab300b15ff17d0f072cbc40f35769b608a0879544a7548a1b2",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 221,
+            "WAIT": 19
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794212040"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "1a5a1fe3968bd0a2526c3adfaa8c9e33350ea4f3141e7e36a36ce9c3e54477f3",
+          "date": "2026-11-10",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 176,
+            "WAITING_FOR_BREAKOUT": 48,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "071ca0389ab9357201593aa9d2e27a0c1c7ba453619ab4f42bb2880fd612d734",
+          "sessionInputDigest": "75a200183a3b74035dfc1f053f6e4c7bd277554efa68e5a04385d69dbe4764a6",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 183,
+            "WAIT": 57
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794300720"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "1a5a1fe3968bd0a2526c3adfaa8c9e33350ea4f3141e7e36a36ce9c3e54477f3",
+          "date": "2026-11-11",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 208,
+            "WAITING_FOR_BREAKOUT": 16,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "1c137f5b6d00f86a4b0dbdb387ad9edfe7cf2cb264e9d50cdbc0241c787fe2ae",
+          "sessionInputDigest": "91535b54e694b5a9b4391482c36595f93f4b1f7a7c0a96e13e9b4f1d215484e4",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 215,
+            "WAIT": 25
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794385200"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        }
+      ],
+      "variant": "minimumBreakoutPips=8.0"
+    },
+    {
+      "configuration": {
+        "atrLookbackBars": 14,
+        "atrMethod": "SIMPLE_MEAN_TRUE_RANGE_V1",
+        "cooldownSeconds": 0.0,
+        "maximumQuoteAgeSeconds": 3.0,
+        "maximumRangePips": 20.0,
+        "maximumRetestBars": 5,
+        "maximumSetupAgeSeconds": 600.0,
+        "maximumSpreadPips": 4.5,
+        "minimumBreakoutPips": 5.0,
+        "minimumRangePips": 5.0,
+        "pipSize": 0.01,
+        "rangeDurationSeconds": 300,
+        "retestTolerancePips": 1.0,
+        "stopBufferATRMultiple": 0.2,
+        "targetRMultiple": 1.5,
+        "version": "GBPJPY_LONDON_PRACTICE_OBSERVATION_PROVISIONAL_0.1.0"
+      },
+      "configurationDigest": "c3abbf3e622517a031e1326ff1ce1358aa7ac9127dd6166ff25712a5b7b6d603",
+      "overrides": {
+        "retestTolerancePips": 1.0
+      },
+      "sessions": [
+        {
+          "configurationDigest": "c3abbf3e622517a031e1326ff1ce1358aa7ac9127dd6166ff25712a5b7b6d603",
+          "date": "2026-11-02",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 9,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 216,
+            "WAITING_FOR_BREAKOUT": 8,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 2
+          },
+          "reportDigest": "2aca044dc44c0ac3ade72cdfa06e3cb08627982ebdc59eb2c8e4f53d5685f97d",
+          "sessionInputDigest": "5ad2ba86ded2285cceaf57fe930e48b06d784531dfa97c745b50e768d9efa3c2",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 217,
+            "WAIT": 23
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793607120"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793607240"
+          ]
+        },
+        {
+          "configurationDigest": "c3abbf3e622517a031e1326ff1ce1358aa7ac9127dd6166ff25712a5b7b6d603",
+          "date": "2026-11-03",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 10,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 222,
+            "WAITING_FOR_BREAKOUT": 2,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 1
+          },
+          "reportDigest": "a5a187478bc774116f5e2dd597c020894f7b531f701272e62a809105347005d4",
+          "sessionInputDigest": "2c7f50ff5d08ca7000a1f6523e3186aaf0f5e5edf77ce9fe1677cfc6cb6aaaa3",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 223,
+            "WAIT": 17
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793693160"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793693220"
+          ]
+        },
+        {
+          "configurationDigest": "c3abbf3e622517a031e1326ff1ce1358aa7ac9127dd6166ff25712a5b7b6d603",
+          "date": "2026-11-04",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 207,
+            "WAITING_FOR_BREAKOUT": 17,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "b402afa3af7d0943feb104b1a723ed6aaa324150d029c1e4791afbb58985d522",
+          "sessionInputDigest": "e1e791f3e4fac9a1fb01b4dbede30e3338ac3ba1be1ebde97358e1d1eff7e613",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 214,
+            "WAIT": 26
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793780460"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "c3abbf3e622517a031e1326ff1ce1358aa7ac9127dd6166ff25712a5b7b6d603",
+          "date": "2026-11-05",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 219,
+            "WAITING_FOR_BREAKOUT": 5,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "05432eb208265f557034cec097a4fb53364dd06b07ab952bfc13a7baba98d9a8",
+          "sessionInputDigest": "89e8b8cbc987b0fa22208f2d6f98e302500a00773c40e2f3d9c96ea034836938",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 226,
+            "WAIT": 14
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793866140"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "c3abbf3e622517a031e1326ff1ce1358aa7ac9127dd6166ff25712a5b7b6d603",
+          "date": "2026-11-06",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 200,
+            "WAITING_FOR_BREAKOUT": 24,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "c24c6cd4d15379b86b80b64b93046340127f9ab0ee8f7b240ab9bdf56b5a2d54",
+          "sessionInputDigest": "9bf687592756c76666aa6e44e0b3777b45c50c092f3c8c8d1110381c26ab4169",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 207,
+            "WAIT": 33
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793953680"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "c3abbf3e622517a031e1326ff1ce1358aa7ac9127dd6166ff25712a5b7b6d603",
+          "date": "2026-11-09",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 215,
+            "WAITING_FOR_BREAKOUT": 9,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "7726a8e1888cf3795d370ab522cbc0939307d5ac7a1888135e96f3c6a0ee3658",
+          "sessionInputDigest": "da498475908b061edef3d3a1b2bf4277b94df98e307af5157f55606c2b874f7a",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 222,
+            "WAIT": 18
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794211980"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "c3abbf3e622517a031e1326ff1ce1358aa7ac9127dd6166ff25712a5b7b6d603",
+          "date": "2026-11-10",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 186,
+            "WAITING_FOR_BREAKOUT": 38,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "b8da427f029278045ba587e12f0389fbdbf498ffdd4c7fd960e72912482c886d",
+          "sessionInputDigest": "a78f2063643fbc7438939af0b82270d4a20d9b059a783489b73187f4302e530b",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 193,
+            "WAIT": 47
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794300120"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "c3abbf3e622517a031e1326ff1ce1358aa7ac9127dd6166ff25712a5b7b6d603",
+          "date": "2026-11-11",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 212,
+            "WAITING_FOR_BREAKOUT": 12,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "cc11476225acced31c74a74963779eb06a12381c0de337633241d9c4e9306b3b",
+          "sessionInputDigest": "32f0f7d70da4075fb8652bbc87573a75e6b351693eac1e04835320bfd5f62785",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 219,
+            "WAIT": 21
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794384960"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        }
+      ],
+      "variant": "retestTolerancePips=1.0"
+    },
+    {
+      "configuration": {
+        "atrLookbackBars": 14,
+        "atrMethod": "SIMPLE_MEAN_TRUE_RANGE_V1",
+        "cooldownSeconds": 0.0,
+        "maximumQuoteAgeSeconds": 3.0,
+        "maximumRangePips": 20.0,
+        "maximumRetestBars": 5,
+        "maximumSetupAgeSeconds": 600.0,
+        "maximumSpreadPips": 4.5,
+        "minimumBreakoutPips": 5.0,
+        "minimumRangePips": 5.0,
+        "pipSize": 0.01,
+        "rangeDurationSeconds": 300,
+        "retestTolerancePips": 3.0,
+        "stopBufferATRMultiple": 0.2,
+        "targetRMultiple": 1.5,
+        "version": "GBPJPY_LONDON_PRACTICE_OBSERVATION_PROVISIONAL_0.1.0"
+      },
+      "configurationDigest": "7fccacc0896086a5bb6a7b00f9ded347225c6496ea31f927dcf5ebbdc99c1782",
+      "overrides": {
+        "retestTolerancePips": 3.0
+      },
+      "sessions": [
+        {
+          "configurationDigest": "7fccacc0896086a5bb6a7b00f9ded347225c6496ea31f927dcf5ebbdc99c1782",
+          "date": "2026-11-02",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 10,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 216,
+            "WAITING_FOR_BREAKOUT": 8,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 1
+          },
+          "reportDigest": "15c226e36c2d6f8bc4c67059197d014582fb276708e196533cfe32ebde8f15de",
+          "sessionInputDigest": "3b7a6839cd105db538fd3bbb5ae47444e2d2a8f66212eb4716b667983e8665fd",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 217,
+            "WAIT": 23
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793607120"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793607180"
+          ]
+        },
+        {
+          "configurationDigest": "7fccacc0896086a5bb6a7b00f9ded347225c6496ea31f927dcf5ebbdc99c1782",
+          "date": "2026-11-03",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 10,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 222,
+            "WAITING_FOR_BREAKOUT": 2,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 1
+          },
+          "reportDigest": "e4e2bda4fe3906bcc16121e6e84c6730e53d6e2587579c978b5bec8bcca69413",
+          "sessionInputDigest": "d2fefc9738136649db4da10425fbf306732aa1cbf3a9dd6562c90a43ddf91600",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 223,
+            "WAIT": 17
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793693160"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793693220"
+          ]
+        },
+        {
+          "configurationDigest": "7fccacc0896086a5bb6a7b00f9ded347225c6496ea31f927dcf5ebbdc99c1782",
+          "date": "2026-11-04",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 9,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 207,
+            "WAITING_FOR_BREAKOUT": 17,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 2
+          },
+          "reportDigest": "8a0b6da828124c91000eeece4c8afe879064a7cd3084fcc3077e6a50847e3b91",
+          "sessionInputDigest": "90b3d88e180cef22826ab5030b58376704ed0657cb6f478865ca54939e1153eb",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 208,
+            "WAIT": 32
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793780460"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793780580"
+          ]
+        },
+        {
+          "configurationDigest": "7fccacc0896086a5bb6a7b00f9ded347225c6496ea31f927dcf5ebbdc99c1782",
+          "date": "2026-11-05",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 7,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 219,
+            "WAITING_FOR_BREAKOUT": 5,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 4
+          },
+          "reportDigest": "0ffd5739da2174322d1d18a9f54b4e3557b4387052dcf210cc8748d3069a0798",
+          "sessionInputDigest": "8b46e4ba17dc2bdaf159cd6f37e4b146aa92c5b99432634f13e9920a1e58edef",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 220,
+            "WAIT": 20
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793866140"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793866380"
+          ]
+        },
+        {
+          "configurationDigest": "7fccacc0896086a5bb6a7b00f9ded347225c6496ea31f927dcf5ebbdc99c1782",
+          "date": "2026-11-06",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 200,
+            "WAITING_FOR_BREAKOUT": 24,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "7823be93a73af992cce251f1847de74a5bcbf3affe046518d64066e02d60c619",
+          "sessionInputDigest": "8ea8e93de9ff02bd5148ed2711a5d90a5191e4ca55a9ab55828160324b04d459",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 207,
+            "WAIT": 33
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793953680"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "7fccacc0896086a5bb6a7b00f9ded347225c6496ea31f927dcf5ebbdc99c1782",
+          "date": "2026-11-09",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 215,
+            "WAITING_FOR_BREAKOUT": 9,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "e97c0d4e804664733815760ceda59bdeaf3fe119e754cfc07da6cd22b5ddc72b",
+          "sessionInputDigest": "4f995c663479928ea1cac10b2732fda2ac58a54f298eeebb2be854029307524a",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 222,
+            "WAIT": 18
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794211980"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "7fccacc0896086a5bb6a7b00f9ded347225c6496ea31f927dcf5ebbdc99c1782",
+          "date": "2026-11-10",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 8,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 186,
+            "WAITING_FOR_BREAKOUT": 38,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 3
+          },
+          "reportDigest": "6daba90fa5f1c5c39e2ea5be109ed8190b42c403dbc686253e952bd9ac5d6dbc",
+          "sessionInputDigest": "469647b561fb212f98cf75280fe3b9aedccb3323e6b8dde4d88c9162583b7f3c",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 187,
+            "WAIT": 53
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794300120"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1794300300"
+          ]
+        },
+        {
+          "configurationDigest": "7fccacc0896086a5bb6a7b00f9ded347225c6496ea31f927dcf5ebbdc99c1782",
+          "date": "2026-11-11",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 6,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 212,
+            "WAITING_FOR_BREAKOUT": 12,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "411ce3db4dc6daf361d83331d5863ed609c1c3d68492e165aec27c0b8814fadc",
+          "sessionInputDigest": "e8dadaa5e4b0dc38630170d4407a34de6b7a77cf224b37c8cbfd7aa31f13d529",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 219,
+            "WAIT": 21
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794384960"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        }
+      ],
+      "variant": "retestTolerancePips=3.0"
+    },
+    {
+      "configuration": {
+        "atrLookbackBars": 14,
+        "atrMethod": "SIMPLE_MEAN_TRUE_RANGE_V1",
+        "cooldownSeconds": 0.0,
+        "maximumQuoteAgeSeconds": 3.0,
+        "maximumRangePips": 20.0,
+        "maximumRetestBars": 3,
+        "maximumSetupAgeSeconds": 600.0,
+        "maximumSpreadPips": 4.5,
+        "minimumBreakoutPips": 5.0,
+        "minimumRangePips": 5.0,
+        "pipSize": 0.01,
+        "rangeDurationSeconds": 300,
+        "retestTolerancePips": 2.0,
+        "stopBufferATRMultiple": 0.2,
+        "targetRMultiple": 1.5,
+        "version": "GBPJPY_LONDON_PRACTICE_OBSERVATION_PROVISIONAL_0.1.0"
+      },
+      "configurationDigest": "949879c19449ee269613f8d7868cae1e7be730245d746b1c6d28e4d0017ce960",
+      "overrides": {
+        "maximumRetestBars": 3
+      },
+      "sessions": [
+        {
+          "configurationDigest": "949879c19449ee269613f8d7868cae1e7be730245d746b1c6d28e4d0017ce960",
+          "date": "2026-11-02",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 9,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 216,
+            "WAITING_FOR_BREAKOUT": 8,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 2
+          },
+          "reportDigest": "97414fe0542043b15adee2920c361e195315d62411982d30a63ed4f080e81bc5",
+          "sessionInputDigest": "e000fc3739465f0b3285eed5b5ffc9eea963ec8730ac6a94fb49e853c4b80e41",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 217,
+            "WAIT": 23
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793607120"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793607240"
+          ]
+        },
+        {
+          "configurationDigest": "949879c19449ee269613f8d7868cae1e7be730245d746b1c6d28e4d0017ce960",
+          "date": "2026-11-03",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 10,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 222,
+            "WAITING_FOR_BREAKOUT": 2,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 1
+          },
+          "reportDigest": "0bc7991c6441a3de9771876ffdaf3873f48a5ce85748a4bad76b19b881a46f7c",
+          "sessionInputDigest": "5f135cd775ece60040fa0183f58c2c2ba5dbfac39a24edd01b2a66c3c8dacda4",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 223,
+            "WAIT": 17
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793693160"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793693220"
+          ]
+        },
+        {
+          "configurationDigest": "949879c19449ee269613f8d7868cae1e7be730245d746b1c6d28e4d0017ce960",
+          "date": "2026-11-04",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 9,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 207,
+            "WAITING_FOR_BREAKOUT": 17,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 2
+          },
+          "reportDigest": "e4695b606f0e6e4cb09f88c8996c2ef69060c56dfb2f6c09e1ee6840c52c959b",
+          "sessionInputDigest": "6e50a203562b21cb1b2d679edd81ccc46c47c2210f3c930ede046287ce9884d3",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 208,
+            "WAIT": 32
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793780460"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793780580"
+          ]
+        },
+        {
+          "configurationDigest": "949879c19449ee269613f8d7868cae1e7be730245d746b1c6d28e4d0017ce960",
+          "date": "2026-11-05",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 8,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 219,
+            "WAITING_FOR_BREAKOUT": 5,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 3
+          },
+          "reportDigest": "dc8c671c83386a163f2102bb0028ded5354da19d752cc7772a36134033df8dd7",
+          "sessionInputDigest": "f1f3dac9f7777488d7e96d4fa9882a9dc9c00dceb39fa3b66d64515b30d46386",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 228,
+            "WAIT": 12
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793866140"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "949879c19449ee269613f8d7868cae1e7be730245d746b1c6d28e4d0017ce960",
+          "date": "2026-11-06",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 8,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 200,
+            "WAITING_FOR_BREAKOUT": 24,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 3
+          },
+          "reportDigest": "c633b9d475abc3fd35b884029ce5ab6a359e16589116d9401b2cbde868861ab6",
+          "sessionInputDigest": "22b8c53f82d17e54b2ae6a82ce160072d0e3116de32b6342804da493d3ed401e",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 209,
+            "WAIT": 31
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793953680"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "949879c19449ee269613f8d7868cae1e7be730245d746b1c6d28e4d0017ce960",
+          "date": "2026-11-09",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 8,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 215,
+            "WAITING_FOR_BREAKOUT": 9,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 3
+          },
+          "reportDigest": "f59971248b62c529cf2894f99619fa711214c9e24b9262977074242fcad36900",
+          "sessionInputDigest": "818247662d1c906a66c9d73fa20908338ca72a8a6f51d41caaf3491104f4d1c1",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 224,
+            "WAIT": 16
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794211980"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "949879c19449ee269613f8d7868cae1e7be730245d746b1c6d28e4d0017ce960",
+          "date": "2026-11-10",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 8,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 186,
+            "WAITING_FOR_BREAKOUT": 38,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 3
+          },
+          "reportDigest": "ce2483209059ec9b952ee611f2a76b69f67282cfb1cd9fd6092519f78bf360e2",
+          "sessionInputDigest": "f05bd840d402847393a799ddeac248ca20de4b712f9a3cf2c7d7fb8001d30ecc",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 195,
+            "WAIT": 45
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794300120"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "949879c19449ee269613f8d7868cae1e7be730245d746b1c6d28e4d0017ce960",
+          "date": "2026-11-11",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 8,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 212,
+            "WAITING_FOR_BREAKOUT": 12,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 3
+          },
+          "reportDigest": "de6a21fa65dbb316b05aa58d023957547f1af46b40896097ae376d33ed0e46f3",
+          "sessionInputDigest": "dccac5dc487f3b15e5f64147e6428d17cc46713ebd6cbead183c813b1b04c5be",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 221,
+            "WAIT": 19
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794384960"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        }
+      ],
+      "variant": "maximumRetestBars=3"
+    },
+    {
+      "configuration": {
+        "atrLookbackBars": 14,
+        "atrMethod": "SIMPLE_MEAN_TRUE_RANGE_V1",
+        "cooldownSeconds": 0.0,
+        "maximumQuoteAgeSeconds": 3.0,
+        "maximumRangePips": 20.0,
+        "maximumRetestBars": 8,
+        "maximumSetupAgeSeconds": 600.0,
+        "maximumSpreadPips": 4.5,
+        "minimumBreakoutPips": 5.0,
+        "minimumRangePips": 5.0,
+        "pipSize": 0.01,
+        "rangeDurationSeconds": 300,
+        "retestTolerancePips": 2.0,
+        "stopBufferATRMultiple": 0.2,
+        "targetRMultiple": 1.5,
+        "version": "GBPJPY_LONDON_PRACTICE_OBSERVATION_PROVISIONAL_0.1.0"
+      },
+      "configurationDigest": "e80fb1adb6f06a674f1b4522a4d681cc9424c54583908c7af7a923576ca7aa9f",
+      "overrides": {
+        "maximumRetestBars": 8
+      },
+      "sessions": [
+        {
+          "configurationDigest": "e80fb1adb6f06a674f1b4522a4d681cc9424c54583908c7af7a923576ca7aa9f",
+          "date": "2026-11-02",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 9,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 216,
+            "WAITING_FOR_BREAKOUT": 8,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 2
+          },
+          "reportDigest": "656f271d09626f685365d2f6bea218817599c57bed51300fef4e8148f17f5711",
+          "sessionInputDigest": "c4e62780b6c8cf10b7f1fc5fd5e3868c84485c2198891bc26f2d442457d2bbc7",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 217,
+            "WAIT": 23
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793607120"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793607240"
+          ]
+        },
+        {
+          "configurationDigest": "e80fb1adb6f06a674f1b4522a4d681cc9424c54583908c7af7a923576ca7aa9f",
+          "date": "2026-11-03",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 10,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 222,
+            "WAITING_FOR_BREAKOUT": 2,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 1
+          },
+          "reportDigest": "bcb2c6df22d7ae207630db811438b7e1658091f6e8a0e44004096774c21471d4",
+          "sessionInputDigest": "4a8dcd33e04a0c256bd13b7a98d8f36de5a63f5a46621ef9ff941b71c18c7836",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 223,
+            "WAIT": 17
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793693160"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793693220"
+          ]
+        },
+        {
+          "configurationDigest": "e80fb1adb6f06a674f1b4522a4d681cc9424c54583908c7af7a923576ca7aa9f",
+          "date": "2026-11-04",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 9,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 207,
+            "WAITING_FOR_BREAKOUT": 17,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 2
+          },
+          "reportDigest": "72ed28fd362ad9af2be2682d50973c6d22108c62675be76fe36c7d021ccaee97",
+          "sessionInputDigest": "2d2c0f86eb501d3158929776ac966667a6748b4fd14ed3f0f48037d073b635f6",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 208,
+            "WAIT": 32
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793780460"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793780580"
+          ]
+        },
+        {
+          "configurationDigest": "e80fb1adb6f06a674f1b4522a4d681cc9424c54583908c7af7a923576ca7aa9f",
+          "date": "2026-11-05",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 7,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 219,
+            "WAITING_FOR_BREAKOUT": 5,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 4
+          },
+          "reportDigest": "d937a1e594da71e56f84bff3f2e2a0f488f6e03f1913930fbf758e30f4827aa5",
+          "sessionInputDigest": "cb114e2acffa544d1879f29fea83be5f869e2409b5fe7a14b8d65d049dbda47a",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 220,
+            "WAIT": 20
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793866140"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793866380"
+          ]
+        },
+        {
+          "configurationDigest": "e80fb1adb6f06a674f1b4522a4d681cc9424c54583908c7af7a923576ca7aa9f",
+          "date": "2026-11-06",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 3,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 200,
+            "WAITING_FOR_BREAKOUT": 24,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 8
+          },
+          "reportDigest": "3a2c58cf5c292d4c8381c6e0a5cd0aed2a6db656b2755d43463fc79bed538ca0",
+          "sessionInputDigest": "2144804bd1acc53e6d7be0ed919c599b489d530c402cd8356337de789200ebf3",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 204,
+            "WAIT": 36
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793953680"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "e80fb1adb6f06a674f1b4522a4d681cc9424c54583908c7af7a923576ca7aa9f",
+          "date": "2026-11-09",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 3,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 215,
+            "WAITING_FOR_BREAKOUT": 9,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 8
+          },
+          "reportDigest": "e6969b631e01a5a2e0fc2f2ce54d5dc0893f7f26ab8d548c5ceba8f6efcd520d",
+          "sessionInputDigest": "ab8345c621ae069c8e8851276a417e4ee99fb7b94c6da61f1376472639b53239",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 219,
+            "WAIT": 21
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794211980"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "e80fb1adb6f06a674f1b4522a4d681cc9424c54583908c7af7a923576ca7aa9f",
+          "date": "2026-11-10",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 7,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 186,
+            "WAITING_FOR_BREAKOUT": 38,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 4
+          },
+          "reportDigest": "845962cec8e70a751bc8f0043dc3d25cb16262e67bbd8862da62d1674218d93b",
+          "sessionInputDigest": "dcaf3aa422fcaffc7fcf33182493db553137e31ae9000e52336b01afaeefc650",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 187,
+            "WAIT": 53
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794300120"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1794300360"
+          ]
+        },
+        {
+          "configurationDigest": "e80fb1adb6f06a674f1b4522a4d681cc9424c54583908c7af7a923576ca7aa9f",
+          "date": "2026-11-11",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 3,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 212,
+            "WAITING_FOR_BREAKOUT": 12,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 8
+          },
+          "reportDigest": "beca6b23ff0e9050557669ffaedacb97993741bba255d15534515c33521f535f",
+          "sessionInputDigest": "1ad5775876ff46133a18f9ff0be8a7b09147323dcc0c55a2566cf267ff3541c1",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 216,
+            "WAIT": 24
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794384960"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        }
+      ],
+      "variant": "maximumRetestBars=8"
+    },
+    {
+      "configuration": {
+        "atrLookbackBars": 14,
+        "atrMethod": "SIMPLE_MEAN_TRUE_RANGE_V1",
+        "cooldownSeconds": 0.0,
+        "maximumQuoteAgeSeconds": 3.0,
+        "maximumRangePips": 20.0,
+        "maximumRetestBars": 5,
+        "maximumSetupAgeSeconds": 300.0,
+        "maximumSpreadPips": 4.5,
+        "minimumBreakoutPips": 5.0,
+        "minimumRangePips": 5.0,
+        "pipSize": 0.01,
+        "rangeDurationSeconds": 300,
+        "retestTolerancePips": 2.0,
+        "stopBufferATRMultiple": 0.2,
+        "targetRMultiple": 1.5,
+        "version": "GBPJPY_LONDON_PRACTICE_OBSERVATION_PROVISIONAL_0.1.0"
+      },
+      "configurationDigest": "049216a32843275313b7c63723cbac4e28c5259c1ffc58ea5b5660433bbfec50",
+      "overrides": {
+        "maximumSetupAgeSeconds": 300.0
+      },
+      "sessions": [
+        {
+          "configurationDigest": "049216a32843275313b7c63723cbac4e28c5259c1ffc58ea5b5660433bbfec50",
+          "date": "2026-11-02",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 4,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 221,
+            "WAITING_FOR_BREAKOUT": 8,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 2
+          },
+          "reportDigest": "37d0a788486ce1dfeb9ccb1d92262f829e7f0a9c20444fe261f2c087728a8dbf",
+          "sessionInputDigest": "6f6da44da4233647343373a7df93dd88a97ffa471b3e178960972eb140b5ebb5",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 222,
+            "WAIT": 18
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793607120"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793607240"
+          ]
+        },
+        {
+          "configurationDigest": "049216a32843275313b7c63723cbac4e28c5259c1ffc58ea5b5660433bbfec50",
+          "date": "2026-11-03",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 5,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 227,
+            "WAITING_FOR_BREAKOUT": 2,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 1
+          },
+          "reportDigest": "16e0043f4ceefc8e8db6aa78be59a83c85970d9a00111694148c5da01e08f6c4",
+          "sessionInputDigest": "acc80d5d17072f77b1115b5c43cfedb184ca19296df86c1f18350119984515af",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 228,
+            "WAIT": 12
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793693160"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793693220"
+          ]
+        },
+        {
+          "configurationDigest": "049216a32843275313b7c63723cbac4e28c5259c1ffc58ea5b5660433bbfec50",
+          "date": "2026-11-04",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 4,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 212,
+            "WAITING_FOR_BREAKOUT": 17,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 2
+          },
+          "reportDigest": "dd83a0c8ea249b2b1f8deeaeec937721f6495703520321f2da509df90adcbbc1",
+          "sessionInputDigest": "95e10485fa7d92709d8ef273c6a2953ca12b5693dc233c26ec1a5411fd75a13d",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 213,
+            "WAIT": 27
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793780460"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793780580"
+          ]
+        },
+        {
+          "configurationDigest": "049216a32843275313b7c63723cbac4e28c5259c1ffc58ea5b5660433bbfec50",
+          "date": "2026-11-05",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 2,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 224,
+            "WAITING_FOR_BREAKOUT": 5,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 4
+          },
+          "reportDigest": "4f7ba9deb6ba4564438a3ce006bfedd46d68aef723cd5836b727874cfb4923cf",
+          "sessionInputDigest": "d6aa5ee0dbf706bdbb6be0ec068ca41081948f2b79a8857d2e23ad54fa8337a2",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 225,
+            "WAIT": 15
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793866140"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793866380"
+          ]
+        },
+        {
+          "configurationDigest": "049216a32843275313b7c63723cbac4e28c5259c1ffc58ea5b5660433bbfec50",
+          "date": "2026-11-06",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 1,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 205,
+            "WAITING_FOR_BREAKOUT": 24,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "86f2d133fa8a8292348269921993ed64c9d6e2cf0c0e5bf385bf3a85aadaeb17",
+          "sessionInputDigest": "c3612f0ed7b7a5d16d8cdd9ba0831e4c764f939a1fed04b29342ba54c9b36f2f",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 207,
+            "WAIT": 33
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793953680"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "049216a32843275313b7c63723cbac4e28c5259c1ffc58ea5b5660433bbfec50",
+          "date": "2026-11-09",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 1,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 220,
+            "WAITING_FOR_BREAKOUT": 9,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "7f38d3b3193cac415d6996698ffef3cf9a7409b9bd711fc7c413e6b3fff84658",
+          "sessionInputDigest": "f0397a0786606faaeb00ff84a3c0ad174356ddf233edd9d2873d78bd0372c026",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 222,
+            "WAIT": 18
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794211980"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "049216a32843275313b7c63723cbac4e28c5259c1ffc58ea5b5660433bbfec50",
+          "date": "2026-11-10",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 2,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 191,
+            "WAITING_FOR_BREAKOUT": 38,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 4
+          },
+          "reportDigest": "d3220884e9cab456b847133041c74de3a92a19b81a7f2580317e991185d77ed1",
+          "sessionInputDigest": "07dd00807e0b00f8ce93fadb7e7eaabd7a0e93ce56a9ff6ab52f505dcbd418b5",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 192,
+            "WAIT": 48
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794300120"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1794300360"
+          ]
+        },
+        {
+          "configurationDigest": "049216a32843275313b7c63723cbac4e28c5259c1ffc58ea5b5660433bbfec50",
+          "date": "2026-11-11",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 1,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 217,
+            "WAITING_FOR_BREAKOUT": 12,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "25264e7864c0e4eeb4d475e9069fc8f2d5c8f9d5b1ffcd6e32fc469beff25ae0",
+          "sessionInputDigest": "ad01224273c3643490bf8736e8ad00635230471f50dac489d6a11a98fcabe472",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 219,
+            "WAIT": 21
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794384960"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        }
+      ],
+      "variant": "maximumSetupAgeSeconds=300.0"
+    },
+    {
+      "configuration": {
+        "atrLookbackBars": 14,
+        "atrMethod": "SIMPLE_MEAN_TRUE_RANGE_V1",
+        "cooldownSeconds": 0.0,
+        "maximumQuoteAgeSeconds": 3.0,
+        "maximumRangePips": 20.0,
+        "maximumRetestBars": 5,
+        "maximumSetupAgeSeconds": 900.0,
+        "maximumSpreadPips": 4.5,
+        "minimumBreakoutPips": 5.0,
+        "minimumRangePips": 5.0,
+        "pipSize": 0.01,
+        "rangeDurationSeconds": 300,
+        "retestTolerancePips": 2.0,
+        "stopBufferATRMultiple": 0.2,
+        "targetRMultiple": 1.5,
+        "version": "GBPJPY_LONDON_PRACTICE_OBSERVATION_PROVISIONAL_0.1.0"
+      },
+      "configurationDigest": "8d2cabc211a49abcdc7840ee70087a6a454e9a9e29a69a5f9d630aef8329278e",
+      "overrides": {
+        "maximumSetupAgeSeconds": 900.0
+      },
+      "sessions": [
+        {
+          "configurationDigest": "8d2cabc211a49abcdc7840ee70087a6a454e9a9e29a69a5f9d630aef8329278e",
+          "date": "2026-11-02",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 14,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 211,
+            "WAITING_FOR_BREAKOUT": 8,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 2
+          },
+          "reportDigest": "c4afc3de4d86e44fcfd67c334391055c0c9f548b9876f54fc0c0d03bba6f0adc",
+          "sessionInputDigest": "6542137acce8ee387c1b17099f757e18ac23ac4bf252e926ac025ae14b7f5025",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 212,
+            "WAIT": 28
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793607120"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793607240"
+          ]
+        },
+        {
+          "configurationDigest": "8d2cabc211a49abcdc7840ee70087a6a454e9a9e29a69a5f9d630aef8329278e",
+          "date": "2026-11-03",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 15,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 217,
+            "WAITING_FOR_BREAKOUT": 2,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 1
+          },
+          "reportDigest": "1f3b9ecb5839d581f8c9e0b7971b127ca6bddafc3705da4e08db237b6365f1f4",
+          "sessionInputDigest": "a80ed598cde124f5f4f86c5d24c3e18c44e7749aab474f58ba999d1e2f9af477",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 218,
+            "WAIT": 22
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793693160"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793693220"
+          ]
+        },
+        {
+          "configurationDigest": "8d2cabc211a49abcdc7840ee70087a6a454e9a9e29a69a5f9d630aef8329278e",
+          "date": "2026-11-04",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 14,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 202,
+            "WAITING_FOR_BREAKOUT": 17,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 2
+          },
+          "reportDigest": "ab1e6baa323ec3e7f691f3f9c74b94829e8574eeb86d03f41ee5533a9990cdfd",
+          "sessionInputDigest": "596ad7824ac3ca638d227f81cc5ab2d5b76e9e51c21502c69d67aa3874c4264e",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 203,
+            "WAIT": 37
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793780460"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793780580"
+          ]
+        },
+        {
+          "configurationDigest": "8d2cabc211a49abcdc7840ee70087a6a454e9a9e29a69a5f9d630aef8329278e",
+          "date": "2026-11-05",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 12,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 214,
+            "WAITING_FOR_BREAKOUT": 5,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 4
+          },
+          "reportDigest": "1728084ef28f7aaa17e1408d722e7d89a7d7c42f416d2c4acc399aa71c59bc5a",
+          "sessionInputDigest": "cbace2fa8b577b559c76ae62c74aea193bd4fda128549fe361b975ec452fc71a",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 215,
+            "WAIT": 25
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793866140"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1793866380"
+          ]
+        },
+        {
+          "configurationDigest": "8d2cabc211a49abcdc7840ee70087a6a454e9a9e29a69a5f9d630aef8329278e",
+          "date": "2026-11-06",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 11,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 195,
+            "WAITING_FOR_BREAKOUT": 24,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "280c879d0bb0313957d30ab72f767c022b9af038d51638884b4ee04f3d2cd841",
+          "sessionInputDigest": "bd6f848c17ee787754934a59be104e42d18c5d5d1822dd3a00cf3b16ffc3c399",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 207,
+            "WAIT": 33
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1793953680"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "8d2cabc211a49abcdc7840ee70087a6a454e9a9e29a69a5f9d630aef8329278e",
+          "date": "2026-11-09",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 11,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 210,
+            "WAITING_FOR_BREAKOUT": 9,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "6f48ea82fa045c98cb4e437aeb2e9fe69e6a10a43fb81a2ab1c94eacea2aa253",
+          "sessionInputDigest": "44245870cf4f571ece7cd6d1e8cb3d09be64a21a9f29499d58d20a03e92deec3",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 222,
+            "WAIT": 18
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794211980"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        },
+        {
+          "configurationDigest": "8d2cabc211a49abcdc7840ee70087a6a454e9a9e29a69a5f9d630aef8329278e",
+          "date": "2026-11-10",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "QUOTE_MISSING": 12,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 181,
+            "WAITING_FOR_BREAKOUT": 38,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 4
+          },
+          "reportDigest": "661fe0fbc2c7b8b3c6af4d91c4261e9d51ae26130c04d24fec477c46cf5094d2",
+          "sessionInputDigest": "5f981c7ef359f3f3e718582ef6d5259c2ca7a896c52f8b2ac772c3c054438e7e",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 182,
+            "WAIT": 58
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794300120"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": [
+            "GBPJPY-M1-1794300360"
+          ]
+        },
+        {
+          "configurationDigest": "8d2cabc211a49abcdc7840ee70087a6a454e9a9e29a69a5f9d630aef8329278e",
+          "date": "2026-11-11",
+          "decisionCount": 240,
+          "distinctCandles": 240,
+          "interpretation": "CANDLE_ONLY_SETUP_EVIDENCE_NOT_QUOTE_FRESH_ACTIONABLE_ENTRY",
+          "reasonCounts": {
+            "RETEST_EXPIRED": 11,
+            "SESSION_CLOSED": 1,
+            "SETUP_TOO_OLD": 207,
+            "WAITING_FOR_BREAKOUT": 12,
+            "WAITING_FOR_RANGE": 4,
+            "WAITING_FOR_RETEST": 5
+          },
+          "reportDigest": "90cfb5606f5570c01cbe7e5372965dc5a41135a8ec83cbb283ec0f2e5ec6d025",
+          "sessionInputDigest": "250b2d0fb73b22fb8fa9213c036a8cc8fa22dabc2809457d03e9921b44c7f212",
+          "signalDecisionCount": 0,
+          "stateCounts": {
+            "EXPIRED": 219,
+            "WAIT": 21
+          },
+          "uniqueBreakoutBarIDs": [
+            "GBPJPY-M1-1794384960"
+          ],
+          "uniqueQuoteMissingRetestBarIDs": []
+        }
+      ],
+      "variant": "maximumSetupAgeSeconds=900.0"
+    }
+  ]
+}

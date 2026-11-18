@@ -37,13 +37,19 @@ public enum AdaptiveOpportunitySelector {
                 id: candidate.id, strategyID: candidate.strategyID, strategyVersion: candidate.strategyVersion,
                 instrument: candidate.instrument, provider: candidate.provider, direction: candidate.direction,
                 regime: candidate.regime, session: candidate.session, observedAt: candidate.observedAt,
+                validUntil: candidate.validUntil,
                 evaluationStartedAt: candidate.evaluationStartedAt, evaluationCompletedAt: candidate.evaluationCompletedAt,
                 state: candidate.state == .unavailable ? .unavailable :
                     (reasons.isEmpty ? .eligible : .rejected), rejectionReasons: reasons,
-                entryReference: candidate.entryReference, plan: candidate.plan,
+                entryReference: candidate.entryReference, stopReference: candidate.stopReference,
+                targetReference: candidate.targetReference, plan: candidate.plan,
                 horizonsSeconds: candidate.horizonsSeconds, evidenceReferences: candidate.evidenceReferences,
                 provenance: candidate.provenance, freshness: candidate.freshness, spread: candidate.spread,
-                spreadState: candidate.spreadState, rankingScore: candidate.rankingScore)
+                spreadState: candidate.spreadState, rankingScore: candidate.rankingScore,
+                effectiveConfigurationSHA256: candidate.effectiveConfigurationSHA256,
+                evaluatorCodeSHA256: candidate.evaluatorCodeSHA256,
+                adapterCodeSHA256: candidate.adapterCodeSHA256,
+                selectorCodeSHA256: candidate.selectorCodeSHA256)
         }
         let eligible = reviewed.filter { $0.state == .eligible }
             .sorted { lhs, rhs in
