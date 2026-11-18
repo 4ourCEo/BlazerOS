@@ -1,7 +1,7 @@
 import Foundation
 import BlazerCore
 
-public enum MacResearchSignalEnvironment: String, Sendable, Equatable {
+public enum MacResearchSignalEnvironment: String, Codable, Sendable, Equatable {
     case practice = "PRACTICE"
     case live = "LIVE"
     case replay = "REPLAY"
@@ -31,14 +31,14 @@ public enum MacResearchSignalSource: Sendable, Equatable {
     }
 }
 
-public enum MacResearchSignalStage: String, Sendable, Equatable {
+public enum MacResearchSignalStage: String, Codable, Sendable, Equatable {
     case forming = "FORMING"
     case confirmed = "CONFIRMED"
     case actionable = "ACTIONABLE"
 }
 
 /// A validated research plan preview. It has no submission or approval authority.
-public struct MacResearchPlanPreview: Sendable, Equatable {
+public struct MacResearchPlanPreview: Codable, Sendable, Equatable {
     public let entryPrice: Double
     public let stopPrice: Double
     public let targetPrice: Double
@@ -64,7 +64,7 @@ public struct MacResearchPlanPreview: Sendable, Equatable {
 
 /// A research observation that can be shown to the user. Any attached plan is a
 /// preview only; risk approval and manual Practice execution are separate checks.
-public struct MacResearchSignal: Sendable, Equatable, Identifiable {
+public struct MacResearchSignal: Codable, Sendable, Equatable, Identifiable {
     public let id: String
     public let profileID: String
     public let strategyID: String
@@ -243,7 +243,7 @@ public enum MacResearchSignalProjector {
 }
 
 #if os(macOS)
-public enum MacResearchEvaluatorFamily: String, CaseIterable, Sendable, Equatable, Identifiable {
+public enum MacResearchEvaluatorFamily: String, CaseIterable, Codable, Sendable, Equatable, Identifiable {
     case orb = "ORB"
     case candidate001 = "Candidate001"
     case candidate002 = "Candidate002"
@@ -269,8 +269,8 @@ public enum MacResearchEvaluatorFamily: String, CaseIterable, Sendable, Equatabl
 
 /// Safe, source-bound summary of one connected evaluator's latest scan result.
 /// It deliberately contains no direction, prices, plan, record IDs, or raw errors.
-public struct MacResearchEvaluationDiagnostic: Sendable, Equatable, Identifiable {
-    public enum State: Sendable, Equatable {
+public struct MacResearchEvaluationDiagnostic: Codable, Sendable, Equatable, Identifiable {
+    public enum State: Codable, Sendable, Equatable {
         case completedNoCandidate
         case candidateShown
         case candidateWithheld
